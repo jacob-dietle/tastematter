@@ -4,6 +4,7 @@
   import LoadingSpinner from '$lib/components/LoadingSpinner.svelte';
   import ErrorDisplay from '$lib/components/ErrorDisplay.svelte';
   import QueryResults from '$lib/components/QueryResults.svelte';
+  import GitPanel from '$lib/components/GitPanel.svelte';
 
   const query = createQueryStore();
 
@@ -26,27 +27,33 @@
     <TimeSelector selected={selectedTime} onchange={handleTimeChange} />
   </header>
 
-  <section class="content">
-    {#if query.loading}
-      <div class="loading-container">
-        <LoadingSpinner />
-      </div>
-    {:else if query.error}
-      <ErrorDisplay
-        error={query.error}
-        onretry={() => handleTimeChange(selectedTime)}
-      />
-    {:else if query.data}
-      <QueryResults data={query.data} />
-    {:else}
-      <p class="empty">No data yet. Select a time range.</p>
-    {/if}
-  </section>
+  <div class="layout">
+    <section class="content">
+      {#if query.loading}
+        <div class="loading-container">
+          <LoadingSpinner />
+        </div>
+      {:else if query.error}
+        <ErrorDisplay
+          error={query.error}
+          onretry={() => handleTimeChange(selectedTime)}
+        />
+      {:else if query.data}
+        <QueryResults data={query.data} />
+      {:else}
+        <p class="empty">No data yet. Select a time range.</p>
+      {/if}
+    </section>
+
+    <aside class="sidebar">
+      <GitPanel />
+    </aside>
+  </div>
 </main>
 
 <style>
   main {
-    max-width: 1200px;
+    max-width: 1400px;
     margin: 0 auto;
     padding: 2rem;
     font-family: system-ui, -apple-system, sans-serif;
@@ -67,8 +74,20 @@
     color: #1a1a2e;
   }
 
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 2rem;
+  }
+
   .content {
     min-height: 400px;
+  }
+
+  .sidebar {
+    position: sticky;
+    top: 2rem;
+    height: fit-content;
   }
 
   .loading-container {
@@ -81,5 +100,15 @@
     text-align: center;
     color: #666;
     padding: 4rem 0;
+  }
+
+  @media (max-width: 900px) {
+    .layout {
+      grid-template-columns: 1fr;
+    }
+
+    .sidebar {
+      order: -1;
+    }
   }
 </style>

@@ -66,3 +66,31 @@ export interface HeatMapRowProps {
   isDirectory: boolean;
   onclick?: () => void;
 }
+
+// Phase 3: Git Panel types
+
+export interface GitStatus {
+  branch: string;
+  ahead: number;              // Commits ahead of remote
+  behind: number;             // Commits behind remote
+  staged: string[];           // Staged file paths
+  modified: string[];         // Unstaged modifications
+  untracked: string[];        // Untracked files
+  has_conflicts: boolean;
+}
+
+export interface GitOpResult {
+  success: boolean;
+  message: string;            // Human-readable result
+  error?: string;             // Error details if failed
+  files_affected?: number;
+}
+
+export interface GitState {
+  loading: boolean;
+  data: GitStatus | null;
+  error: CommandError | null;
+  isPulling: boolean;
+  isPushing: boolean;
+  lastOperation: GitOpResult | null;
+}
