@@ -43,3 +43,26 @@ export interface QueryState {
   error: CommandError | null;
   lastQuery: QueryFlexArgs | null;
 }
+
+// Phase 2: Heat Map View types
+
+export type ViewMode = 'table' | 'heatmap';
+export type Granularity = 'file' | 'directory';
+
+export interface DirectoryResult {
+  directory_path: string;
+  file_count: number;
+  total_access_count: number;
+  max_access_count: number;
+  last_access: string | null;
+  files: FileResult[];
+}
+
+export interface HeatMapRowProps {
+  label: string;
+  accessCount: number;
+  maxAccessCount: number;
+  lastAccess: string | null;
+  isDirectory: boolean;
+  onclick?: () => void;
+}

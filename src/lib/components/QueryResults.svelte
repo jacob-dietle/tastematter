@@ -1,82 +1,56 @@
 <script lang="ts">
-  import type { QueryResult } from '$lib/types';
+  import type { QueryResult, ViewMode, Granularity } from '$lib/types';
+  import ViewModeToggle from './ViewModeToggle.svelte';
+  import GranularityToggle from './GranularityToggle.svelte';
+  import TableView from './TableView.svelte';
+  import HeatMap from './HeatMap.svelte';
 
   interface Props {
     data: QueryResult;
   }
 
   let { data }: Props = $props();
+
+  let viewMode = $state<ViewMode>('heatmap');
+  let granularity = $state<Granularity>('directory');
 </script>
 
-<div class="results">
+<div class="query-results" data-testid="query-results">
+  <div class="controls">
+    <ViewModeToggle bind:mode={viewMode} />
+    {#if viewMode === 'heatmap'}
+      <GranularityToggle bind:granularity />
+    {/if}
+  </div>
+
   <p class="count" data-testid="result-count">
     {data.result_count} files
   </p>
 
-  <table data-testid="results-table">
-    <thead>
-      <tr>
-        <th>File</th>
-        <th>Accesses</th>
-        <th>Last Access</th>
-      </tr>
-    </thead>
-    <tbody>
-      {#each data.results as result}
-        <tr>
-          <td class="file-path">{result.file_path}</td>
-          <td class="access-count">{result.access_count}</td>
-          <td class="last-access">{result.last_access ?? 'Never'}</td>
-        </tr>
-      {/each}
-    </tbody>
-  </table>
+  {#if viewMode === 'table'}
+    <TableView results={data.results} />
+  {:else}
+    <HeatMap results={data.results} {granularity} />
+  {/if}
 </div>
 
 <style>
-  .results {
+  .query-results {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
     width: 100%;
+  }
+
+  .controls {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
   }
 
   .count {
     font-size: 0.875rem;
     color: #666;
-    margin-bottom: 1rem;
-  }
-
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.875rem;
-  }
-
-  th, td {
-    padding: 0.75rem;
-    text-align: left;
-    border-bottom: 1px solid #eee;
-  }
-
-  th {
-    font-weight: 600;
-    color: #333;
-    background: #f9f9f9;
-  }
-
-  .file-path {
-    font-family: monospace;
-    font-size: 0.8125rem;
-  }
-
-  .access-count {
-    text-align: center;
-    font-weight: 500;
-  }
-
-  .last-access {
-    color: #666;
-  }
-
-  tr:hover {
-    background: #f5f5f5;
+    margin: 0;
   }
 </style>
