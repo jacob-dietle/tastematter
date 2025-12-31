@@ -26,10 +26,10 @@
 <style>
   .error {
     padding: 1rem;
-    background: #fff5f5;
-    border: 1px solid #feb2b2;
+    background: var(--bg-error);
+    border: 1px solid var(--border-error);
     border-radius: 8px;
-    color: #c53030;
+    color: var(--border-error);
   }
 
   h3 {
@@ -48,15 +48,16 @@
   pre {
     font-size: 0.75rem;
     overflow-x: auto;
-    background: #fff;
+    background: var(--bg-secondary);
     padding: 0.5rem;
     border-radius: 4px;
+    color: var(--text-secondary);
   }
 
   button {
     margin-top: 0.5rem;
     padding: 0.5rem 1rem;
-    background: #c53030;
+    background: var(--border-error);
     color: white;
     border: none;
     border-radius: 4px;

@@ -92,7 +92,8 @@ describe('TimelineView', () => {
   test('renders legend', () => {
     render(TimelineView);
 
-    expect(screen.getByText('Less')).toBeInTheDocument();
-    expect(screen.getByText('More')).toBeInTheDocument();
+    expect(screen.getByText('Low')).toBeInTheDocument();
+    expect(screen.getByText('High')).toBeInTheDocument();
+    expect(screen.getByText('Activity:')).toBeInTheDocument();
   });
 });

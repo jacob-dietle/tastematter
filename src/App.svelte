@@ -83,13 +83,13 @@
     align-items: center;
     margin-bottom: 2rem;
     padding-bottom: 1rem;
-    border-bottom: 1px solid #eee;
+    border-bottom: 1px solid var(--border-color);
   }
 
   h1 {
     margin: 0;
     font-size: 1.5rem;
-    color: #1a1a2e;
+    color: var(--text-heading);
   }
 
   .header-controls {
@@ -105,8 +105,9 @@
 
   .view-toggle button {
     padding: 0.5rem 1rem;
-    border: 1px solid #e0e0e0;
-    background: white;
+    border: 1px solid var(--border-color);
+    background: var(--bg-card);
+    color: var(--text-primary);
     cursor: pointer;
     font-size: 0.875rem;
   }
@@ -121,9 +122,9 @@
   }
 
   .view-toggle button.active {
-    background: #1a1a2e;
-    color: white;
-    border-color: #1a1a2e;
+    background: var(--text-heading);
+    color: var(--text-inverse);
+    border-color: var(--text-heading);
   }
 
   .layout {
@@ -150,7 +151,7 @@
 
   .empty {
     text-align: center;
-    color: #666;
+    color: var(--text-muted);
     padding: 4rem 0;
   }
 

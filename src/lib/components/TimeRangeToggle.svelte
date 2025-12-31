@@ -38,20 +38,21 @@
 
   button {
     padding: 0.5rem 1rem;
-    border: 1px solid #ccc;
+    border: 1px solid var(--border-color);
     border-radius: 4px;
-    background: white;
+    background: var(--bg-card);
+    color: var(--text-primary);
     cursor: pointer;
     transition: all 0.2s;
   }
 
   button:hover {
-    background: #f5f5f5;
+    background: var(--bg-hover);
   }
 
   button.selected {
-    background: #1a1a2e;
-    color: white;
-    border-color: #1a1a2e;
+    background: var(--text-heading);
+    color: var(--text-inverse);
+    border-color: var(--text-heading);
   }
 </style>

@@ -28,7 +28,12 @@
 
 <div class="timeline-view">
   <div class="timeline-header">
-    <h3>File Activity Timeline</h3>
+    <div class="title-section">
+      <h3>File Activity</h3>
+      {#if store.data}
+        <span class="file-count">{store.data.files.length} files</span>
+      {/if}
+    </div>
     <div class="controls">
       <TimeRangeToggle
         selected={store.selectedRange}
@@ -40,7 +45,10 @@
   </div>
 
   {#if store.loading}
-    <div class="loading">Loading timeline...</div>
+    <div class="loading">
+      <div class="loading-spinner"></div>
+      <span>Loading timeline...</span>
+    </div>
   {:else if store.error}
     <div class="error">
       <p>Error loading timeline: {store.error.message}</p>
@@ -64,35 +72,58 @@
 
     {#if store.hoveredCell}
       <div class="tooltip">
-        <strong>{store.hoveredCell.file}</strong>
-        <span>{store.hoveredCell.date}</span>
+        <div class="tooltip-file">{store.hoveredCell.file}</div>
+        <div class="tooltip-meta">
+          <span class="tooltip-date">{store.hoveredCell.date}</span>
+        </div>
       </div>
     {/if}
   {:else}
-    <div class="empty">No timeline data available</div>
+    <div class="empty">
+      <div class="empty-icon">📊</div>
+      <p>No timeline data available</p>
+      <span class="empty-hint">Select a time range to view file activity</span>
+    </div>
   {/if}
 </div>
 
 <style>
   .timeline-view {
-    padding: 1rem;
-    background: white;
-    border-radius: 8px;
-    border: 1px solid #e0e0e0;
+    padding: 1.5rem;
+    background: var(--bg-card);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-color);
+    position: relative;
   }
 
   .timeline-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 1rem;
+    margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .title-section {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
   }
 
   .timeline-header h3 {
     margin: 0;
-    font-size: 1rem;
+    font-size: 1.125rem;
     font-weight: 600;
-    color: #1a1a2e;
+    color: var(--text-heading);
+  }
+
+  .file-count {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    background: var(--bg-secondary);
+    padding: 2px 8px;
+    border-radius: var(--radius-md);
   }
 
   .controls {
@@ -104,39 +135,119 @@
   .timeline-content {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 0;
   }
 
   .timeline-rows {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 0;
+    max-height: 60vh;
+    overflow-y: auto;
+    padding-right: 4px;
   }
 
-  .loading,
-  .error,
-  .empty {
-    padding: 2rem;
-    text-align: center;
-    color: #666;
+  .timeline-rows::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .timeline-rows::-webkit-scrollbar-track {
+    background: var(--bg-secondary);
+    border-radius: var(--radius-sm);
+  }
+
+  .timeline-rows::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: var(--radius-sm);
+  }
+
+  .timeline-rows::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
+  }
+
+  .loading {
+    padding: 3rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+    color: var(--text-muted);
+  }
+
+  .loading-spinner {
+    width: 24px;
+    height: 24px;
+    border: 2px solid var(--border-color);
+    border-top-color: var(--focus-ring);
+    border-radius: var(--radius-full);
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
   }
 
   .error {
-    color: #d32f2f;
+    padding: 2rem;
+    text-align: center;
+    color: var(--border-error);
+    background: var(--bg-error);
+    border-radius: var(--radius-md);
+  }
+
+  .empty {
+    padding: 3rem;
+    text-align: center;
+    color: var(--text-muted);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .empty-icon {
+    font-size: 2rem;
+    opacity: 0.5;
+  }
+
+  .empty p {
+    margin: 0;
+    font-weight: 500;
+  }
+
+  .empty-hint {
+    font-size: 0.8rem;
+    opacity: 0.7;
   }
 
   .tooltip {
     position: fixed;
-    bottom: 1rem;
+    bottom: 1.5rem;
     left: 50%;
     transform: translateX(-50%);
-    background: #1a1a2e;
-    color: white;
-    padding: 0.5rem 1rem;
-    border-radius: 4px;
+    background: var(--text-heading);
+    color: var(--text-inverse);
+    padding: 0.75rem 1.25rem;
+    border-radius: var(--radius-md);
+    font-size: 0.8rem;
+    z-index: var(--z-tooltip);
+    box-shadow: var(--shadow-lg);
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 200px;
+  }
+
+  .tooltip-file {
+    font-family: monospace;
+    font-weight: 500;
     font-size: 0.75rem;
+  }
+
+  .tooltip-meta {
     display: flex;
     gap: 1rem;
-    z-index: 100;
+    font-size: 0.7rem;
+    opacity: 0.8;
   }
 </style>

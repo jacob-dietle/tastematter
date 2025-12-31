@@ -89,6 +89,8 @@ pub async fn query_flex(
         .unwrap_or_else(|_| "C:/Users/dietl/.context-os/bin/context-os.cmd".to_string());
 
     let mut cmd = Command::new(&cli_path);
+    // Set working directory to GTM OS root (3 levels up from src-tauri)
+    cmd.current_dir("../../..");
     cmd.args(["query", "flex", "--format", "json"]);
 
     if let Some(f) = files {
@@ -436,6 +438,8 @@ pub async fn query_timeline(
         .unwrap_or_else(|_| "C:/Users/dietl/.context-os/bin/context-os.cmd".to_string());
 
     let mut cmd = Command::new(&cli_path);
+    // Set working directory to GTM OS root (3 levels up from src-tauri)
+    cmd.current_dir("../../..");
     cmd.args(["query", "flex", "--format", "json"]);
     cmd.args(["--time", &time]);
     cmd.args(["--agg", "count,recency,sessions"]);

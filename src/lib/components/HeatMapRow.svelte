@@ -1,6 +1,12 @@
 <script lang="ts">
   import { calculateIntensity } from '$lib/utils/aggregation';
 
+  // Heat map colors - keep in sync with app.css CSS variables
+  // --heat-empty, --heat-low, --heat-high
+  const HEAT_EMPTY = '#e8e4d9';  // Paper
+  const HEAT_LOW = '#8b4513';    // Sienna
+  const HEAT_HIGH = '#1a1a2e';   // Ink
+
   interface Props {
     label: string;
     accessCount: number;
@@ -21,16 +27,16 @@
 
   let intensity = $derived(calculateIntensity(accessCount, maxAccessCount));
 
-  // Color interpolation: paper (#e8e4d9) -> sienna (#8b4513) -> ink (#1a1a2e)
+  // Color interpolation: paper -> sienna -> ink
   let backgroundColor = $derived(interpolateColor(intensity));
-  let textColor = $derived(intensity > 0.5 ? '#e8e4d9' : '#1a1a2e');
+  let textColor = $derived(intensity > 0.5 ? HEAT_EMPTY : HEAT_HIGH);
 
   function interpolateColor(t: number): string {
-    // 0 = #e8e4d9 (paper), 0.5 = #8b4513 (sienna), 1 = #1a1a2e (ink)
+    // 0 = paper (empty), 0.5 = sienna (low), 1 = ink (high)
     if (t < 0.5) {
-      return lerpColor('#e8e4d9', '#8b4513', t * 2);
+      return lerpColor(HEAT_EMPTY, HEAT_LOW, t * 2);
     }
-    return lerpColor('#8b4513', '#1a1a2e', (t - 0.5) * 2);
+    return lerpColor(HEAT_LOW, HEAT_HIGH, (t - 0.5) * 2);
   }
 
   function lerpColor(a: string, b: string, t: number): string {
@@ -102,7 +108,7 @@
   }
 
   .heat-map-row.clickable:focus {
-    outline: 2px solid #4a90d9;
+    outline: 2px solid var(--focus-ring);
     outline-offset: -2px;
   }
 

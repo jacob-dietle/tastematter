@@ -20,7 +20,9 @@ describe('TimelineRow', () => {
       }
     });
 
-    expect(screen.getByText('src/lib/store.ts')).toBeInTheDocument();
+    // Now shows filename prominently and directory path below
+    expect(screen.getByText('store.ts')).toBeInTheDocument();
+    expect(screen.getByText('src/lib/')).toBeInTheDocument();
   });
 
   test('renders cells for each date', () => {

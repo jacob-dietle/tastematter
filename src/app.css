@@ -4,8 +4,81 @@
   font-weight: 400;
 
   color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
+
+  /* Dark mode (default) - Semantic text colors */
+  --text-primary: rgba(255, 255, 255, 0.87);
+  --text-secondary: rgba(255, 255, 255, 0.60);
+  --text-muted: rgba(255, 255, 255, 0.40);
+  --text-heading: #ffffff;
+  --text-inverse: #1a1a2e;
+
+  /* Dark mode backgrounds */
+  --bg-primary: #242424;
+  --bg-secondary: #1a1a1a;
+  --bg-card: #2d2d2d;
+  --bg-hover: #3d3d3d;
+  --bg-panel: #2d2d2d;
+  --bg-button: #3d3d3d;
+  --bg-button-hover: #4d4d4d;
+  --bg-active: #ffffff;
+  --border-color: #404040;
+  --focus-ring: #60a5fa;
+
+  /* Semantic status colors (same in both modes) */
+  --color-ahead: #22c55e;
+  --color-behind: #ef4444;
+  --color-synced: rgba(255, 255, 255, 0.5);
+  --bg-success: #14532d;
+  --border-success: #22c55e;
+  --bg-error: #450a0a;
+  --border-error: #ef4444;
+  --bg-warning: #422006;
+  --border-warning: #f59e0b;
+
+  /* Spacing Scale */
+  --space-1: 0.25rem;   /* 4px */
+  --space-2: 0.5rem;    /* 8px */
+  --space-3: 0.75rem;   /* 12px */
+  --space-4: 1rem;      /* 16px */
+  --space-6: 1.5rem;    /* 24px */
+  --space-8: 2rem;      /* 32px */
+
+  /* Typography Scale */
+  --font-xs: 0.75rem;   /* 12px */
+  --font-sm: 0.875rem;  /* 14px */
+  --font-md: 1rem;      /* 16px */
+  --font-lg: 1.125rem;  /* 18px */
+
+  /* Font Weights */
+  --font-regular: 400;
+  --font-medium: 500;
+  --font-semibold: 600;
+
+  /* Border Radius */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 50%;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.15);
+  --shadow-lg: 0 4px 16px rgba(0, 0, 0, 0.25);
+
+  /* Z-Index Scale */
+  --z-tooltip: 100;
+
+  /* Transitions */
+  --duration-fast: 150ms;
+  --duration-normal: 250ms;
+
+  /* Heat Map Colors */
+  --heat-empty: #e8e4d9;   /* Paper */
+  --heat-low: #8b4513;     /* Sienna */
+  --heat-high: #1a1a2e;    /* Ink */
+
+  color: var(--text-primary);
+  background-color: var(--bg-primary);
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -24,30 +97,17 @@ a:hover {
 
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
   min-width: 320px;
   min-height: 100vh;
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
-}
-
-.card {
-  padding: 2em;
-}
-
 #app {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+  width: 100%;
+  min-height: 100vh;
 }
 
 button {
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   border: 1px solid transparent;
   padding: 0.6em 1.2em;
   font-size: 1em;
@@ -55,25 +115,55 @@ button {
   font-family: inherit;
   background-color: #1a1a1a;
   cursor: pointer;
-  transition: border-color 0.25s;
+  transition: border-color var(--duration-normal);
 }
 button:hover {
   border-color: #646cff;
 }
-button:focus,
 button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 @media (prefers-color-scheme: light) {
   :root {
-    color: #213547;
-    background-color: #ffffff;
+    /* Light mode - Semantic text colors */
+    --text-primary: #1a1a2e;
+    --text-secondary: #333333;
+    --text-muted: #666666;
+    --text-heading: #1a1a2e;
+    --text-inverse: #ffffff;
+
+    /* Light mode backgrounds */
+    --bg-primary: #ffffff;
+    --bg-secondary: #f6f8fa;
+    --bg-card: #ffffff;
+    --bg-hover: #f0f0f0;
+    --bg-panel: #ffffff;
+    --bg-button: #ffffff;
+    --bg-button-hover: #f6f8fa;
+    --bg-active: #1a1a2e;
+    --border-color: #e1e4e8;
+    --focus-ring: #4a90d9;
+
+    /* Semantic status colors (light mode) */
+    --color-ahead: #22863a;
+    --color-behind: #cb2431;
+    --color-synced: #6a737d;
+    --bg-success: #dcffe4;
+    --border-success: #34d058;
+    --bg-error: #ffeef0;
+    --border-error: #d73a49;
+    --bg-warning: #fffbdd;
+    --border-warning: #f9c513;
+
+    color: var(--text-primary);
+    background-color: var(--bg-primary);
   }
   a:hover {
     color: #747bff;
   }
   button {
-    background-color: #f9f9f9;
+    background-color: var(--bg-secondary);
   }
 }

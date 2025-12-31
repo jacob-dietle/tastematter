@@ -50,7 +50,7 @@
 
   .count {
     font-size: 0.875rem;
-    color: #666;
+    color: var(--text-muted);
     margin: 0;
   }
 </style>

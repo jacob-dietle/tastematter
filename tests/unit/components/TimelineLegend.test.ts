@@ -10,11 +10,12 @@ describe('TimelineLegend', () => {
     expect(swatches.length).toBe(4); // empty, low, medium, high
   });
 
-  test('shows Less and More labels', () => {
+  test('shows Low and High scale labels', () => {
     render(TimelineLegend);
 
-    expect(screen.getByText('Less')).toBeInTheDocument();
-    expect(screen.getByText('More')).toBeInTheDocument();
+    expect(screen.getByText('Low')).toBeInTheDocument();
+    expect(screen.getByText('High')).toBeInTheDocument();
+    expect(screen.getByText('Activity:')).toBeInTheDocument();
   });
 
   test('renders correct colors', () => {

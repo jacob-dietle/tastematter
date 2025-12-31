@@ -18,12 +18,15 @@ describe('TimelineAxis', () => {
     expect(screen.getByText('30')).toBeInTheDocument();
   });
 
-  test('renders day of week', () => {
+  test('renders day of week abbreviation', () => {
     render(TimelineAxis, { props: { buckets: mockBuckets } });
 
-    expect(screen.getByText('Sat')).toBeInTheDocument();
-    expect(screen.getByText('Sun')).toBeInTheDocument();
-    expect(screen.getByText('Mon')).toBeInTheDocument();
+    // Now shows first letter of day (S, S, M)
+    const dayLabels = document.querySelectorAll('.day-of-week');
+    expect(dayLabels.length).toBe(3);
+    expect(dayLabels[0]).toHaveTextContent('S'); // Sat
+    expect(dayLabels[1]).toHaveTextContent('S'); // Sun
+    expect(dayLabels[2]).toHaveTextContent('M'); // Mon
   });
 
   test('handles empty buckets', () => {
@@ -37,9 +40,10 @@ describe('TimelineAxis', () => {
   test('renders in correct order', () => {
     render(TimelineAxis, { props: { buckets: mockBuckets } });
 
-    const days = screen.getAllByText(/Sat|Sun|Mon/);
-    expect(days[0]).toHaveTextContent('Sat');
-    expect(days[1]).toHaveTextContent('Sun');
-    expect(days[2]).toHaveTextContent('Mon');
+    // Dates should render in order
+    const dates = document.querySelectorAll('.date');
+    expect(dates[0]).toHaveTextContent('28');
+    expect(dates[1]).toHaveTextContent('29');
+    expect(dates[2]).toHaveTextContent('30');
   });
 });

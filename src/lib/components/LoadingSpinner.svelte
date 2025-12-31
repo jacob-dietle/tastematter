@@ -6,9 +6,9 @@
   .spinner {
     width: 24px;
     height: 24px;
-    border: 3px solid #f3f3f3;
-    border-top: 3px solid #1a1a2e;
-    border-radius: 50%;
+    border: 3px solid var(--border-color);
+    border-top: 3px solid var(--text-primary);
+    border-radius: var(--radius-full);
     animation: spin 1s linear infinite;
   }
 
