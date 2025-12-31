@@ -97,16 +97,16 @@
 
 <style>
   .heat-map {
-    border: 1px solid var(--border-color, #ccc);
-    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
     overflow: hidden;
   }
 
   .back-button {
-    padding: 0.5rem 1rem;
-    background: var(--bg-secondary, #f5f5f5);
+    padding: var(--button-padding-md);
+    background: var(--bg-secondary);
     border: none;
-    border-bottom: 1px solid var(--border-color, #ccc);
+    border-bottom: 1px solid var(--border-color);
     cursor: pointer;
     width: 100%;
     text-align: left;
@@ -114,14 +114,14 @@
   }
 
   .back-button:hover {
-    background: var(--bg-hover, #e8e8e8);
+    background: var(--bg-hover);
   }
 
   .current-directory {
     padding: 0.5rem 1rem;
     margin: 0;
-    background: var(--bg-secondary, #f5f5f5);
-    border-bottom: 1px solid var(--border-color, #ccc);
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
     font-size: 0.875rem;
     font-family: monospace;
   }
@@ -134,6 +134,6 @@
   .empty-state {
     padding: 2rem;
     text-align: center;
-    color: var(--text-muted, #666);
+    color: var(--text-muted);
   }
 </style>

@@ -53,10 +53,10 @@
   }
 
   .action-button {
-    padding: 0.5rem 1rem;
-    border: 1px solid var(--border-color, #e1e4e8);
-    border-radius: 4px;
-    background: var(--bg-button, white);
+    padding: var(--button-padding-md);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: var(--bg-button);
     cursor: pointer;
     font-size: 0.9em;
     display: flex;
@@ -65,7 +65,7 @@
   }
 
   .action-button:hover:not(:disabled) {
-    background: var(--bg-button-hover, #f6f8fa);
+    background: var(--bg-button-hover);
   }
 
   .action-button:disabled {
@@ -74,13 +74,13 @@
   }
 
   .action-button.pull:not(:disabled) {
-    border-color: var(--color-behind, #cb2431);
-    color: var(--color-behind, #cb2431);
+    border-color: var(--color-behind);
+    color: var(--color-behind);
   }
 
   .action-button.push:not(:disabled) {
-    border-color: var(--color-ahead, #22863a);
-    color: var(--color-ahead, #22863a);
+    border-color: var(--color-ahead);
+    color: var(--color-ahead);
   }
 
   .spinner {

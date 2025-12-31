@@ -54,8 +54,8 @@
 
 <style>
   .git-file-list {
-    border: 1px solid var(--border-color, #e1e4e8);
-    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
     margin-bottom: 0.5rem;
   }
 
@@ -65,7 +65,7 @@
     gap: 0.5rem;
     padding: 0.5rem;
     width: 100%;
-    background: var(--bg-secondary, #f6f8fa);
+    background: var(--bg-secondary);
     border: none;
     cursor: default;
     text-align: left;
@@ -78,16 +78,16 @@
   }
 
   .header.collapsible:hover {
-    background: var(--bg-hover, #f0f2f4);
+    background: var(--bg-hover);
   }
 
   .count {
-    color: var(--text-muted, #6a737d);
+    color: var(--text-muted);
   }
 
   .chevron {
     margin-left: auto;
-    color: var(--text-muted, #6a737d);
+    color: var(--text-muted);
   }
 
   .file-list {
@@ -100,7 +100,7 @@
     padding: 0.25rem 0.5rem 0.25rem 1.5rem;
     font-family: monospace;
     font-size: 0.85em;
-    border-top: 1px solid var(--border-color, #e1e4e8);
+    border-top: 1px solid var(--border-color);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

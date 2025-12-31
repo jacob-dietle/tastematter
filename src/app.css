@@ -77,6 +77,11 @@
   --heat-low: #8b4513;     /* Sienna */
   --heat-high: #1a1a2e;    /* Ink */
 
+  /* Button Padding Variants */
+  --button-padding-sm: 0.25rem 0.5rem;
+  --button-padding-md: 0.5rem 1rem;
+  --button-padding-lg: 0.75rem 1.25rem;
+
   color: var(--text-primary);
   background-color: var(--bg-primary);
 

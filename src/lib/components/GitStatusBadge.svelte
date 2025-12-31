@@ -27,14 +27,14 @@
   }
 
   .ahead {
-    color: var(--color-ahead, #22863a);
+    color: var(--color-ahead);
   }
 
   .behind {
-    color: var(--color-behind, #cb2431);
+    color: var(--color-behind);
   }
 
   .synced {
-    color: var(--color-synced, #6a737d);
+    color: var(--color-synced);
   }
 </style>

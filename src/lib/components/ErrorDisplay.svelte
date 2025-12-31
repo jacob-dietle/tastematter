@@ -28,7 +28,7 @@
     padding: 1rem;
     background: var(--bg-error);
     border: 1px solid var(--border-error);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     color: var(--border-error);
   }
 
@@ -50,7 +50,7 @@
     overflow-x: auto;
     background: var(--bg-secondary);
     padding: 0.5rem;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     color: var(--text-secondary);
   }
 
@@ -60,7 +60,7 @@
     background: var(--border-error);
     color: white;
     border: none;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     cursor: pointer;
   }
 </style>

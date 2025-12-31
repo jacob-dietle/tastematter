@@ -25,7 +25,7 @@
     color: var(--text-secondary);
     background: var(--bg-secondary);
     padding: 6px 10px;
-    border-radius: 6px;
+    border-radius: var(--radius-md);
   }
 
   .label {
@@ -55,7 +55,7 @@
   .swatch {
     width: 14px;
     height: 14px;
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
     border: 1px solid var(--border-color);
     cursor: help;
     transition: transform 0.1s ease;

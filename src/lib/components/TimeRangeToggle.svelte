@@ -37,9 +37,9 @@
   }
 
   button {
-    padding: 0.5rem 1rem;
+    padding: var(--button-padding-md);
     border: 1px solid var(--border-color);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     background: var(--bg-card);
     color: var(--text-primary);
     cursor: pointer;

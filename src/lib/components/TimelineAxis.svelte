@@ -100,7 +100,7 @@
     font-size: 0.65rem;
     color: var(--text-secondary);
     padding: 2px 0;
-    border-radius: 3px;
+    border-radius: var(--radius-sm);
   }
 
   .axis-cell.weekend {

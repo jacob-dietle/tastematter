@@ -121,10 +121,10 @@
 
 <style>
   .git-panel {
-    border: 1px solid var(--border-color, #e1e4e8);
-    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
     padding: 1rem;
-    background: var(--bg-panel, white);
+    background: var(--bg-panel);
   }
 
   .header {
@@ -141,15 +141,15 @@
 
   .refresh-button {
     margin-left: auto;
-    padding: 0.25rem 0.5rem;
-    border: 1px solid var(--border-color, #e1e4e8);
-    border-radius: 4px;
+    padding: var(--button-padding-sm);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
     background: transparent;
     cursor: pointer;
   }
 
   .refresh-button:hover:not(:disabled) {
-    background: var(--bg-hover, #f6f8fa);
+    background: var(--bg-hover);
   }
 
   .refresh-button:disabled {
@@ -165,15 +165,15 @@
     font-size: 0.9em;
     margin-bottom: 1rem;
     padding: 0.5rem;
-    background: var(--bg-secondary, #f6f8fa);
-    border-radius: 4px;
+    background: var(--bg-secondary);
+    border-radius: var(--radius-sm);
   }
 
   .conflict-warning {
     padding: 0.5rem;
-    background: var(--bg-warning, #fffbdd);
-    border: 1px solid var(--border-warning, #f9c513);
-    border-radius: 4px;
+    background: var(--bg-warning);
+    border: 1px solid var(--border-warning);
+    border-radius: var(--radius-sm);
     margin-bottom: 1rem;
   }
 
@@ -184,37 +184,37 @@
   .clean-state {
     padding: 1rem;
     text-align: center;
-    color: var(--color-synced, #6a737d);
+    color: var(--color-synced);
     margin-bottom: 1rem;
   }
 
   .empty-state {
     padding: 1rem;
     text-align: center;
-    color: var(--text-muted, #6a737d);
+    color: var(--text-muted);
   }
 
   .operation-result {
     padding: 0.5rem;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     margin-top: 1rem;
   }
 
   .operation-result.success {
-    background: var(--bg-success, #dcffe4);
-    border: 1px solid var(--border-success, #34d058);
+    background: var(--bg-success);
+    border: 1px solid var(--border-success);
   }
 
   .operation-result.error {
-    background: var(--bg-error, #ffeef0);
-    border: 1px solid var(--border-error, #d73a49);
+    background: var(--bg-error);
+    border: 1px solid var(--border-error);
   }
 
   .operation-result pre {
     margin: 0.5rem 0 0;
     padding: 0.5rem;
     background: rgba(0, 0, 0, 0.05);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     font-size: 0.8em;
     overflow-x: auto;
   }
