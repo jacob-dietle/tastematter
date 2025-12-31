@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { QueryFlexArgs, QueryResult, CommandError, GitStatus, GitOpResult, TimelineQueryArgs, TimelineData } from '$lib/types';
+import type { QueryFlexArgs, QueryResult, CommandError, GitStatus, GitOpResult, TimelineQueryArgs, TimelineData, SessionQueryArgs, SessionQueryResult } from '$lib/types';
 
 export async function queryFlex(args: QueryFlexArgs): Promise<QueryResult> {
   try {
@@ -67,4 +67,9 @@ export async function queryTimeline(args: TimelineQueryArgs): Promise<TimelineDa
     }
     throw error;
   }
+}
+
+export async function querySessions(args: SessionQueryArgs): Promise<SessionQueryResult> {
+  // Stub: Will be replaced with real invoke() in Cycle 2
+  throw { code: 'NOT_IMPLEMENTED', message: 'query_sessions command not yet implemented' } as CommandError;
 }

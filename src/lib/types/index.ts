@@ -157,3 +157,77 @@ export interface TimelineState {
   selectedRange: '7d' | '14d' | '30d';
   hoveredCell: { file: string; date: string } | null;
 }
+
+// Phase 5: Session View types
+
+/**
+ * File within a session.
+ */
+export interface SessionFile {
+  file_path: string;
+  access_count: number;
+  access_types: string[];    // ["read", "write"]
+  last_access: string;       // ISO datetime
+}
+
+/**
+ * Session data from CLI query.
+ * One card in the session view.
+ */
+export interface SessionData {
+  session_id: string;
+  chain_id: string | null;
+  started_at: string;        // ISO datetime
+  ended_at: string | null;   // ISO datetime (null if ongoing)
+  duration_seconds: number | null;
+  file_count: number;
+  total_accesses: number;
+  files: SessionFile[];      // All files in session
+  top_files: SessionFile[];  // Top 3 by access count
+}
+
+/**
+ * Chain summary for filtering/grouping.
+ */
+export interface ChainSummary {
+  chain_id: string;
+  session_count: number;
+  file_count: number;
+  last_active: string;
+}
+
+/**
+ * Result of session query.
+ */
+export interface SessionQueryResult {
+  time_range: string;        // "7d", "14d", "30d"
+  sessions: SessionData[];
+  chains: ChainSummary[];    // Unique chains in result
+  summary: {
+    total_sessions: number;
+    total_files: number;
+    total_accesses: number;
+    active_chains: number;
+  };
+}
+
+/**
+ * Session query parameters.
+ */
+export interface SessionQueryArgs {
+  time: string;              // "7d", "14d", "30d"
+  chain?: string;            // Filter by chain ID
+  limit?: number;            // Max sessions (default: 50)
+}
+
+/**
+ * Session store state.
+ */
+export interface SessionState {
+  loading: boolean;
+  data: SessionQueryResult | null;
+  error: CommandError | null;
+  selectedRange: '7d' | '14d' | '30d';
+  expandedSessions: Set<string>;  // session_ids with expanded trees
+  selectedChain: string | null;   // Chain filter
+}
