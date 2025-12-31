@@ -94,3 +94,66 @@ export interface GitState {
   isPushing: boolean;
   lastOperation: GitOpResult | null;
 }
+
+// Phase 4: Timeline View types
+
+/**
+ * Temporal bucket for timeline visualization.
+ * Groups file accesses by time period.
+ */
+export interface TimeBucket {
+  date: string;           // ISO date: "2025-12-29"
+  day_of_week: string;    // "Mon", "Tue", etc.
+  access_count: number;   // Total accesses in bucket
+  files_touched: number;  // Unique files in bucket
+  sessions: string[];     // Session IDs active in bucket
+}
+
+/**
+ * File activity across time buckets.
+ * One row in the timeline visualization.
+ */
+export interface FileTimeline {
+  file_path: string;
+  total_accesses: number;
+  buckets: Record<string, number>;  // date -> access_count
+  first_access: string;   // ISO datetime
+  last_access: string;    // ISO datetime
+}
+
+/**
+ * Result of temporal query for timeline view.
+ */
+export interface TimelineData {
+  time_range: string;     // "7d", "14d", "30d"
+  start_date: string;     // ISO date
+  end_date: string;       // ISO date
+  buckets: TimeBucket[];  // One per day
+  files: FileTimeline[];  // Sorted by total_accesses desc
+  summary: {
+    total_accesses: number;
+    total_files: number;
+    peak_day: string;     // Date with most activity
+    peak_count: number;
+  };
+}
+
+/**
+ * Timeline query parameters.
+ */
+export interface TimelineQueryArgs {
+  time: string;           // "7d", "14d", "30d"
+  files?: string;         // Optional file pattern filter
+  limit?: number;         // Max files to return (default: 30)
+}
+
+/**
+ * Timeline store state.
+ */
+export interface TimelineState {
+  loading: boolean;
+  data: TimelineData | null;
+  error: CommandError | null;
+  selectedRange: '7d' | '14d' | '30d';
+  hoveredCell: { file: string; date: string } | null;
+}

@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::process::Command;
 use tauri::command;
+use chrono::{Local, Duration, Datelike, NaiveDate};
 
 // Result types matching TypeScript interfaces
 
@@ -359,4 +361,176 @@ pub async fn git_push() -> Result<GitOpResult, CommandError> {
             files_affected: None,
         })
     }
+}
+
+// Phase 4: Timeline types
+
+#[derive(Serialize)]
+pub struct TimeBucket {
+    pub date: String,
+    pub day_of_week: String,
+    pub access_count: u32,
+    pub files_touched: u32,
+    pub sessions: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct FileTimeline {
+    pub file_path: String,
+    pub total_accesses: u32,
+    pub buckets: HashMap<String, u32>,
+    pub first_access: String,
+    pub last_access: String,
+}
+
+#[derive(Serialize)]
+pub struct TimelineSummary {
+    pub total_accesses: u32,
+    pub total_files: u32,
+    pub peak_day: String,
+    pub peak_count: u32,
+}
+
+#[derive(Serialize)]
+pub struct TimelineData {
+    pub time_range: String,
+    pub start_date: String,
+    pub end_date: String,
+    pub buckets: Vec<TimeBucket>,
+    pub files: Vec<FileTimeline>,
+    pub summary: TimelineSummary,
+}
+
+fn day_of_week_abbrev(date: &NaiveDate) -> String {
+    match date.weekday() {
+        chrono::Weekday::Mon => "Mon",
+        chrono::Weekday::Tue => "Tue",
+        chrono::Weekday::Wed => "Wed",
+        chrono::Weekday::Thu => "Thu",
+        chrono::Weekday::Fri => "Fri",
+        chrono::Weekday::Sat => "Sat",
+        chrono::Weekday::Sun => "Sun",
+    }.to_string()
+}
+
+#[command]
+pub async fn query_timeline(
+    time: String,
+    files: Option<String>,
+    limit: Option<u32>,
+) -> Result<TimelineData, CommandError> {
+    // Parse time range to get number of days
+    let days: i64 = match time.as_str() {
+        "7d" => 7,
+        "14d" => 14,
+        "30d" => 30,
+        _ => 7,
+    };
+
+    // Calculate date range
+    let end_date = Local::now().date_naive();
+    let start_date = end_date - Duration::days(days - 1);
+
+    // Build CLI command
+    let cli_path = std::env::var("CONTEXT_OS_CLI")
+        .unwrap_or_else(|_| "C:/Users/dietl/.context-os/bin/context-os.cmd".to_string());
+
+    let mut cmd = Command::new(&cli_path);
+    cmd.args(["query", "flex", "--format", "json"]);
+    cmd.args(["--time", &time]);
+    cmd.args(["--agg", "count,recency,sessions"]);
+    cmd.args(["--limit", &limit.unwrap_or(30).to_string()]);
+
+    if let Some(f) = files {
+        cmd.args(["--files", &f]);
+    }
+
+    let output = cmd.output().map_err(|e| CommandError {
+        code: "CLI_NOT_FOUND".to_string(),
+        message: format!("context-os CLI not found at: {}", cli_path),
+        details: Some(e.to_string()),
+    })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(CommandError {
+            code: "CLI_ERROR".to_string(),
+            message: "CLI command failed".to_string(),
+            details: Some(stderr.to_string()),
+        });
+    }
+
+    let json_str = String::from_utf8(output.stdout).map_err(|e| CommandError {
+        code: "UTF8_ERROR".to_string(),
+        message: "Invalid UTF-8 in CLI output".to_string(),
+        details: Some(e.to_string()),
+    })?;
+
+    let query_result: QueryResult = serde_json::from_str(&json_str).map_err(CommandError::from)?;
+
+    // Generate buckets for each day in range
+    let mut buckets = Vec::new();
+    let mut date = start_date;
+    while date <= end_date {
+        buckets.push(TimeBucket {
+            date: date.format("%Y-%m-%d").to_string(),
+            day_of_week: day_of_week_abbrev(&date),
+            access_count: 0,
+            files_touched: 0,
+            sessions: Vec::new(),
+        });
+        date = date + Duration::days(1);
+    }
+
+    // Transform file results to timeline format
+    // Note: We're using total access counts since per-day data
+    // would require enhanced CLI support. For now, distribute
+    // accesses across the timeline based on recency.
+    let mut files: Vec<FileTimeline> = query_result.results.iter().map(|r| {
+        let mut file_buckets = HashMap::new();
+
+        // For now, put all accesses in the most recent day
+        // This is a simplification - real per-day data would come from CLI
+        if let Some(ref last) = r.last_access {
+            if let Some(date_str) = last.get(0..10) {
+                file_buckets.insert(date_str.to_string(), r.access_count);
+            }
+        }
+
+        FileTimeline {
+            file_path: r.file_path.clone(),
+            total_accesses: r.access_count,
+            buckets: file_buckets,
+            first_access: r.last_access.clone().unwrap_or_default(),
+            last_access: r.last_access.clone().unwrap_or_default(),
+        }
+    }).collect();
+
+    // Sort by total accesses descending
+    files.sort_by(|a, b| b.total_accesses.cmp(&a.total_accesses));
+
+    // Calculate summary
+    let total_accesses = query_result.aggregations.count
+        .as_ref()
+        .map(|c| c.total_accesses)
+        .unwrap_or(0);
+    let total_files = files.len() as u32;
+
+    // Find peak day (using end_date as fallback since we don't have per-day data)
+    let peak_day = end_date.format("%Y-%m-%d").to_string();
+    let peak_count = total_accesses;
+
+    Ok(TimelineData {
+        time_range: time,
+        start_date: start_date.format("%Y-%m-%d").to_string(),
+        end_date: end_date.format("%Y-%m-%d").to_string(),
+        buckets,
+        files,
+        summary: TimelineSummary {
+            total_accesses,
+            total_files,
+            peak_day,
+            peak_count,
+        },
+    })
 }

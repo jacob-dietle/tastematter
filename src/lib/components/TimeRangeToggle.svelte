@@ -1,12 +1,17 @@
 <script lang="ts">
   interface Props {
     selected?: string;
+    options?: string[];
     onchange?: (time: string) => void;
+    disabled?: boolean;
   }
 
-  let { selected = '7d', onchange }: Props = $props();
-
-  const options = ['7d', '30d', '90d'];
+  let {
+    selected = '7d',
+    options = ['7d', '14d', '30d'],
+    onchange,
+    disabled = false
+  }: Props = $props();
 
   function handleClick(time: string) {
     onchange?.(time);
@@ -18,6 +23,7 @@
     <button
       class:selected={selected === time}
       onclick={() => handleClick(time)}
+      {disabled}
     >
       {time}
     </button>

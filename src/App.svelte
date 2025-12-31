@@ -1,14 +1,16 @@
 <script lang="ts">
   import { createQueryStore } from '$lib/stores/query.svelte';
-  import TimeSelector from '$lib/components/TimeSelector.svelte';
+  import TimeRangeToggle from '$lib/components/TimeRangeToggle.svelte';
   import LoadingSpinner from '$lib/components/LoadingSpinner.svelte';
   import ErrorDisplay from '$lib/components/ErrorDisplay.svelte';
   import QueryResults from '$lib/components/QueryResults.svelte';
   import GitPanel from '$lib/components/GitPanel.svelte';
+  import TimelineView from '$lib/components/TimelineView.svelte';
 
   const query = createQueryStore();
 
   let selectedTime = $state('7d');
+  let activeView = $state<'files' | 'timeline'>('files');
 
   function handleTimeChange(time: string) {
     selectedTime = time;
@@ -24,24 +26,40 @@
 <main>
   <header>
     <h1>Tastematter</h1>
-    <TimeSelector selected={selectedTime} onchange={handleTimeChange} />
+    <div class="header-controls">
+      <div class="view-toggle">
+        <button
+          class:active={activeView === 'files'}
+          onclick={() => activeView = 'files'}>Files</button>
+        <button
+          class:active={activeView === 'timeline'}
+          onclick={() => activeView = 'timeline'}>Timeline</button>
+      </div>
+      {#if activeView === 'files'}
+        <TimeRangeToggle selected={selectedTime} options={['7d', '30d', '90d']} onchange={handleTimeChange} />
+      {/if}
+    </div>
   </header>
 
   <div class="layout">
     <section class="content">
-      {#if query.loading}
-        <div class="loading-container">
-          <LoadingSpinner />
-        </div>
-      {:else if query.error}
-        <ErrorDisplay
-          error={query.error}
-          onretry={() => handleTimeChange(selectedTime)}
-        />
-      {:else if query.data}
-        <QueryResults data={query.data} />
+      {#if activeView === 'timeline'}
+        <TimelineView />
       {:else}
-        <p class="empty">No data yet. Select a time range.</p>
+        {#if query.loading}
+          <div class="loading-container">
+            <LoadingSpinner />
+          </div>
+        {:else if query.error}
+          <ErrorDisplay
+            error={query.error}
+            onretry={() => handleTimeChange(selectedTime)}
+          />
+        {:else if query.data}
+          <QueryResults data={query.data} />
+        {:else}
+          <p class="empty">No data yet. Select a time range.</p>
+        {/if}
       {/if}
     </section>
 
@@ -72,6 +90,40 @@
     margin: 0;
     font-size: 1.5rem;
     color: #1a1a2e;
+  }
+
+  .header-controls {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+  }
+
+  .view-toggle {
+    display: flex;
+    gap: 0;
+  }
+
+  .view-toggle button {
+    padding: 0.5rem 1rem;
+    border: 1px solid #e0e0e0;
+    background: white;
+    cursor: pointer;
+    font-size: 0.875rem;
+  }
+
+  .view-toggle button:first-child {
+    border-radius: 4px 0 0 4px;
+  }
+
+  .view-toggle button:last-child {
+    border-radius: 0 4px 4px 0;
+    border-left: none;
+  }
+
+  .view-toggle button.active {
+    background: #1a1a2e;
+    color: white;
+    border-color: #1a1a2e;
   }
 
   .layout {

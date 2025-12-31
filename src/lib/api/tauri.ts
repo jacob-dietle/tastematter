@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { QueryFlexArgs, QueryResult, CommandError, GitStatus, GitOpResult } from '$lib/types';
+import type { QueryFlexArgs, QueryResult, CommandError, GitStatus, GitOpResult, TimelineQueryArgs, TimelineData } from '$lib/types';
 
 export async function queryFlex(args: QueryFlexArgs): Promise<QueryResult> {
   try {
@@ -49,6 +49,21 @@ export async function gitPush(): Promise<GitOpResult> {
   } catch (error) {
     if (typeof error === 'string') {
       throw { code: 'GIT_ERROR', message: error } as CommandError;
+    }
+    throw error;
+  }
+}
+
+export async function queryTimeline(args: TimelineQueryArgs): Promise<TimelineData> {
+  try {
+    return await invoke<TimelineData>('query_timeline', {
+      time: args.time,
+      files: args.files,
+      limit: args.limit,
+    });
+  } catch (error) {
+    if (typeof error === 'string') {
+      throw { code: 'TIMELINE_ERROR', message: error } as CommandError;
     }
     throw error;
   }
