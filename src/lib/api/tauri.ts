@@ -70,6 +70,16 @@ export async function queryTimeline(args: TimelineQueryArgs): Promise<TimelineDa
 }
 
 export async function querySessions(args: SessionQueryArgs): Promise<SessionQueryResult> {
-  // Stub: Will be replaced with real invoke() in Cycle 2
-  throw { code: 'NOT_IMPLEMENTED', message: 'query_sessions command not yet implemented' } as CommandError;
+  try {
+    return await invoke<SessionQueryResult>('query_sessions', {
+      time: args.time,
+      chain: args.chain,
+      limit: args.limit,
+    });
+  } catch (error) {
+    if (typeof error === 'string') {
+      throw { code: 'SESSION_ERROR', message: error } as CommandError;
+    }
+    throw error;
+  }
 }

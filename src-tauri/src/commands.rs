@@ -538,3 +538,199 @@ pub async fn query_timeline(
         },
     })
 }
+
+// Phase 5: Session View types
+
+#[derive(Serialize, Clone)]
+pub struct SessionFile {
+    pub file_path: String,
+    pub access_count: u32,
+    pub access_types: Vec<String>,
+    pub last_access: String,
+}
+
+#[derive(Serialize)]
+pub struct SessionData {
+    pub session_id: String,
+    pub chain_id: Option<String>,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+    pub duration_seconds: Option<u32>,
+    pub file_count: u32,
+    pub total_accesses: u32,
+    pub files: Vec<SessionFile>,
+    pub top_files: Vec<SessionFile>,
+}
+
+#[derive(Serialize)]
+pub struct ChainSummary {
+    pub chain_id: String,
+    pub session_count: u32,
+    pub file_count: u32,
+    pub last_active: String,
+}
+
+#[derive(Serialize)]
+pub struct SessionSummary {
+    pub total_sessions: u32,
+    pub total_files: u32,
+    pub total_accesses: u32,
+    pub active_chains: u32,
+}
+
+#[derive(Serialize)]
+pub struct SessionQueryResult {
+    pub time_range: String,
+    pub sessions: Vec<SessionData>,
+    pub chains: Vec<ChainSummary>,
+    pub summary: SessionSummary,
+}
+
+#[command]
+pub async fn query_sessions(
+    time: String,
+    chain: Option<String>,
+    limit: Option<u32>,
+) -> Result<SessionQueryResult, CommandError> {
+    let cli_path = std::env::var("CONTEXT_OS_CLI")
+        .unwrap_or_else(|_| "C:/Users/dietl/.context-os/bin/context-os.cmd".to_string());
+
+    // Build CLI command
+    let mut cmd = Command::new(&cli_path);
+    cmd.current_dir("../../..");
+    cmd.args(["query", "flex", "--format", "json"]);
+    cmd.args(["--time", &time]);
+    cmd.args(["--agg", "count,recency,sessions"]);
+    cmd.args(["--sort", "recency"]);
+
+    if let Some(c) = &chain {
+        cmd.args(["--chain", c]);
+    }
+
+    let lim = limit.unwrap_or(50);
+    cmd.args(["--limit", &lim.to_string()]);
+
+    let output = cmd.output().map_err(|e| CommandError {
+        code: "CLI_NOT_FOUND".to_string(),
+        message: format!("context-os CLI not found at: {}", cli_path),
+        details: Some(e.to_string()),
+    })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(CommandError {
+            code: "CLI_ERROR".to_string(),
+            message: "Session query failed".to_string(),
+            details: Some(stderr.to_string()),
+        });
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let query_result: QueryResult = serde_json::from_str(&stdout)
+        .map_err(|e| CommandError {
+            code: "PARSE_ERROR".to_string(),
+            message: "Failed to parse query result".to_string(),
+            details: Some(e.to_string()),
+        })?;
+
+    transform_to_sessions(query_result, &time)
+}
+
+fn transform_to_sessions(
+    query_result: QueryResult,
+    time_range: &str,
+) -> Result<SessionQueryResult, CommandError> {
+    // Group files by session
+    let mut session_map: HashMap<String, Vec<SessionFile>> = HashMap::new();
+    let mut chain_map: HashMap<String, (u32, u32, String)> = HashMap::new(); // (session_count, file_count, last_active)
+
+    for result in &query_result.results {
+        let file = SessionFile {
+            file_path: result.file_path.clone(),
+            access_count: result.access_count,
+            access_types: vec!["read".to_string()], // Simplified - CLI doesn't provide per-file access types
+            last_access: result.last_access.clone().unwrap_or_default(),
+        };
+
+        // Get sessions for this file
+        if let Some(sessions) = &result.sessions {
+            for session_id in sessions {
+                if session_id.is_empty() { continue; }
+                session_map.entry(session_id.clone())
+                    .or_insert_with(Vec::new)
+                    .push(file.clone());
+            }
+        }
+
+        // Track chains
+        if let Some(chains) = &result.chains {
+            for chain_id in chains {
+                if chain_id.is_empty() { continue; }
+                let entry = chain_map.entry(chain_id.clone()).or_insert((0, 0, String::new()));
+                entry.1 += 1; // file_count
+                if result.last_access.as_ref().map(|a| a.as_str()).unwrap_or("") > entry.2.as_str() {
+                    entry.2 = result.last_access.clone().unwrap_or_default();
+                }
+            }
+        }
+    }
+
+    // Build session data
+    let mut sessions: Vec<SessionData> = session_map.into_iter().map(|(session_id, files)| {
+        let total_accesses: u32 = files.iter().map(|f| f.access_count).sum();
+        let file_count = files.len() as u32;
+
+        // Sort by access count for top files
+        let mut sorted_files = files.clone();
+        sorted_files.sort_by(|a, b| b.access_count.cmp(&a.access_count));
+        let top_files: Vec<SessionFile> = sorted_files.iter().take(3).cloned().collect();
+
+        // Get the most recent access as started_at
+        let started_at = sorted_files.first()
+            .map(|f| f.last_access.clone())
+            .unwrap_or_default();
+
+        SessionData {
+            session_id,
+            chain_id: None, // CLI doesn't provide chain per session yet
+            started_at,
+            ended_at: None,
+            duration_seconds: None,
+            file_count,
+            total_accesses,
+            files: sorted_files,
+            top_files,
+        }
+    }).collect();
+
+    // Sort sessions by recency (started_at descending)
+    sessions.sort_by(|a, b| b.started_at.cmp(&a.started_at));
+
+    // Build chain summaries
+    let chains: Vec<ChainSummary> = chain_map.into_iter().map(|(chain_id, (session_count, file_count, last_active))| {
+        ChainSummary {
+            chain_id,
+            session_count,
+            file_count,
+            last_active,
+        }
+    }).collect();
+
+    // Build summary
+    let total_sessions = sessions.len() as u32;
+    let total_files: u32 = sessions.iter().map(|s| s.file_count).sum();
+    let total_accesses: u32 = sessions.iter().map(|s| s.total_accesses).sum();
+    let active_chains = chains.len() as u32;
+
+    Ok(SessionQueryResult {
+        time_range: time_range.to_string(),
+        sessions,
+        chains,
+        summary: SessionSummary {
+            total_sessions,
+            total_files,
+            total_accesses,
+            active_chains,
+        },
+    })
+}

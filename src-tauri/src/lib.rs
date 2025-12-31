@@ -16,6 +16,7 @@ pub fn run() {
     .invoke_handler(tauri::generate_handler![
       commands::query_flex,
       commands::query_timeline,
+      commands::query_sessions,
       commands::git_status,
       commands::git_pull,
       commands::git_push
