@@ -231,3 +231,16 @@ export interface SessionState {
   expandedSessions: Set<string>;  // session_ids with expanded trees
   selectedChain: string | null;   // Chain filter
 }
+
+/**
+ * Directory tree node for SessionFileTree component.
+ * Used to visualize file hierarchy within a session.
+ */
+export interface DirectoryNode {
+  name: string;
+  path: string;
+  type: 'file' | 'directory';
+  access_count: number;
+  children?: DirectoryNode[];
+  expanded?: boolean;
+}
