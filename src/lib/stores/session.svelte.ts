@@ -58,6 +58,13 @@ export function createSessionStore() {
     return Math.max(...data.sessions.flatMap(s => s.files.map(f => f.access_count)), 1);
   }
 
+  function colorScale(count: number): string {
+    const max = getMaxAccessCount();
+    const intensity = max > 0 ? count / max : 0;
+    const r = Math.round(255 * intensity);
+    return `rgb(${r}, 100, 100)`;
+  }
+
   function getFilteredSessions() {
     if (!data?.sessions) return [];
     if (!selectedChain) return data.sessions;
@@ -74,6 +81,7 @@ export function createSessionStore() {
     get maxAccessCount() { return getMaxAccessCount(); },
     get filteredSessions() { return getFilteredSessions(); },
 
+    colorScale,
     fetch,
     setRange,
     setChainFilter,

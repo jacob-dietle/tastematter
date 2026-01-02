@@ -6,11 +6,12 @@
   import QueryResults from '$lib/components/QueryResults.svelte';
   import GitPanel from '$lib/components/GitPanel.svelte';
   import TimelineView from '$lib/components/TimelineView.svelte';
+  import SessionView from '$lib/components/SessionView.svelte';
 
   const query = createQueryStore();
 
   let selectedTime = $state('7d');
-  let activeView = $state<'files' | 'timeline'>('files');
+  let activeView = $state<'files' | 'timeline' | 'sessions'>('files');
 
   function handleTimeChange(time: string) {
     selectedTime = time;
@@ -34,6 +35,9 @@
         <button
           class:active={activeView === 'timeline'}
           onclick={() => activeView = 'timeline'}>Timeline</button>
+        <button
+          class:active={activeView === 'sessions'}
+          onclick={() => activeView = 'sessions'}>Sessions</button>
       </div>
       {#if activeView === 'files'}
         <TimeRangeToggle selected={selectedTime} options={['7d', '30d', '90d']} onchange={handleTimeChange} />
@@ -43,7 +47,9 @@
 
   <div class="layout">
     <section class="content">
-      {#if activeView === 'timeline'}
+      {#if activeView === 'sessions'}
+        <SessionView />
+      {:else if activeView === 'timeline'}
         <TimelineView />
       {:else}
         {#if query.loading}
@@ -116,9 +122,12 @@
     border-radius: 4px 0 0 4px;
   }
 
+  .view-toggle button:not(:first-child) {
+    border-left: none;
+  }
+
   .view-toggle button:last-child {
     border-radius: 0 4px 4px 0;
-    border-left: none;
   }
 
   .view-toggle button.active {
