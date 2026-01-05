@@ -9,10 +9,12 @@
 
   let {
     initialFetch = true,
-    defaultRange = '7d'
+    defaultRange = '7d',
+    chainFilter = null
   }: {
     initialFetch?: boolean;
     defaultRange?: '7d' | '14d' | '30d';
+    chainFilter?: string | null;
   } = $props();
 
   const sessionStore = createSessionStore();
@@ -20,6 +22,13 @@
   onMount(() => {
     if (initialFetch) {
       sessionStore.setRange(defaultRange);
+    }
+  });
+
+  // Sync external chainFilter with store
+  $effect(() => {
+    if (chainFilter !== sessionStore.selectedChain) {
+      sessionStore.setChainFilter(chainFilter);
     }
   });
 

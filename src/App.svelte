@@ -7,11 +7,17 @@
   import GitPanel from '$lib/components/GitPanel.svelte';
   import TimelineView from '$lib/components/TimelineView.svelte';
   import SessionView from '$lib/components/SessionView.svelte';
+  import ChainNavigator from '$lib/components/ChainNavigator.svelte';
 
   const query = createQueryStore();
 
   let selectedTime = $state('7d');
   let activeView = $state<'files' | 'timeline' | 'sessions'>('files');
+  let selectedChain = $state<string | null>(null);
+
+  function handleChainSelect(chainId: string | null) {
+    selectedChain = chainId;
+  }
 
   function handleTimeChange(time: string) {
     selectedTime = time;
@@ -48,7 +54,7 @@
   <div class="layout">
     <section class="content">
       {#if activeView === 'sessions'}
-        <SessionView />
+        <SessionView chainFilter={selectedChain} />
       {:else if activeView === 'timeline'}
         <TimelineView />
       {:else}
@@ -71,6 +77,9 @@
 
     <aside class="sidebar">
       <GitPanel />
+      {#if activeView === 'sessions'}
+        <ChainNavigator onSelect={handleChainSelect} />
+      {/if}
     </aside>
   </div>
 </main>
@@ -150,6 +159,9 @@
     position: sticky;
     top: 2rem;
     height: fit-content;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
   }
 
   .loading-container {
