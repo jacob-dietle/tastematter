@@ -1,12 +1,14 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { createTimelineStore } from '$lib/stores/timeline.svelte';
-  import TimeRangeToggle from './TimeRangeToggle.svelte';
+  import type { TimelineStore } from '$lib/stores/timeline.svelte';
   import TimelineAxis from './TimelineAxis.svelte';
   import TimelineRow from './TimelineRow.svelte';
   import TimelineLegend from './TimelineLegend.svelte';
 
-  const store = createTimelineStore();
+  interface Props {
+    store: TimelineStore;
+  }
+
+  let { store }: Props = $props();
 
   // Extract dates from buckets for row rendering
   $effect(() => {
@@ -16,14 +18,6 @@
   });
 
   let dates = $state<string[]>([]);
-
-  function handleRangeChange(range: string) {
-    store.setRange(range as '7d' | '14d' | '30d');
-  }
-
-  onMount(() => {
-    store.fetch();
-  });
 </script>
 
 <div class="timeline-view">
@@ -35,11 +29,6 @@
       {/if}
     </div>
     <div class="controls">
-      <TimeRangeToggle
-        selected={store.selectedRange}
-        onchange={handleRangeChange}
-        disabled={store.loading}
-      />
       <TimelineLegend />
     </div>
   </div>

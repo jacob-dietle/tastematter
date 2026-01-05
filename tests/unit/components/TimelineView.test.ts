@@ -2,23 +2,7 @@ import { describe, test, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import TimelineView from '$lib/components/TimelineView.svelte';
 import type { TimelineData } from '$lib/types';
-
-// Mock the timeline store
-vi.mock('$lib/stores/timeline.svelte', () => ({
-  createTimelineStore: vi.fn(() => ({
-    loading: false,
-    data: null,
-    error: null,
-    selectedRange: '7d',
-    hoveredCell: null,
-    maxAccessCount: 0,
-    fetch: vi.fn(),
-    setRange: vi.fn(),
-    setHoveredCell: vi.fn(),
-    clearHover: vi.fn(),
-    getIntensity: vi.fn(() => 0),
-  }))
-}));
+import type { TimelineStore } from '$lib/stores/timeline.svelte';
 
 const mockTimelineData: TimelineData = {
   time_range: '7d',
@@ -46,54 +30,62 @@ const mockTimelineData: TimelineData = {
   }
 };
 
+function createMockStore(overrides: Partial<TimelineStore> = {}): TimelineStore {
+  return {
+    loading: false,
+    data: null,
+    error: null,
+    selectedRange: '7d',
+    hoveredCell: null,
+    maxAccessCount: 0,
+    timeRange: '7d',
+    files: [],
+    buckets: [],
+    dates: [],
+    fetch: vi.fn(),
+    setRange: vi.fn(),
+    setHoveredCell: vi.fn(),
+    clearHover: vi.fn(),
+    getIntensity: vi.fn(() => 0),
+    ...overrides,
+  } as TimelineStore;
+}
+
 describe('TimelineView', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   test('renders container element', () => {
-    render(TimelineView);
+    const store = createMockStore();
+    render(TimelineView, { props: { store } });
 
     const container = document.querySelector('.timeline-view');
     expect(container).toBeInTheDocument();
   });
 
   test('shows loading state', async () => {
-    // Re-mock with loading true
-    vi.doMock('$lib/stores/timeline.svelte', () => ({
-      createTimelineStore: vi.fn(() => ({
-        loading: true,
-        data: null,
-        error: null,
-        selectedRange: '7d',
-        hoveredCell: null,
-        maxAccessCount: 0,
-        fetch: vi.fn(),
-        setRange: vi.fn(),
-        setHoveredCell: vi.fn(),
-        clearHover: vi.fn(),
-        getIntensity: vi.fn(() => 0),
-      }))
-    }));
+    const store = createMockStore({ loading: true });
+    render(TimelineView, { props: { store } });
 
-    // Component should have loading indicator or disabled state
-    render(TimelineView);
     const container = document.querySelector('.timeline-view');
     expect(container).toBeInTheDocument();
-  });
-
-  test('renders TimeRangeToggle', () => {
-    render(TimelineView);
-
-    // TimeRangeToggle should be present
-    expect(screen.getByText('7d')).toBeInTheDocument();
+    expect(screen.getByText('Loading timeline...')).toBeInTheDocument();
   });
 
   test('renders legend', () => {
-    render(TimelineView);
+    const store = createMockStore({ data: mockTimelineData });
+    render(TimelineView, { props: { store } });
 
     expect(screen.getByText('Low')).toBeInTheDocument();
     expect(screen.getByText('High')).toBeInTheDocument();
     expect(screen.getByText('Activity:')).toBeInTheDocument();
+  });
+
+  test('renders file count when data is available', () => {
+    const store = createMockStore({ data: mockTimelineData });
+    render(TimelineView, { props: { store } });
+
+    expect(screen.getByText('1 files')).toBeInTheDocument();
   });
 });

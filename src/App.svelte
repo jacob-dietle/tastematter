@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { createContextStore, setAppContext } from '$lib/stores/context.svelte';
   import { createFilesStore } from '$lib/stores/files.svelte';
   import { createTimelineStore } from '$lib/stores/timeline.svelte';
+  import { logService } from '$lib/logging';
   import TimeRangeToggle from '$lib/components/TimeRangeToggle.svelte';
   import LoadingSpinner from '$lib/components/LoadingSpinner.svelte';
   import ErrorDisplay from '$lib/components/ErrorDisplay.svelte';
@@ -29,18 +30,22 @@
 
   // Fetch data on mount and when context changes
   onMount(() => {
+    // Initialize correlation ID for this session
+    logService.startRequest();
+
     ctx.refreshChains();
     filesStore.fetch();
   });
 
   // Refetch files when context changes
   $effect(() => {
-    // Track dependencies
+    // Track these as dependencies (changes trigger refetch)
     const _ = ctx.timeRange;
     const __ = ctx.selectedChain;
 
-    // Only refetch if we have initial data (avoid double fetch on mount)
-    if (filesStore.data !== null || filesStore.error !== null) {
+    // Use untrack to check data without creating dependency (prevents infinite loop)
+    const hasInitialData = untrack(() => filesStore.data !== null || filesStore.error !== null);
+    if (hasInitialData) {
       filesStore.fetch();
     }
   });
@@ -91,7 +96,7 @@
             onretry={() => timelineStore.fetch()}
           />
         {:else if timelineStore.data}
-          <TimelineView />
+          <TimelineView store={timelineStore} />
         {:else}
           <p class="empty">No timeline data yet.</p>
         {/if}

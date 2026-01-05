@@ -1,8 +1,19 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::process::Command;
-use tauri::command;
+use tauri::{command, State};
 use chrono::{Local, Duration, Datelike, NaiveDate};
+use log::info;
+
+use crate::logging::LogEvent;
+use crate::AppState;
+
+// Log event command - receives log events from frontend
+#[command]
+pub fn log_event(event: LogEvent, state: State<AppState>) -> Result<(), String> {
+    state.log_service.log(event);
+    Ok(())
+}
 
 // Result types matching TypeScript interfaces
 
@@ -84,6 +95,8 @@ pub async fn query_flex(
     limit: Option<u32>,
     sort: Option<String>,
 ) -> Result<QueryResult, CommandError> {
+    info!("[query_flex] time={:?}, chain={:?}, limit={:?}", time, chain, limit);
+
     // Build command with context-os CLI path
     let cli_path = std::env::var("CONTEXT_OS_CLI")
         .unwrap_or_else(|_| "C:/Users/dietl/.context-os/bin/context-os.cmd".to_string());
@@ -135,7 +148,10 @@ pub async fn query_flex(
         details: Some(e.to_string()),
     })?;
 
-    serde_json::from_str(&json_str).map_err(CommandError::from)
+    let result: QueryResult = serde_json::from_str(&json_str).map_err(CommandError::from)?;
+
+    info!("[query_flex] success: {} results", result.result_count);
+    Ok(result)
 }
 
 // Git command types
@@ -421,6 +437,8 @@ pub async fn query_timeline(
     files: Option<String>,
     limit: Option<u32>,
 ) -> Result<TimelineData, CommandError> {
+    info!("[query_timeline] time={}, limit={:?}", time, limit);
+
     // Parse time range to get number of days
     let days: i64 = match time.as_str() {
         "7d" => 7,
@@ -524,6 +542,7 @@ pub async fn query_timeline(
     let peak_day = end_date.format("%Y-%m-%d").to_string();
     let peak_count = total_accesses;
 
+    info!("[query_timeline] success: {} files, {} buckets", files.len(), buckets.len());
     Ok(TimelineData {
         time_range: time,
         start_date: start_date.format("%Y-%m-%d").to_string(),
@@ -623,6 +642,8 @@ pub async fn query_sessions(
     chain: Option<String>,
     limit: Option<u32>,
 ) -> Result<SessionQueryResult, CommandError> {
+    info!("[query_sessions] time={}, chain={:?}, limit={:?}", time, chain, limit);
+
     let cli_path = std::env::var("CONTEXT_OS_CLI")
         .unwrap_or_else(|_| "C:/Users/dietl/.context-os/bin/context-os.cmd".to_string());
 
@@ -753,6 +774,7 @@ fn transform_to_sessions(
     let total_accesses: u32 = sessions.iter().map(|s| s.total_accesses).sum();
     let active_chains = chains.len() as u32;
 
+    info!("[query_sessions] success: {} sessions, {} chains", total_sessions, active_chains);
     Ok(SessionQueryResult {
         time_range: time_range.to_string(),
         sessions,
@@ -772,6 +794,8 @@ fn transform_to_sessions(
 pub async fn query_chains(
     limit: Option<u32>,
 ) -> Result<ChainQueryResult, CommandError> {
+    info!("[query_chains] limit={:?}", limit);
+
     let cli_path = std::env::var("CONTEXT_OS_CLI")
         .unwrap_or_else(|_| "C:/Users/dietl/.context-os/bin/context-os.cmd".to_string());
 
@@ -803,6 +827,7 @@ pub async fn query_chains(
             details: Some(e.to_string()),
         })?;
 
+    info!("[query_chains] success: {} chains", cli_result.total_chains);
     Ok(ChainQueryResult {
         chains: cli_result.results,
         total_chains: cli_result.total_chains,

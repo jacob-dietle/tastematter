@@ -13,12 +13,13 @@ Append-only context packages for preserving state across Claude sessions.
 | # | Date | Description |
 |---|------|-------------|
 | 00 | 2026-01-05 | Unified data architecture implementation (TDD complete, 246 tests) |
+| 01 | 2026-01-05 | Logging service (Spec 09), observability-engineering skill, bug fixes |
 
 ## Current State
 
-Latest package: [[00_2026-01-05_UNIFIED_DATA_ARCHITECTURE]]
+Latest package: [[01_2026-01-05_LOGGING_SERVICE]]
 
-**Status:** Unified data architecture implemented per Spec 08. ContextProvider manages global state (timeRange, selectedChain, chains). View-specific stores (FilesStore, TimelineStore, WorkstreamStore) subscribe to context. All 246 tests passing, build succeeds. Changes uncommitted.
+**Status:** Logging service implemented per Spec 09. Two-layer logging: JSONL for IPC events with correlation IDs (`~/.tastematter/logs/`), rust.log for Rust console output (`%LOCALAPPDATA%/com.tastematter.app/logs/`). Created `observability-engineering` skill. Fixed TimelineView store bug and infinite fetch loop. All 246 tests passing. Changes uncommitted.
 
 ## How to Use
 
