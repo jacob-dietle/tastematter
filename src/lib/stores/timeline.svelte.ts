@@ -1,7 +1,15 @@
+/**
+ * TimelineStore - Unified Data Architecture (Spec 08)
+ *
+ * Timeline view store that can optionally use shared context:
+ * - If context provided: uses context.timeRange
+ * - If no context: uses internal selectedRange (backwards compatible)
+ */
 import { queryTimeline } from '$lib/api/tauri';
-import type { TimelineData, CommandError } from '$lib/types';
+import type { ContextStore } from './context.svelte';
+import type { TimelineData, TimeBucket, FileTimeline, CommandError } from '$lib/types';
 
-export function createTimelineStore() {
+export function createTimelineStore(ctx?: ContextStore) {
   // State
   let loading = $state(false);
   let data = $state<TimelineData | null>(null);
@@ -9,12 +17,17 @@ export function createTimelineStore() {
   let selectedRange = $state<'7d' | '14d' | '30d'>('7d');
   let hoveredCell = $state<{ file: string; date: string } | null>(null);
 
+  // Get timeRange - from context if available, otherwise internal state
+  function getTimeRange(): '7d' | '14d' | '30d' {
+    return ctx ? ctx.timeRange : selectedRange;
+  }
+
   // Actions
   async function fetch() {
     loading = true;
     error = null;
     try {
-      data = await queryTimeline({ time: selectedRange, limit: 30 });
+      data = await queryTimeline({ time: getTimeRange(), limit: 30 });
     } catch (e) {
       error = e as CommandError;
       data = null;
@@ -53,6 +66,21 @@ export function createTimelineStore() {
     return count / max;
   }
 
+  // Derived: files array
+  function getFiles(): FileTimeline[] {
+    return data?.files ?? [];
+  }
+
+  // Derived: buckets array
+  function getBuckets(): TimeBucket[] {
+    return data?.buckets ?? [];
+  }
+
+  // Derived: dates array from buckets
+  function getDates(): string[] {
+    return getBuckets().map(b => b.date);
+  }
+
   return {
     // State getters
     get loading() { return loading; },
@@ -62,6 +90,12 @@ export function createTimelineStore() {
     get hoveredCell() { return hoveredCell; },
     get maxAccessCount() { return getMaxAccessCount(); },
 
+    // Context-aware getters
+    get timeRange() { return getTimeRange(); },
+    get files() { return getFiles(); },
+    get buckets() { return getBuckets(); },
+    get dates() { return getDates(); },
+
     // Actions
     fetch,
     setRange,
@@ -70,3 +104,5 @@ export function createTimelineStore() {
     getIntensity,
   };
 }
+
+export type TimelineStore = ReturnType<typeof createTimelineStore>;

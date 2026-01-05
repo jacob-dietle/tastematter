@@ -1,5 +1,8 @@
 <script lang="ts">
-  import { createQueryStore } from '$lib/stores/query.svelte';
+  import { onMount } from 'svelte';
+  import { createContextStore, setAppContext } from '$lib/stores/context.svelte';
+  import { createFilesStore } from '$lib/stores/files.svelte';
+  import { createTimelineStore } from '$lib/stores/timeline.svelte';
   import TimeRangeToggle from '$lib/components/TimeRangeToggle.svelte';
   import LoadingSpinner from '$lib/components/LoadingSpinner.svelte';
   import ErrorDisplay from '$lib/components/ErrorDisplay.svelte';
@@ -7,26 +10,46 @@
   import GitPanel from '$lib/components/GitPanel.svelte';
   import TimelineView from '$lib/components/TimelineView.svelte';
   import SessionView from '$lib/components/SessionView.svelte';
-  import ChainNavigator from '$lib/components/ChainNavigator.svelte';
+  import ChainNav from '$lib/components/ChainNav.svelte';
 
-  const query = createQueryStore();
+  // Create and set global context
+  const ctx = createContextStore();
+  setAppContext(ctx);
 
-  let selectedTime = $state('7d');
+  // Create view-specific stores with context
+  const filesStore = createFilesStore(ctx);
+  const timelineStore = createTimelineStore(ctx);
+
   let activeView = $state<'files' | 'timeline' | 'sessions'>('files');
-  let selectedChain = $state<string | null>(null);
 
-  function handleChainSelect(chainId: string | null) {
-    selectedChain = chainId;
-  }
-
+  // Handle time range change - updates context, which triggers refetch
   function handleTimeChange(time: string) {
-    selectedTime = time;
-    query.fetch({ time, agg: ['count', 'recency'], limit: 50 });
+    ctx.setTimeRange(time as '7d' | '14d' | '30d');
   }
 
-  // Fetch on mount
+  // Fetch data on mount and when context changes
+  onMount(() => {
+    ctx.refreshChains();
+    filesStore.fetch();
+  });
+
+  // Refetch files when context changes
   $effect(() => {
-    query.fetch({ time: selectedTime, agg: ['count', 'recency'], limit: 50 });
+    // Track dependencies
+    const _ = ctx.timeRange;
+    const __ = ctx.selectedChain;
+
+    // Only refetch if we have initial data (avoid double fetch on mount)
+    if (filesStore.data !== null || filesStore.error !== null) {
+      filesStore.fetch();
+    }
+  });
+
+  // Refetch timeline when switching to timeline view
+  $effect(() => {
+    if (activeView === 'timeline') {
+      timelineStore.fetch();
+    }
   });
 </script>
 
@@ -45,30 +68,45 @@
           class:active={activeView === 'sessions'}
           onclick={() => activeView = 'sessions'}>Sessions</button>
       </div>
-      {#if activeView === 'files'}
-        <TimeRangeToggle selected={selectedTime} options={['7d', '30d', '90d']} onchange={handleTimeChange} />
-      {/if}
+      <TimeRangeToggle
+        selected={ctx.timeRange}
+        options={['7d', '14d', '30d']}
+        onchange={handleTimeChange}
+      />
     </div>
   </header>
 
   <div class="layout">
     <section class="content">
       {#if activeView === 'sessions'}
-        <SessionView chainFilter={selectedChain} />
+        <SessionView chainFilter={ctx.selectedChain} />
       {:else if activeView === 'timeline'}
-        <TimelineView />
-      {:else}
-        {#if query.loading}
+        {#if timelineStore.loading}
           <div class="loading-container">
             <LoadingSpinner />
           </div>
-        {:else if query.error}
+        {:else if timelineStore.error}
           <ErrorDisplay
-            error={query.error}
-            onretry={() => handleTimeChange(selectedTime)}
+            error={timelineStore.error}
+            onretry={() => timelineStore.fetch()}
           />
-        {:else if query.data}
-          <QueryResults data={query.data} />
+        {:else if timelineStore.data}
+          <TimelineView />
+        {:else}
+          <p class="empty">No timeline data yet.</p>
+        {/if}
+      {:else}
+        {#if filesStore.loading}
+          <div class="loading-container">
+            <LoadingSpinner />
+          </div>
+        {:else if filesStore.error}
+          <ErrorDisplay
+            error={filesStore.error}
+            onretry={() => filesStore.fetch()}
+          />
+        {:else if filesStore.data}
+          <QueryResults data={filesStore.data} />
         {:else}
           <p class="empty">No data yet. Select a time range.</p>
         {/if}
@@ -77,9 +115,7 @@
 
     <aside class="sidebar">
       <GitPanel />
-      {#if activeView === 'sessions'}
-        <ChainNavigator onSelect={handleChainSelect} />
-      {/if}
+      <ChainNav />
     </aside>
   </div>
 </main>
