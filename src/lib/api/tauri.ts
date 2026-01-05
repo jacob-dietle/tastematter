@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { QueryFlexArgs, QueryResult, CommandError, GitStatus, GitOpResult, TimelineQueryArgs, TimelineData, SessionQueryArgs, SessionQueryResult } from '$lib/types';
+import type { QueryFlexArgs, QueryResult, CommandError, GitStatus, GitOpResult, TimelineQueryArgs, TimelineData, SessionQueryArgs, SessionQueryResult, ChainQueryArgs, ChainQueryResult } from '$lib/types';
 
 export async function queryFlex(args: QueryFlexArgs): Promise<QueryResult> {
   try {
@@ -79,6 +79,19 @@ export async function querySessions(args: SessionQueryArgs): Promise<SessionQuer
   } catch (error) {
     if (typeof error === 'string') {
       throw { code: 'SESSION_ERROR', message: error } as CommandError;
+    }
+    throw error;
+  }
+}
+
+export async function queryChains(args: ChainQueryArgs): Promise<ChainQueryResult> {
+  try {
+    return await invoke<ChainQueryResult>('query_chains', {
+      limit: args.limit,
+    });
+  } catch (error) {
+    if (typeof error === 'string') {
+      throw { code: 'CHAIN_ERROR', message: error } as CommandError;
     }
     throw error;
   }

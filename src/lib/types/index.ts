@@ -244,3 +244,49 @@ export interface DirectoryNode {
   children?: DirectoryNode[];
   expanded?: boolean;
 }
+
+// Chain types
+
+/**
+ * Time range for a chain.
+ */
+export interface ChainTimeRange {
+  start: string;  // ISO datetime
+  end: string;    // ISO datetime
+}
+
+/**
+ * Chain data from CLI query.
+ * Represents a conversation chain across sessions.
+ */
+export interface ChainData {
+  chain_id: string;
+  session_count: number;
+  file_count: number;
+  time_range: ChainTimeRange | null;
+}
+
+/**
+ * Result of chain query.
+ */
+export interface ChainQueryResult {
+  chains: ChainData[];
+  total_chains: number;
+}
+
+/**
+ * Chain query parameters.
+ */
+export interface ChainQueryArgs {
+  limit?: number;  // Default: 20
+}
+
+/**
+ * Chain store state.
+ */
+export interface ChainState {
+  loading: boolean;
+  data: ChainQueryResult | null;
+  error: CommandError | null;
+  selectedChain: string | null;
+}

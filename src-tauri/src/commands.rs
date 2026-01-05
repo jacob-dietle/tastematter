@@ -539,6 +539,37 @@ pub async fn query_timeline(
     })
 }
 
+// Chain types for query_chains command
+
+#[derive(Serialize, Deserialize)]
+pub struct ChainTimeRange {
+    pub start: String,
+    pub end: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ChainData {
+    pub chain_id: String,
+    pub session_count: u32,
+    pub file_count: u32,
+    pub time_range: Option<ChainTimeRange>,
+}
+
+#[derive(Deserialize)]
+pub struct ChainCliResult {
+    pub command: String,
+    pub timestamp: String,
+    pub result_count: usize,
+    pub results: Vec<ChainData>,
+    pub total_chains: u32,
+}
+
+#[derive(Serialize)]
+pub struct ChainQueryResult {
+    pub chains: Vec<ChainData>,
+    pub total_chains: u32,
+}
+
 // Phase 5: Session View types
 
 #[derive(Serialize, Clone)]
@@ -732,5 +763,48 @@ fn transform_to_sessions(
             total_accesses,
             active_chains,
         },
+    })
+}
+
+// Chain query command
+
+#[command]
+pub async fn query_chains(
+    limit: Option<u32>,
+) -> Result<ChainQueryResult, CommandError> {
+    let cli_path = std::env::var("CONTEXT_OS_CLI")
+        .unwrap_or_else(|_| "C:/Users/dietl/.context-os/bin/context-os.cmd".to_string());
+
+    let mut cmd = Command::new(&cli_path);
+    cmd.current_dir("../../..");
+    cmd.args(["query", "chains", "--format", "json"]);
+    cmd.args(["--limit", &limit.unwrap_or(20).to_string()]);
+
+    let output = cmd.output().map_err(|e| CommandError {
+        code: "CLI_NOT_FOUND".to_string(),
+        message: format!("context-os CLI not found at: {}", cli_path),
+        details: Some(e.to_string()),
+    })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(CommandError {
+            code: "CLI_ERROR".to_string(),
+            message: "Chain query failed".to_string(),
+            details: Some(stderr.to_string()),
+        });
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let cli_result: ChainCliResult = serde_json::from_str(&stdout)
+        .map_err(|e| CommandError {
+            code: "PARSE_ERROR".to_string(),
+            message: "Failed to parse chain query result".to_string(),
+            details: Some(e.to_string()),
+        })?;
+
+    Ok(ChainQueryResult {
+        chains: cli_result.results,
+        total_chains: cli_result.total_chains,
     })
 }

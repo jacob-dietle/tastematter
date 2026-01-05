@@ -17,6 +17,7 @@ pub fn run() {
       commands::query_flex,
       commands::query_timeline,
       commands::query_sessions,
+      commands::query_chains,
       commands::git_status,
       commands::git_pull,
       commands::git_push
