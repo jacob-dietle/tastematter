@@ -5,7 +5,7 @@ date: 2026-01-06
 status: current
 previous_package: "[[03_2026-01-06_PHASE2_IN_PROGRESS]]"
 related:
-  - "[[11_PERF_OPTIMIZATION_SPEC]]"
+  - "[[10_PERF_OPTIMIZATION_SPEC]]"
   - "[[src/lib/stores/files.svelte.ts]]"
   - "[[src/lib/stores/timeline.svelte.ts]]"
   - "[[src/lib/stores/context.svelte.ts]]"
@@ -22,7 +22,7 @@ tags:
 
 ## Executive Summary
 
-All 6 performance optimizations from [[11_PERF_OPTIMIZATION_SPEC]] implemented and committed.
+All 6 performance optimizations from [[10_PERF_OPTIMIZATION_SPEC]] implemented and committed.
 **Phase 1:** 3 quick wins (commit `4a2fbfb`). **Phase 2:** 3 medium wins (commits `6984b46`, `f9c0729`).
 **Tests:** 236 TypeScript + 6 new Rust tests passing.
 
@@ -129,7 +129,7 @@ Command: `cd apps/tastematter/src-tauri && cargo test`
 
 | File | Purpose | Status |
 |------|---------|--------|
-| `docs/specs/11_PERF_OPTIMIZATION_SPEC.md` | Full spec for all 6 fixes | Reference |
+| `specs/10_PERF_OPTIMIZATION_SPEC.md` | Full spec for all 6 fixes | Reference |
 | `src/App.svelte` | Main orchestrator | Fix 1 applied |
 | `src/lib/stores/files.svelte.ts` | Files store | Fix 4 applied |
 | `src/lib/stores/timeline.svelte.ts` | Timeline store | Fix 4 applied |

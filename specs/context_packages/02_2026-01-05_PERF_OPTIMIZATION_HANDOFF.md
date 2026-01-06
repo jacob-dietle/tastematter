@@ -3,9 +3,9 @@ title: "Tastematter Context Package 02 - Performance Optimization Handoff"
 package_number: 02
 date: 2026-01-05
 status: current
-previous_package: null
+previous_package: "[[01_2026-01-05_LOGGING_SERVICE]]"
 related:
-  - "[[11_PERF_OPTIMIZATION_SPEC]]"
+  - "[[10_PERF_OPTIMIZATION_SPEC]]"
   - "[[src/App.svelte]]"
   - "[[src/lib/components/WorkstreamView.svelte]]"
   - "[[src/lib/stores/git.svelte.ts]]"
@@ -134,7 +134,7 @@ Tastematter App (Svelte 5 + Tauri)
 ### Start Here
 
 1. Read this context package (you're doing it now)
-2. Read [[11_PERF_OPTIMIZATION_SPEC]] for exact code changes
+2. Read [[10_PERF_OPTIMIZATION_SPEC]] for exact code changes
 3. Run `cd apps/tastematter && npm test` to verify 236 tests passing
 4. Implement 3 fixes in order (each is trivial)
 5. Run tests after each fix

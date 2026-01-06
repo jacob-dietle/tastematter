@@ -5,7 +5,7 @@ date: 2026-01-06
 status: current
 previous_package: "[[02_2026-01-05_PERF_OPTIMIZATION_HANDOFF]]"
 related:
-  - "[[11_PERF_OPTIMIZATION_SPEC]]"
+  - "[[10_PERF_OPTIMIZATION_SPEC]]"
   - "[[src/lib/stores/files.svelte.ts]]"
   - "[[src/lib/stores/timeline.svelte.ts]]"
   - "[[src/lib/stores/context.svelte.ts]]"
@@ -78,7 +78,7 @@ Tastematter App (Svelte 5 + Tauri)
 
 ### Completed This Session
 - [x] Phase 1: All 3 fixes implemented and committed [VERIFIED: commit 4a2fbfb]
-- [x] Wrote spec: [[11_PERF_OPTIMIZATION_SPEC]] [VERIFIED: file exists]
+- [x] Wrote spec: [[10_PERF_OPTIMIZATION_SPEC]] [VERIFIED: file exists]
 - [x] Fix 4 partial: files.svelte.ts request deduplication [VERIFIED: git status shows modified]
 
 ### In Progress
@@ -154,14 +154,14 @@ Lines: 181-255
 
 Replace 4 git process spawns with 1 using `git status -sb --porcelain`.
 
-See [[11_PERF_OPTIMIZATION_SPEC]] for full implementation details.
+See [[10_PERF_OPTIMIZATION_SPEC]] for full implementation details.
 
 ## File Locations
 
 | File | Purpose | Status |
 |------|---------|--------|
-| `docs/specs/11_PERF_OPTIMIZATION_SPEC.md` | Full spec for all 6 fixes | Reference |
-| `docs/specs/context_packages/02_*.md` | Previous context package | Reference |
+| `specs/10_PERF_OPTIMIZATION_SPEC.md` | Full spec for all 6 fixes | Reference |
+| `specs/context_packages/02_*.md` | Previous context package | Reference |
 | `src/lib/stores/files.svelte.ts` | Files store | Modified (Fix 4 done) |
 | `src/lib/stores/timeline.svelte.ts` | Timeline store | Needs Fix 4 |
 | `src/lib/stores/context.svelte.ts` | Context store | Needs Fix 4 |
@@ -178,7 +178,7 @@ See [[11_PERF_OPTIMIZATION_SPEC]] for full implementation details.
 ### Start Here
 
 1. Read this context package (you're doing it now)
-2. Read [[11_PERF_OPTIMIZATION_SPEC]] for exact code changes
+2. Read [[10_PERF_OPTIMIZATION_SPEC]] for exact code changes
 3. Run `cd apps/tastematter && npm test` to verify 236 tests passing
 4. Complete Fix 4 in timeline.svelte.ts (copy pattern from files.svelte.ts)
 5. Complete Fix 4 in context.svelte.ts (same pattern for refreshChains)
