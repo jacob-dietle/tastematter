@@ -18,23 +18,35 @@ export function createFilesStore(ctx: ContextStore) {
   let sort = $state<'count' | 'recency' | 'alpha'>('count');
   let granularity = $state<'file' | 'directory'>('file');
 
+  // Request deduplication: ignore stale responses from superseded requests
+  let currentRequestId = 0;
+
   // Actions
   async function fetch() {
+    const requestId = ++currentRequestId;
     loading = true;
     error = null;
     try {
-      data = await queryFlex({
+      const result = await queryFlex({
         time: ctx.timeRange,
         chain: ctx.selectedChain ?? undefined,
         agg: ['count', 'recency', 'sessions'],
         limit: 50,
         sort: sort,
       });
+      // Only update state if this is still the current request
+      if (requestId === currentRequestId) {
+        data = result;
+      }
     } catch (e) {
-      error = e as CommandError;
-      data = null;
+      if (requestId === currentRequestId) {
+        error = e as CommandError;
+        data = null;
+      }
     } finally {
-      loading = false;
+      if (requestId === currentRequestId) {
+        loading = false;
+      }
     }
   }
 
