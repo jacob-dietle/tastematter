@@ -179,9 +179,9 @@ pub struct GitOpResult {
 
 #[command]
 pub async fn git_status() -> Result<GitStatus, CommandError> {
-    // Get current branch
-    let branch_output = Command::new("git")
-        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+    // Single command gets branch, ahead/behind, and file status
+    let output = Command::new("git")
+        .args(["status", "-sb", "--porcelain"])
         .output()
         .map_err(|e| CommandError {
             code: "GIT_NOT_FOUND".to_string(),
@@ -189,25 +189,14 @@ pub async fn git_status() -> Result<GitStatus, CommandError> {
             details: Some(e.to_string()),
         })?;
 
-    let branch = String::from_utf8_lossy(&branch_output.stdout)
-        .trim()
-        .to_string();
+    let status_str = String::from_utf8_lossy(&output.stdout);
 
-    // Get ahead/behind counts
-    let (ahead, behind) = get_ahead_behind();
+    // Parse header line for branch and ahead/behind
+    let (branch, ahead, behind) = parse_status_sb_header(&status_str);
 
-    // Get file status
-    let status_output = Command::new("git")
-        .args(["status", "--porcelain"])
-        .output()
-        .map_err(|e| CommandError {
-            code: "GIT_ERROR".to_string(),
-            message: "Failed to get git status".to_string(),
-            details: Some(e.to_string()),
-        })?;
-
-    let status_str = String::from_utf8_lossy(&status_output.stdout);
-    let (staged, modified, untracked, has_conflicts) = parse_porcelain_status(&status_str);
+    // Skip first line (header) for file parsing
+    let file_lines: String = status_str.lines().skip(1).collect::<Vec<_>>().join("\n");
+    let (staged, modified, untracked, has_conflicts) = parse_porcelain_status(&file_lines);
 
     Ok(GitStatus {
         branch,
@@ -218,40 +207,6 @@ pub async fn git_status() -> Result<GitStatus, CommandError> {
         untracked,
         has_conflicts,
     })
-}
-
-fn get_ahead_behind() -> (u32, u32) {
-    // Get ahead count
-    let ahead_output = Command::new("git")
-        .args(["rev-list", "--count", "@{u}..HEAD"])
-        .output();
-
-    let ahead = match ahead_output {
-        Ok(output) if output.status.success() => {
-            String::from_utf8_lossy(&output.stdout)
-                .trim()
-                .parse()
-                .unwrap_or(0)
-        }
-        _ => 0, // No upstream or error
-    };
-
-    // Get behind count
-    let behind_output = Command::new("git")
-        .args(["rev-list", "--count", "HEAD..@{u}"])
-        .output();
-
-    let behind = match behind_output {
-        Ok(output) if output.status.success() => {
-            String::from_utf8_lossy(&output.stdout)
-                .trim()
-                .parse()
-                .unwrap_or(0)
-        }
-        _ => 0,
-    };
-
-    (ahead, behind)
 }
 
 fn parse_porcelain_status(status: &str) -> (Vec<String>, Vec<String>, Vec<String>, bool) {
@@ -832,4 +787,96 @@ pub async fn query_chains(
         chains: cli_result.results,
         total_chains: cli_result.total_chains,
     })
+}
+
+// Parse git status -sb header line to extract branch and ahead/behind counts
+// Format: "## main...origin/main [ahead 2, behind 3]" or "## main" (no upstream)
+fn parse_status_sb_header(output: &str) -> (String, u32, u32) {
+    let first_line = output.lines().next().unwrap_or("");
+
+    // Extract branch: "## main...origin/main" → "main"
+    let branch = first_line
+        .strip_prefix("## ")
+        .and_then(|s| s.split("...").next())
+        .map(|s| s.split_whitespace().next().unwrap_or(s))
+        .unwrap_or("main")
+        .to_string();
+
+    // Extract ahead/behind: "[ahead 2, behind 3]"
+    let (ahead, behind) = if let Some(bracket_start) = first_line.find('[') {
+        let bracket_content = &first_line[bracket_start..];
+        let ahead = extract_count(bracket_content, "ahead ");
+        let behind = extract_count(bracket_content, "behind ");
+        (ahead, behind)
+    } else {
+        (0, 0)
+    };
+
+    (branch, ahead, behind)
+}
+
+// Extract a numeric count following a prefix string
+fn extract_count(s: &str, prefix: &str) -> u32 {
+    s.find(prefix)
+        .and_then(|i| {
+            let after = &s[i + prefix.len()..];
+            after.split(|c: char| !c.is_ascii_digit())
+                .next()
+                .and_then(|n| n.parse().ok())
+        })
+        .unwrap_or(0)
+}
+
+// Tests for git status parsing
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_status_sb_with_upstream() {
+        let output = "## main...origin/main [ahead 2, behind 3]\n M file1.txt\n?? file2.txt";
+        let (branch, ahead, behind) = parse_status_sb_header(output);
+        assert_eq!(branch, "main");
+        assert_eq!(ahead, 2);
+        assert_eq!(behind, 3);
+    }
+
+    #[test]
+    fn test_parse_status_sb_no_upstream() {
+        let output = "## main\n M file.txt";
+        let (branch, ahead, behind) = parse_status_sb_header(output);
+        assert_eq!(branch, "main");
+        assert_eq!(ahead, 0);
+        assert_eq!(behind, 0);
+    }
+
+    #[test]
+    fn test_parse_status_sb_ahead_only() {
+        let output = "## feature...origin/feature [ahead 5]";
+        let (branch, ahead, behind) = parse_status_sb_header(output);
+        assert_eq!(branch, "feature");
+        assert_eq!(ahead, 5);
+        assert_eq!(behind, 0);
+    }
+
+    #[test]
+    fn test_parse_status_sb_behind_only() {
+        let output = "## main...origin/main [behind 1]";
+        let (branch, ahead, behind) = parse_status_sb_header(output);
+        assert_eq!(branch, "main");
+        assert_eq!(ahead, 0);
+        assert_eq!(behind, 1);
+    }
+
+    #[test]
+    fn test_extract_count_found() {
+        assert_eq!(extract_count("[ahead 5, behind 3]", "ahead "), 5);
+        assert_eq!(extract_count("[ahead 5, behind 3]", "behind "), 3);
+    }
+
+    #[test]
+    fn test_extract_count_not_found() {
+        assert_eq!(extract_count("[ahead 5]", "behind "), 0);
+        assert_eq!(extract_count("no brackets", "ahead "), 0);
+    }
 }
