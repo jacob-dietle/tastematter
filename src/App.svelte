@@ -10,7 +10,7 @@
   import QueryResults from '$lib/components/QueryResults.svelte';
   import GitPanel from '$lib/components/GitPanel.svelte';
   import TimelineView from '$lib/components/TimelineView.svelte';
-  import SessionView from '$lib/components/SessionView.svelte';
+  import WorkstreamView from '$lib/components/WorkstreamView.svelte';
   import ChainNav from '$lib/components/ChainNav.svelte';
 
   // Create and set global context
@@ -21,7 +21,7 @@
   const filesStore = createFilesStore(ctx);
   const timelineStore = createTimelineStore(ctx);
 
-  let activeView = $state<'files' | 'timeline' | 'sessions'>('files');
+  let activeView = $state<'files' | 'timeline' | 'workstreams'>('files');
 
   // Handle time range change - updates context, which triggers refetch
   function handleTimeChange(time: string) {
@@ -70,8 +70,8 @@
           class:active={activeView === 'timeline'}
           onclick={() => activeView = 'timeline'}>Timeline</button>
         <button
-          class:active={activeView === 'sessions'}
-          onclick={() => activeView = 'sessions'}>Sessions</button>
+          class:active={activeView === 'workstreams'}
+          onclick={() => activeView = 'workstreams'}>Workstreams</button>
       </div>
       <TimeRangeToggle
         selected={ctx.timeRange}
@@ -83,8 +83,8 @@
 
   <div class="layout">
     <section class="content">
-      {#if activeView === 'sessions'}
-        <SessionView chainFilter={ctx.selectedChain} />
+      {#if activeView === 'workstreams'}
+        <WorkstreamView />
       {:else if activeView === 'timeline'}
         {#if timelineStore.loading}
           <div class="loading-container">
