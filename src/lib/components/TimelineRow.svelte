@@ -20,21 +20,24 @@
   // Determine if this is a "hot" file (top activity)
   let isHot = $derived(totalActivity > 0 && totalActivity >= maxCount * 0.5);
 
+  // Pre-compute date classifications once (O(n) instead of O(n²) on each render)
+  const todayStr = new Date().toISOString().split('T')[0];
+  const dateClassifications = $derived(
+    dates.reduce((acc, date) => {
+      const d = new Date(date);
+      const day = d.getDay();
+      acc[date] = {
+        isWeekend: day === 0 || day === 6,
+        isToday: date === todayStr
+      };
+      return acc;
+    }, {} as Record<string, { isWeekend: boolean; isToday: boolean }>)
+  );
+
   function getColor(date: string): string {
     const count = buckets[date] ?? 0;
     const intensity = calculateIntensity(count, maxCount);
     return getHeatColor(intensity);
-  }
-
-  function isWeekend(date: string): boolean {
-    const d = new Date(date);
-    const day = d.getDay();
-    return day === 0 || day === 6;
-  }
-
-  function isToday(date: string): boolean {
-    const today = new Date().toISOString().split('T')[0];
-    return date === today;
   }
 
   function handleMouseEnter(date: string) {
@@ -67,8 +70,8 @@
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
         class="heat-cell"
-        class:weekend={isWeekend(date)}
-        class:today={isToday(date)}
+        class:weekend={dateClassifications[date]?.isWeekend}
+        class:today={dateClassifications[date]?.isToday}
         class:has-activity={buckets[date] > 0}
         style="background-color: {getColor(date)}"
         onmouseenter={() => handleMouseEnter(date)}

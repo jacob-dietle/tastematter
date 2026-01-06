@@ -17,6 +17,9 @@ export function createTimelineStore(ctx?: ContextStore) {
   let selectedRange = $state<'7d' | '14d' | '30d'>('7d');
   let hoveredCell = $state<{ file: string; date: string } | null>(null);
 
+  // Request deduplication: ignore stale responses from superseded requests
+  let currentRequestId = 0;
+
   // Get timeRange - from context if available, otherwise internal state
   function getTimeRange(): '7d' | '14d' | '30d' {
     return ctx ? ctx.timeRange : selectedRange;
@@ -24,15 +27,24 @@ export function createTimelineStore(ctx?: ContextStore) {
 
   // Actions
   async function fetch() {
+    const requestId = ++currentRequestId;
     loading = true;
     error = null;
     try {
-      data = await queryTimeline({ time: getTimeRange(), limit: 30 });
+      const result = await queryTimeline({ time: getTimeRange(), limit: 30 });
+      // Only update state if this is still the current request
+      if (requestId === currentRequestId) {
+        data = result;
+      }
     } catch (e) {
-      error = e as CommandError;
-      data = null;
+      if (requestId === currentRequestId) {
+        error = e as CommandError;
+        data = null;
+      }
     } finally {
-      loading = false;
+      if (requestId === currentRequestId) {
+        loading = false;
+      }
     }
   }
 

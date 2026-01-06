@@ -21,20 +21,31 @@ export function createContextStore() {
   let chainsLoading = $state(false);
   let chainsError = $state<CommandError | null>(null);
 
+  // Request deduplication: ignore stale responses from superseded requests
+  let currentChainsRequestId = 0;
+
   // Actions
   async function refreshChains() {
+    const requestId = ++currentChainsRequestId;
     chainsLoading = true;
     chainsError = null;
     try {
       const result = await queryChains({ limit: 50 });
-      chains = result.chains;
-      totalChainsCount = result.total_chains;
+      // Only update state if this is still the current request
+      if (requestId === currentChainsRequestId) {
+        chains = result.chains;
+        totalChainsCount = result.total_chains;
+      }
     } catch (e) {
-      chainsError = e as CommandError;
-      chains = [];
-      totalChainsCount = 0;
+      if (requestId === currentChainsRequestId) {
+        chainsError = e as CommandError;
+        chains = [];
+        totalChainsCount = 0;
+      }
     } finally {
-      chainsLoading = false;
+      if (requestId === currentChainsRequestId) {
+        chainsLoading = false;
+      }
     }
   }
 
