@@ -32,8 +32,8 @@ export function createGitStore() {
     try {
       lastOperation = await gitPull();
       if (lastOperation.success) {
-        // Refresh status after successful pull
-        await fetchStatus();
+        // Refresh status in background (don't block UI)
+        fetchStatus();
       }
     } catch (e) {
       lastOperation = {
@@ -53,8 +53,8 @@ export function createGitStore() {
     try {
       lastOperation = await gitPush();
       if (lastOperation.success) {
-        // Refresh status after successful push
-        await fetchStatus();
+        // Refresh status in background (don't block UI)
+        fetchStatus();
       }
     } catch (e) {
       lastOperation = {

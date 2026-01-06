@@ -21,7 +21,7 @@
   const filesStore = createFilesStore(ctx);
   const timelineStore = createTimelineStore(ctx);
 
-  let activeView = $state<'files' | 'timeline' | 'workstreams'>('files');
+  let activeView = $state<'files' | 'timeline' | 'sessions'>('files');
 
   // Handle time range change - updates context, which triggers refetch
   function handleTimeChange(time: string) {
@@ -44,7 +44,8 @@
     const __ = ctx.selectedChain;
 
     // Use untrack to check data without creating dependency (prevents infinite loop)
-    const hasInitialData = untrack(() => filesStore.data !== null || filesStore.error !== null);
+    // Note: Only check for data, not error - checking error causes refetch loop on failures
+    const hasInitialData = untrack(() => filesStore.data !== null);
     if (hasInitialData) {
       filesStore.fetch();
     }
@@ -70,8 +71,8 @@
           class:active={activeView === 'timeline'}
           onclick={() => activeView = 'timeline'}>Timeline</button>
         <button
-          class:active={activeView === 'workstreams'}
-          onclick={() => activeView = 'workstreams'}>Workstreams</button>
+          class:active={activeView === 'sessions'}
+          onclick={() => activeView = 'sessions'}>Sessions</button>
       </div>
       <TimeRangeToggle
         selected={ctx.timeRange}
@@ -83,7 +84,7 @@
 
   <div class="layout">
     <section class="content">
-      {#if activeView === 'workstreams'}
+      {#if activeView === 'sessions'}
         <WorkstreamView />
       {:else if activeView === 'timeline'}
         {#if timelineStore.loading}

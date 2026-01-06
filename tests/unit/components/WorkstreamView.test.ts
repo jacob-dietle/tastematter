@@ -1,21 +1,42 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
 import WorkstreamView from '$lib/components/WorkstreamView.svelte';
-import type { ChainData, CommandError } from '$lib/types';
+import type { SessionData, CommandError } from '$lib/types';
 
-// Mock chain data
-const mockChains: ChainData[] = [
+// Mock session data
+const mockSessions: SessionData[] = [
   {
+    session_id: 'session-001',
     chain_id: 'chain-001',
-    session_count: 10,
-    file_count: 50,
-    time_range: { start: '2025-12-01T00:00:00Z', end: '2025-12-15T00:00:00Z' },
+    started_at: '2025-12-15T14:00:00Z',
+    ended_at: '2025-12-15T16:00:00Z',
+    duration_seconds: 7200,
+    file_count: 5,
+    total_accesses: 20,
+    files: [],
+    top_files: [],
   },
   {
+    session_id: 'session-002',
+    chain_id: 'chain-001',
+    started_at: '2025-12-14T10:00:00Z',
+    ended_at: '2025-12-14T12:00:00Z',
+    duration_seconds: 7200,
+    file_count: 3,
+    total_accesses: 15,
+    files: [],
+    top_files: [],
+  },
+  {
+    session_id: 'session-003',
     chain_id: 'chain-002',
-    session_count: 5,
-    file_count: 20,
-    time_range: { start: '2025-12-10T00:00:00Z', end: '2025-12-14T00:00:00Z' },
+    started_at: '2025-12-13T08:00:00Z',
+    ended_at: '2025-12-13T10:00:00Z',
+    duration_seconds: 7200,
+    file_count: 2,
+    total_accesses: 10,
+    files: [],
+    top_files: [],
   },
 ];
 
@@ -23,80 +44,35 @@ const mockChains: ChainData[] = [
 let mockContextState = {
   timeRange: '7d' as '7d' | '14d' | '30d',
   selectedChain: null as string | null,
-  chains: mockChains,
-  chainsLoading: false,
-  chainsError: null as CommandError | null,
-  totalChains: 2,
 };
 
-// Mock workstream store state
-let mockWorkstreamState = {
-  expandedChains: new Set<string>(),
-  expandedSessions: new Set<string>(),
-  totalLoadedSessions: 0,
-};
+const mockSetSelectedChain = vi.fn();
 
-// Mock functions
-const mockExpandAllChains = vi.fn();
-const mockCollapseAllChains = vi.fn();
-const mockToggleChainExpanded = vi.fn();
-const mockIsChainExpanded = vi.fn((chainId: string) => mockWorkstreamState.expandedChains.has(chainId));
-const mockIsChainLoading = vi.fn(() => false);
-const mockGetSessionsForChain = vi.fn(() => []);
-const mockGetChainError = vi.fn(() => null);
-const mockToggleSessionExpanded = vi.fn();
-const mockRetryLoadSessions = vi.fn();
+// Mock querySessions API
+const mockQuerySessions = vi.fn().mockResolvedValue({ sessions: mockSessions });
 
 // Mock the context store
 vi.mock('$lib/stores/context.svelte', () => ({
   getAppContext: vi.fn(() => ({
     get timeRange() { return mockContextState.timeRange; },
     get selectedChain() { return mockContextState.selectedChain; },
-    get chains() { return mockContextState.chains; },
-    get chainsLoading() { return mockContextState.chainsLoading; },
-    get chainsError() { return mockContextState.chainsError; },
-    get totalChains() { return mockContextState.totalChains; },
+    setSelectedChain: mockSetSelectedChain,
   })),
 }));
 
-// Mock the workstream store
-vi.mock('$lib/stores/workstream.svelte', () => ({
-  createWorkstreamStore: vi.fn(() => ({
-    get chains() { return mockContextState.chains; },
-    get timeRange() { return mockContextState.timeRange; },
-    get selectedChain() { return mockContextState.selectedChain; },
-    get expandedChains() { return mockWorkstreamState.expandedChains; },
-    get expandedSessions() { return mockWorkstreamState.expandedSessions; },
-    get totalLoadedSessions() { return mockWorkstreamState.totalLoadedSessions; },
-    expandAllChains: mockExpandAllChains,
-    collapseAllChains: mockCollapseAllChains,
-    toggleChainExpanded: mockToggleChainExpanded,
-    isChainExpanded: mockIsChainExpanded,
-    isChainLoading: mockIsChainLoading,
-    getSessionsForChain: mockGetSessionsForChain,
-    getChainError: mockGetChainError,
-    toggleSessionExpanded: mockToggleSessionExpanded,
-    retryLoadSessions: mockRetryLoadSessions,
-  })),
+// Mock the Tauri API
+vi.mock('$lib/api/tauri', () => ({
+  querySessions: (...args: unknown[]) => mockQuerySessions(...args),
 }));
 
 describe('WorkstreamView', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Reset to default state
     mockContextState = {
       timeRange: '7d',
       selectedChain: null,
-      chains: mockChains,
-      chainsLoading: false,
-      chainsError: null,
-      totalChains: 2,
     };
-    mockWorkstreamState = {
-      expandedChains: new Set<string>(),
-      expandedSessions: new Set<string>(),
-      totalLoadedSessions: 0,
-    };
+    mockQuerySessions.mockResolvedValue({ sessions: mockSessions });
   });
 
   // Rendering tests
@@ -105,72 +81,144 @@ describe('WorkstreamView', () => {
     expect(screen.getByTestId('workstream-view')).toBeInTheDocument();
   });
 
-  test('renders header with "Workstreams" title', () => {
+  test('renders header with "Sessions" title', () => {
     render(WorkstreamView);
-    expect(screen.getByText('Workstreams')).toBeInTheDocument();
+    expect(screen.getByText('Sessions')).toBeInTheDocument();
   });
 
-  test('displays total chains count from context', () => {
+  test('renders refresh button', () => {
     render(WorkstreamView);
-    expect(screen.getByText(/2 chains/i)).toBeInTheDocument();
+    expect(screen.getByTitle('Refresh data')).toBeInTheDocument();
   });
 
-  test('displays total loaded sessions count', () => {
-    mockWorkstreamState.totalLoadedSessions = 15;
+  // API call tests
+  test('calls querySessions on mount', async () => {
     render(WorkstreamView);
-    expect(screen.getByText(/15 sessions/i)).toBeInTheDocument();
+    // Wait for effect to run
+    await vi.waitFor(() => {
+      expect(mockQuerySessions).toHaveBeenCalledWith({ time: '7d', limit: 100 });
+    });
   });
 
-  // Chain list rendering tests
-  test('renders ChainCard for each chain from context.chains', () => {
+  test('calls querySessions with current timeRange', async () => {
+    mockContextState.timeRange = '30d';
     render(WorkstreamView);
-    const chainCards = screen.getAllByTestId('chain-card');
-    expect(chainCards).toHaveLength(2);
+    await vi.waitFor(() => {
+      expect(mockQuerySessions).toHaveBeenCalledWith({ time: '30d', limit: 100 });
+    });
   });
 
-  test('shows LoadingSpinner when chainsLoading is true', () => {
-    mockContextState.chainsLoading = true;
-    mockContextState.chains = [];
+  // Summary stats tests
+  test('displays summary stats after loading', async () => {
+    render(WorkstreamView);
+    await vi.waitFor(() => {
+      expect(screen.getByTestId('session-summary')).toBeInTheDocument();
+    });
+  });
+
+  test('shows session count in summary', async () => {
+    render(WorkstreamView);
+    await vi.waitFor(() => {
+      expect(screen.getByText(/3 sessions/i)).toBeInTheDocument();
+    });
+  });
+
+  test('shows chains count in summary', async () => {
+    render(WorkstreamView);
+    await vi.waitFor(() => {
+      expect(screen.getByText(/2 chains/i)).toBeInTheDocument();
+    });
+  });
+
+  // Session list rendering tests
+  test('renders SessionCard for each session', async () => {
+    render(WorkstreamView);
+    await vi.waitFor(() => {
+      const sessionCards = screen.getAllByTestId('session-card');
+      expect(sessionCards).toHaveLength(3);
+    });
+  });
+
+  // Loading state tests
+  test('shows LoadingSpinner initially', () => {
+    mockQuerySessions.mockImplementation(() => new Promise(() => {})); // Never resolves
     render(WorkstreamView);
     expect(screen.getByTestId('loading-spinner')).toBeInTheDocument();
   });
 
-  test('shows ErrorDisplay when chainsError is present', () => {
-    mockContextState.chainsError = { code: 'CHAIN_ERROR', message: 'Failed to load chains' };
-    mockContextState.chains = [];
+  // Error state tests
+  test('shows ErrorDisplay when API fails', async () => {
+    mockQuerySessions.mockRejectedValue({ code: 'API_ERROR', message: 'Failed to load' });
     render(WorkstreamView);
-    expect(screen.getByText(/Failed to load chains/i)).toBeInTheDocument();
+    await vi.waitFor(() => {
+      expect(screen.getByText(/Failed to load/i)).toBeInTheDocument();
+    });
   });
 
-  test('shows empty state when chains is empty', () => {
-    mockContextState.chains = [];
-    mockContextState.totalChains = 0;
+  // Empty state tests
+  test('shows empty state when no sessions', async () => {
+    mockQuerySessions.mockResolvedValue({ sessions: [] });
     render(WorkstreamView);
-    expect(screen.getByText(/No chains/i)).toBeInTheDocument();
+    await vi.waitFor(() => {
+      expect(screen.getByText(/No sessions found/i)).toBeInTheDocument();
+    });
   });
 
-  // Expand/collapse all tests
-  test('has "Expand All" button', () => {
+  // Filter bar tests
+  test('shows filter bar when selectedChain is set', async () => {
+    mockContextState.selectedChain = 'chain-001';
     render(WorkstreamView);
-    expect(screen.getByText('Expand All')).toBeInTheDocument();
+    await vi.waitFor(() => {
+      expect(screen.getByText(/Filtered by chain/i)).toBeInTheDocument();
+    });
   });
 
-  test('has "Collapse All" button', () => {
+  test('hides filter bar when selectedChain is null', async () => {
+    mockContextState.selectedChain = null;
     render(WorkstreamView);
-    expect(screen.getByText('Collapse All')).toBeInTheDocument();
+    await vi.waitFor(() => {
+      expect(screen.queryByText(/Filtered by chain/i)).not.toBeInTheDocument();
+    });
   });
 
-  test('calls workstreamStore.expandAllChains when Expand All clicked', async () => {
+  test('calls setSelectedChain(null) when Clear filter clicked', async () => {
+    mockContextState.selectedChain = 'chain-001';
     render(WorkstreamView);
-    const expandAllBtn = screen.getByText('Expand All');
-    await fireEvent.click(expandAllBtn);
-    expect(mockExpandAllChains).toHaveBeenCalled();
+    await vi.waitFor(() => {
+      expect(screen.getByText('Clear filter')).toBeInTheDocument();
+    });
+    const clearBtn = screen.getByText('Clear filter');
+    await fireEvent.click(clearBtn);
+    expect(mockSetSelectedChain).toHaveBeenCalledWith(null);
   });
 
-  test('calls workstreamStore.collapseAllChains when Collapse All clicked', async () => {
+  // Refresh button tests
+  test('refresh button is clickable and not disabled when not loading', async () => {
     render(WorkstreamView);
-    const collapseAllBtn = screen.getByText('Collapse All');
-    await fireEvent.click(collapseAllBtn);
-    expect(mockCollapseAllChains).toHaveBeenCalled();
+    await vi.waitFor(() => {
+      expect(screen.getByTestId('session-summary')).toBeInTheDocument();
+    });
+    const refreshBtn = screen.getByTitle('Refresh data');
+    expect(refreshBtn).not.toBeDisabled();
+  });
+
+  // Client-side filtering tests
+  test('filters sessions by selectedChain', async () => {
+    mockContextState.selectedChain = 'chain-002';
+    render(WorkstreamView);
+    await vi.waitFor(() => {
+      const sessionCards = screen.getAllByTestId('session-card');
+      // Should only show 1 session (chain-002 has 1 session)
+      expect(sessionCards).toHaveLength(1);
+    });
+  });
+
+  test('updates summary when filtered', async () => {
+    mockContextState.selectedChain = 'chain-002';
+    render(WorkstreamView);
+    await vi.waitFor(() => {
+      expect(screen.getByText(/1 sessions/i)).toBeInTheDocument();
+      expect(screen.getByText(/1 chains/i)).toBeInTheDocument();
+    });
   });
 });
