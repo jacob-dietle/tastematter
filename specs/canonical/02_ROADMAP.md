@@ -8,6 +8,9 @@ foundation:
   - "[[_system/specs/architecture/context_operating_system/06_INTELLIGENT_GITOPS_SPEC.md]]"
   - "[[specs/08_UNIFIED_DATA_ARCHITECTURE.md]]"
   - "[[specs/10_PERF_OPTIMIZATION_SPEC.md]]"
+  - "[[.claude/skills/context-query/skill.md]]"
+  - "[[apps/context_os_events/specs/context_os_intelligence/01_ARCHITECTURE_GUIDE.md]]"
+  - "[[apps/context_os_events/specs/context_os_intelligence/02_INDEX_STRUCTURES.md]]"
 related:
   - "[[canonical/00_VISION]]"
   - "[[canonical/01_PRINCIPLES]]"
@@ -80,6 +83,59 @@ Six phases from current state to full vision, each addressing specific principle
 | <100ms view switches | P0 | IMMEDIATE |
 
 [VERIFIED: Codebase exploration 2026-01-07]
+
+---
+
+## Why Level 0 Architecture Matters
+
+The roadmap isn't arbitrary - each phase depends on specific capabilities of the underlying hypercube system.
+
+### The Two-Layer Architecture
+
+The key architectural insight from context_os_intelligence:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  LAYER 2: INTELLIGENT AGENT (Tastematter + Claude)          │
+│  • Judgment: "which client is this?" "what should I show?"  │
+│  • Natural language understanding                           │
+│  • Context-aware decisions                                  │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              │ Queries (fast, deterministic)
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│  LAYER 1: DETERMINISTIC INDEX (context-os CLI)              │
+│  • Chain graph, co-access matrix, temporal buckets          │
+│  • NO LLM - pure parsing and computation                    │
+│  • Millisecond responses for pre-computed views             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+[VERIFIED: [[01_ARCHITECTURE_GUIDE.md]]:12-46]
+
+**Why this matters for Tastematter:**
+
+- Phase 0 (Performance) = Moving queries from Python-spawning to Rust-native against Layer 1
+- Phase 1 (Stigmergic) = Using Chain Graph to show git state (already computed, just needs surfacing)
+- Phase 3 (Agent Control) = Exposing Layer 1 primitives as CLI commands agents can invoke
+
+The current 5-second latency happens because we spawn Python for every query. Phase 0 eliminates this by querying SQLite directly from Rust - the data model is already there, we just need faster access.
+
+### Phase Dependencies Mapped
+
+| Phase | What We Need | Why Layer 1 Provides It |
+|-------|--------------|-------------------------|
+| Phase 0 | <100ms queries | SQLite indexes are pre-computed |
+| Phase 1 | Chain detection | leafUuid linking already captured |
+| Phase 2 | Cross-repo views | Same schema, multiple databases |
+| Phase 3 | Agent CLI protocol | Hypercube slicing = finite operations |
+| Phase 4 | Real-time updates | Background indexer watches git |
+| Phase 5 | MCP publishing | Query results = structured data |
+
+The beauty of the two-layer architecture: Layer 1 does all the expensive computation once. Layer 2 (Tastematter + agents) just slices and renders.
+
+[VERIFIED: [[.claude/skills/context-query/skill.md]]:Index Understanding - what's captured and how]
 
 ---
 

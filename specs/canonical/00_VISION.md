@@ -8,6 +8,9 @@ foundation:
   - "[[_system/specs/architecture/context_operating_system/04_GIT_STIGMERGY_FOUNDATION.md]]"
   - "[[_system/specs/architecture/context_operating_system/05_PRODUCT_ARCHITECTURE.md]]"
   - "[[_system/specs/architecture/context_operating_system/06_INTELLIGENT_GITOPS_SPEC.md]]"
+  - "[[.claude/skills/context-query/skill.md]]"
+  - "[[apps/context_os_events/specs/context_os_intelligence/01_ARCHITECTURE_GUIDE.md]]"
+  - "[[apps/context_os_events/specs/context_os_intelligence/02_INDEX_STRUCTURES.md]]"
 related:
   - "[[canonical/01_PRINCIPLES]]"
   - "[[canonical/02_ROADMAP]]"
@@ -62,6 +65,47 @@ Agents and humans coordinate by reading and writing to git repos, not by direct 
 ```
 
 Tastematter is not a standalone tool - it's a layer in an integrated stack where each level builds on the one below.
+
+---
+
+## The Query Model Foundation
+
+Level 0 isn't just a CLI - it's a **hypercube query engine** that treats work context as a 5-dimensional data cube. Understanding this is critical because Tastematter is the visual interface to this model.
+
+### The Five Dimensions
+
+| Dimension | What It Tracks | Source |
+|-----------|----------------|--------|
+| FILES | Every file path from Claude tool calls | [[02_INDEX_STRUCTURES.md]]:26-35 |
+| SESSIONS | Session UUID, start/end time | [[02_INDEX_STRUCTURES.md]]:128-141 |
+| TIME | UTC timestamp per file access | [[02_INDEX_STRUCTURES.md]]:148-160 |
+| CHAINS | Conversation continuity via leafUuid | [[02_INDEX_STRUCTURES.md]]:9-126 |
+| ACCESS_TYPE | read, write, create | [[02_INDEX_STRUCTURES.md]]:161-175 |
+
+### Index Structures
+
+The hypercube is powered by deterministic indexes (no LLM, pure computation):
+
+- **Chain Graph** - leafUuid-based conversation linking (80% of chain detection for free)
+- **File Tree Index** - Annotated trie with file → session mappings
+- **Co-access Matrix** - Files frequently touched together (discover implicit relationships)
+- **Temporal Buckets** - Week-by-week organization
+- **Bloom Filters** - Fast "did chain touch file?" checks
+
+[VERIFIED: [[01_ARCHITECTURE_GUIDE.md]]:73-95]
+
+### Why This Matters for Tastematter
+
+Tastematter's job is to make these dimensions **VISIBLE** and **NAVIGABLE**:
+
+- Files View → Slices the FILES dimension with count/recency aggregations
+- Timeline View → Slices the TIME dimension into buckets
+- Sessions View → Slices the SESSIONS dimension grouped by CHAINS
+- Chain Nav → Walks the CHAINS dimension via leafUuid links
+
+The data model already exists. Tastematter renders it.
+
+[VERIFIED: [[.claude/skills/context-query/skill.md]]:Quick Reference - CLI commands map directly to hypercube slicing]
 
 ---
 

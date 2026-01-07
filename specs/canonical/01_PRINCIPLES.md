@@ -9,6 +9,8 @@ foundation:
   - "[[_system/specs/architecture/context_operating_system/05_PRODUCT_ARCHITECTURE.md]]"
   - "[[_system/specs/architecture/context_operating_system/06_INTELLIGENT_GITOPS_SPEC.md]]"
   - "[[04_knowledge_base/methodology/evidence-attribution-system.md]]"
+  - "[[.claude/skills/context-query/skill.md]]"
+  - "[[apps/context_os_events/specs/context_os_intelligence/01_ARCHITECTURE_GUIDE.md]]"
 related:
   - "[[canonical/00_VISION]]"
   - "[[canonical/02_ROADMAP]]"
@@ -212,6 +214,57 @@ From [[context-worker-agent-pattern.md]]:404-449:
 ### Violation Example
 
 An agent that can manipulate DOM directly or create arbitrary UI elements violates the guardrail principle. The result is chaotic, inconsistent, and untrustworthy UX.
+
+### The CLI as Agent Control Surface
+
+The `context-os` CLI isn't just a query tool - it's the **control surface** through which agents operate on context. This is the mechanism that makes Principle 4 concrete.
+
+**Core Insight:** The CLI exposes hypercube slicing operations that agents compose into complex workflows. Agents don't need custom APIs - they use the same primitives humans use, just faster.
+
+```
+Human: "Show me Pixee work from last week"
+
+Agent (via CLI):
+  context-os query flex --files "*pixee*" --time 7d --agg count,recency,sessions,chains
+
+  # Interprets results, finds relevant chain
+  context-os ui navigate --view timeline --chain abc123 --time 7d
+```
+
+The CLI has **9 documented search strategies** (Pilot Drilling, Chain Walking, Temporal Bracketing, etc.) that agents select based on question type. These aren't arbitrary - they emerged from observing how humans explore their own work context.
+
+[VERIFIED: [[.claude/skills/context-query/skill.md]]:Strategy Selection Guide - full strategy documentation]
+
+### Why This Enables 10x Control
+
+Without the CLI layer:
+- Agent would need raw database access (unsafe)
+- Agent would need custom APIs for each view (fragile)
+- Human couldn't verify what agent did (opaque)
+
+With the CLI layer:
+- Agent uses same interface as human (auditable)
+- Receipt system provides verification (`query verify q_abc123`)
+- Guardrails enforced at CLI level, not UI level
+
+**Key principle:** The CLI is the trust boundary. Agents can do anything the CLI permits, nothing more.
+
+### Receipt/Verification System
+
+Every CLI query returns a receipt ID:
+
+```
+"Found 147 Pixee files [q_7f3a2b]"
+```
+
+This enables:
+- Human verification: `context-os query verify q_7f3a2b`
+- Attribution chains: Claims → Queries → Raw data
+- Drift detection: Data changed since query ran
+
+The receipt system is what makes VERIFIED/INFERRED/UNVERIFIABLE attribution actually work - without it, agent claims would be unverifiable.
+
+[VERIFIED: [[.claude/skills/context-query/skill.md]]:Citation Requirements]
 
 ---
 
