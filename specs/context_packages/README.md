@@ -8,6 +8,15 @@ Append-only context packages for preserving state across Claude sessions.
 - **Wiki-linked:** Use [[node-name]] for traceable chains.
 - **Evidence-based:** Every claim has [VERIFIED/INFERRED/UNVERIFIABLE] attribution.
 
+## Canonical Reference Documents
+
+For permanent vision, principles, and roadmap, see:
+- [[canonical/00_VISION]] - What Tastematter IS
+- [[canonical/01_PRINCIPLES]] - Non-negotiable design principles (Bret Victor-informed)
+- [[canonical/02_ROADMAP]] - Phased development plan
+
+Context packages track session-by-session progress toward the roadmap.
+
 ## Timeline
 
 | # | Date | Description |
@@ -17,12 +26,13 @@ Append-only context packages for preserving state across Claude sessions.
 | 02 | 2026-01-05 | Performance optimization handoff - Phase 1 complete (3 fixes) |
 | 03 | 2026-01-06 | Phase 2 in progress - Fix 4 partial (files.svelte.ts) |
 | 04 | 2026-01-06 | Performance optimization complete - all 6 fixes implemented |
+| 05 | 2026-01-07 | Vision foundation - synthesized 6 foundational specs, created canonical docs |
 
 ## Current State
 
-Latest package: [[04_2026-01-06_PERF_OPTIMIZATION_COMPLETE]]
+Latest package: [[05_2026-01-07_VISION_FOUNDATION]]
 
-**Status:** All 6 performance optimizations from [[10_PERF_OPTIMIZATION_SPEC]] implemented and committed. 236 TypeScript + 6 Rust tests passing. Performance work complete - ready for next feature.
+**Status:** Canonical vision/principles/roadmap docs created in [[canonical/]]. 5 principles derived from foundational specs (Bret Victor-informed). 6-phase roadmap established with implementation-aware current state assessment.
 
 ## How to Use
 
