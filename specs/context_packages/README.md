@@ -30,12 +30,13 @@ Context packages track session-by-session progress toward the roadmap.
 | 06 | 2026-01-07 | Canonical enrichment - added hypercube query model context to all canonical docs |
 | 07 | 2026-01-07 | Architecture skill creation - technical-architecture-engineering skill + reference content |
 | 08 | 2026-01-07 | Skill complete - all 6 reference files created, ready for Phase 0 |
+| 09 | 2026-01-08 | Unified core architecture - design decisions + rationale for context-os-core |
 
 ## Current State
 
-Latest package: [[08_2026-01-07_SKILL_COMPLETE_PHASE0_READY]]
+Latest package: [[09_2026-01-08_UNIFIED_CORE_ARCHITECTURE]]
 
-**Status:** `technical-architecture-engineering` skill fully complete with 5 expert POVs and 6 reference files. **Next agent: Begin Phase 0 implementation - create `context-os-core` Rust library to eliminate 5000ms Python process spawn bottleneck.**
+**Status:** Architecture APPROVED and documented in [[canonical/03_CORE_ARCHITECTURE.md]]. 7 design decisions with full reasoning, type contracts, service coordination, and future-proofing. **Next: Begin Phase 0a implementation with TDD.**
 
 ## How to Use
 
