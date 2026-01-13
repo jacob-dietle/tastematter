@@ -48,41 +48,42 @@ Six phases from current state to full vision, each addressing specific principle
 - Svelte 5 reactive state ($state, $effect)
 - Thin Tauri wrapper delegating to context-os CLI
 
-**Views (Partially Complete):**
+**Views (Mostly Complete):**
 
 | View | Status | Notes |
 |------|--------|-------|
-| Files View | 80% | Table + heatmap working, query_flex fully integrated |
-| Timeline View | 40% | Structure exists, **per-day data is simulated** |
-| Sessions View | 40% | Bulk fetch works, **metadata is synthesized** |
+| Files View | 90% | Table + heatmap working, query_flex fully integrated |
+| Timeline View | 90% | Per-file, per-date buckets working (fixed 2026-01-12) |
+| Sessions View | 80% | Bulk fetch works, real chain linkage working |
 | Git Panel | 90% | Status, pull, push working |
 
 **Stores:**
 - `context.svelte.ts` - Global state (timeRange, selectedChain, chains)
 - `files.svelte.ts` - File query with aggregations
-- `timeline.svelte.ts` - Timeline buckets (simulated data)
+- `timeline.svelte.ts` - Timeline buckets (real data)
 - `workstream.svelte.ts` - Sessions by chain (lazy-loaded)
 - `git.svelte.ts` - Git status and operations
 
-**Tauri Commands:**
+**Tauri/HTTP Commands:**
 - `query_flex` - Hypercube slicing with aggregations
-- `query_timeline` - Per-day buckets (**simulated**)
-- `query_sessions` - Sessions by time/chain
-- `query_chains` - List conversation chains
-- `git_status`, `git_pull`, `git_push` - Git operations
+- `query_timeline` - Per-day buckets + per-file buckets (real data)
+- `query_sessions` - Sessions by time/chain with chain_id
+- `query_chains` - List conversation chains with file_count
+- `git_status`, `git_pull`, `git_push` - Git operations (Tauri only)
 
 ### What's NOT Implemented
 
 | Gap | Severity | Principle Violated |
 |-----|----------|-------------------|
-| Real per-day timeline data | P1 | STIGMERGIC |
-| Real session metadata | P1 | STIGMERGIC |
+| ~~Real per-day timeline data~~ | ~~P1~~ | ✅ FIXED 2026-01-12 |
+| ~~Real session metadata~~ | ~~P1~~ | ✅ FIXED (chain_id linkage) |
 | Multi-repo management | P1 | MULTI-REPO AWARE |
 | Agent CLI control protocol | P0 | AGENT-CONTROLLABLE |
 | Real-time updates (file watcher) | P1 | STIGMERGIC |
-| <100ms view switches | P0 | IMMEDIATE |
+| ~~<100ms view switches~~ | ~~P0~~ | ✅ Rust native queries <50ms |
 
 [VERIFIED: Codebase exploration 2026-01-07]
+[UPDATED: Timeline/Session fixes 2026-01-12]
 
 ---
 

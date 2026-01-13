@@ -1,0 +1,16 @@
+# Run these commands in ADMIN PowerShell
+
+# Step 1: Navigate to app directory
+cd "C:\Users\dietl\VSCode Projects\taste_systems\gtm_operating_system\apps\context_os_events"
+
+# Step 2: Install the service
+.venv\Scripts\python.exe -m context_os_events.cli daemon install
+
+# Step 3: Check status
+.venv\Scripts\python.exe -m context_os_events.cli daemon status
+
+# Step 4: Start the service
+.venv\Scripts\python.exe -m context_os_events.cli daemon start
+
+# Step 5: Verify running
+.venv\Scripts\python.exe -m context_os_events.cli daemon status

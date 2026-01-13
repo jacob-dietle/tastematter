@@ -2,7 +2,7 @@
 title: "Context-OS Core Architecture"
 type: architecture-spec
 created: 2026-01-08
-last_updated: 2026-01-08
+last_updated: 2026-01-09
 status: approved
 foundation:
   - "[[canonical/00_VISION]]"
@@ -975,3 +975,75 @@ pub enum CoreError {
 **Created:** 2026-01-08
 **Author:** Architecture planning session
 **Next Action:** Begin Phase 0a implementation with TDD
+
+---
+
+## Implementation Status (2026-01-09)
+
+Phase 0 Performance Foundation is COMPLETE. This section documents what was implemented vs deferred.
+
+### Implemented ✅
+
+| Component | Location | Notes |
+|-----------|----------|-------|
+| Query Engine | `apps/context-os/core/src/query.rs` | 4 functions (flex, timeline, sessions, chains), parameterized SQL, chain filtering |
+| Type Contracts | `apps/context-os/core/src/types.rs` | All input/output types with serde |
+| Storage Layer | `apps/context-os/core/src/storage.rs` | SQLite with sqlx pool, auto-discovery of DB path |
+| Error Handling | `apps/context-os/core/src/error.rs` | CoreError + CommandError types |
+| Tauri Integration | `apps/tastematter/src-tauri/src/commands.rs` | Thin wrappers calling QueryEngine |
+| CLI Binary | `apps/context-os/core/src/main.rs` | clap-based, 4 query commands |
+| CLI Wrapper | `tastematter.ps1` / `tastematter.cmd` | Repo root, works from anywhere |
+
+**Performance achieved:** 1.5ms average query latency (target was <100ms)
+
+### Deferred (Not Required for Phase 0) ⏸️
+
+| Component | Spec Section | Reason Deferred | When Needed |
+|-----------|--------------|-----------------|-------------|
+| Cache Layer | Decision 1 | Query latency already <2ms, caching unnecessary | If latency becomes issue |
+| IPC Socket | Decision 4 | Built Rust CLI instead of Python wrapper | Phase 3 (agent UI control) |
+| UI State Machine | Decision 3 | Frontend manages state adequately | Phase 3 (agent UI control) |
+| Event Bus | Decision 7 | No daemon coordination yet | Phase 4 (Intelligent GitOps) |
+| Structured Logging | Decision 6 | Basic Tauri logging sufficient | When debugging complex issues |
+
+### Architecture Deviation from Spec
+
+**Spec proposed (Decision 4):**
+```
+Python CLI ──IPC socket──► context-os-core ──► SQLite
+```
+
+**Actual implementation:**
+```
+Rust CLI (clap) ──direct link──► QueryEngine ──► SQLite
+```
+
+**Why this deviation is acceptable:**
+1. Direct linking has 0ms IPC overhead (vs ~100μs socket)
+2. Python CLI wrapper not needed since we have pure Rust CLI
+3. IPC socket can be added later for Phase 3 agent UI control
+4. Simpler architecture with fewer moving parts
+
+### Test State
+
+- **Unit tests:** 7 passing
+- **Integration tests:** 8 passing
+- **Total:** 15 tests
+- **Last verified:** 2026-01-09
+
+### Next Phase Requirements
+
+**Phase 1 (Stigmergic Display)** will need:
+- Git integration (`git2` crate) - NOT in original spec
+- Commit timeline view
+- Agent/human attribution logic
+
+**Phase 3 (Agent UI Control)** will need:
+- UI State Machine (Decision 3)
+- IPC Socket Server (Decision 4)
+
+**Phase 4 (Intelligent GitOps)** will need:
+- Event Bus (Decision 7)
+- Daemon coordination
+
+[VERIFIED: Implementation status from context package [[15_2026-01-09_PHASE0_COMPLETE]]]

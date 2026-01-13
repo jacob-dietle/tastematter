@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+tmpclaude-*
+__pycache__/
+*.pyc
