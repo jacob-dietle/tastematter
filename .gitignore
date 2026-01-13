@@ -6,13 +6,75 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+debug.log
+*.pid
 
+# Node.js
 node_modules
 dist
 dist-ssr
 *.local
 
-# Editor directories and files
+# Svelte
+.svelte-kit/
+.svelte-kit-output/
+build/
+*.svelte.d.ts
+
+# SvelteKit preview output
+.output/
+
+# JS/TS common
+coverage/
+jspm_packages/
+lib-cov/
+*.seed
+*.cover
+*.min.js
+*.map
+
+# Lock files
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Rust/Tauri build artifacts (any depth)
+**/target/
+**/.cargo/
+**/Cargo.lock
+**/*.rs.bk
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.idea/
+.mypy_cache/
+.pytest_cache/
+.tox/
+coverage_html_report/
+htmlcov/
+.coverage
+*.egg-info/
+.eggs/
+pip-log.txt
+pip-delete-this-directory.txt
+*.manifest
+*.spec
+*.pot
+*.mo
+*.pyc
+*.pkl
+
+# Editors
 .vscode/*
 !.vscode/extensions.json
 .idea
@@ -23,5 +85,18 @@ dist-ssr
 *.sln
 *.sw?
 tmpclaude-*
-__pycache__/
-*.pyc
+
+# npm cache / misc
+.npm/
+*.tgz
+
+# MacOS
+.DS_Store
+
+# Env files
+.env
+.env.*
+
+# Test
+*.snap
+
