@@ -5,8 +5,8 @@ Context packages documenting the indexer/daemon investigation and Claude Code da
 ## Overview
 
 **Date Range:** 2026-01-12 to 2026-01-13
-**Package Count:** 3
-**Theme:** Chain linking bug investigation, fix, and data model documentation
+**Package Count:** 5
+**Theme:** Chain linking bug, data model, Intelligence Layer priority, CLI installation fix
 
 ## Narrative
 
@@ -23,6 +23,8 @@ This chain documents investigating and fixing the chain linking bug:
 | 00 | 2026-01-12 | CHAIN_LINKING_BUG_INVESTIGATION |
 | 01 | 2026-01-13 | CLAUDE_CODE_JSONL_DATA_MODEL (Complete Reference) |
 | 02 | 2026-01-13 | CHAIN_LINKING_FIX_COMPLETE (Handoff) |
+| 03 | 2026-01-13 | INTEL_LAYER_PRIORITY_DECISION (Architectural Necessity) |
+| 04 | 2026-01-13 | CLI_INSTALLATION_FIX (Renamed to tastematter) |
 
 ## Key Findings
 
@@ -44,8 +46,8 @@ This chain documents investigating and fixing the chain linking bug:
 
 ## Current State
 
-**Latest package:** [[02_2026-01-13_CHAIN_LINKING_FIX_COMPLETE]]
-**Status:** Bug FIXED, data model DOCUMENTED, ready for next work
+**Latest package:** [[04_2026-01-13_CLI_INSTALLATION_FIX]]
+**Status:** CLI renamed to `tastematter`, installation fixed, build-chains has known FK issue
 
 ## Related
 

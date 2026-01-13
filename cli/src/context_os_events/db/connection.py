@@ -4,8 +4,8 @@ import sqlite3
 from pathlib import Path
 from typing import Optional
 
-# Default database location
-DEFAULT_DB_PATH = Path(__file__).parent.parent.parent.parent / "data" / "context_os_events.db"
+# Default database location - canonical path for all tools
+DEFAULT_DB_PATH = Path.home() / ".context-os" / "context_os_events.db"
 
 
 def get_schema_path() -> Path:

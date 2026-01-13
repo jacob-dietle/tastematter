@@ -1,7 +1,7 @@
 [project]
-name = "context-os-events"
+name = "tastematter"
 version = "0.1.0"
-description = "Event capture layer for Context OS - tracks file events, Claude sessions, and git commits"
+description = "Context visualization CLI for Claude Code work patterns - indexes sessions, builds chain graphs"
 requires-python = ">=3.10"
 
 dependencies = [
@@ -19,7 +19,7 @@ dev = [
 ]
 
 [project.scripts]
-context-os = "context_os_events.cli:cli"
+tastematter = "context_os_events.cli:cli"
 
 [build-system]
 requires = ["setuptools>=61.0"]
