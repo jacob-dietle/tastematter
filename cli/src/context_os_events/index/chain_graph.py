@@ -1,15 +1,22 @@
-"""Chain graph builder from Claude Code's leafUuid mechanism.
+"""Chain graph builder from Claude Code's session linking mechanisms.
 
-Claude Code tracks conversation chains explicitly via leafUuid:
-- Summary records at start of JSONL have {"type":"summary","leafUuid":"..."}
-- The leafUuid points to a message.uuid in the parent conversation
-- This gives us explicit chain linking without heuristics
+Claude Code tracks conversation chains via two mechanisms:
+
+1. Regular sessions (resumed conversations):
+   - Summary records at start of JSONL have {"type":"summary","leafUuid":"..."}
+   - The leafUuid points to a message.uuid in the parent conversation
+
+2. Agent sessions (spawned by Task tool):
+   - Filenames start with "agent-"
+   - First record has {"sessionId":"..."} pointing to parent session's ID
+   - Parent session ID is the filename (without .jsonl) of the spawning session
 
 Algorithm:
-1. Pass 1: Extract leafUuid from all sessions (who references whom)
-2. Pass 2: Extract message.uuid from all sessions (who owns what uuid)
-3. Pass 3: Build parent-child links (leafUuid -> uuid matching)
-4. Pass 4: Group into chains (connected components)
+1. Pass 1: Extract leafUuid from regular sessions (who references whom)
+2. Pass 2: Extract sessionId from agent sessions (agent -> parent)
+3. Pass 3: Extract message.uuid from all sessions (who owns what uuid)
+4. Pass 4: Build parent-child links (leafUuid/sessionId matching)
+5. Pass 5: Group into chains (connected components)
 """
 
 import hashlib
@@ -54,36 +61,75 @@ class Chain:
 # ============================================================================
 
 def extract_leaf_uuids(filepath: Path) -> List[str]:
-    """Extract leafUuid values from summary records in a JSONL file.
+    """Extract session resumption leafUuid from JSONL file.
+
+    IMPORTANT: Only the FIRST record's leafUuid indicates session resumption.
+    Subsequent summary records are compaction markers within the same session,
+    their leafUuids point to messages in THIS session, not a parent.
 
     Args:
         filepath: Path to JSONL file
 
     Returns:
-        List of leafUuid values found in summary records
+        List with single leafUuid if session was resumed, empty otherwise
     """
-    leaf_uuids = []
-
     try:
         with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
+            first_line = f.readline().strip()
+            if not first_line:
+                return []
 
-                try:
-                    record = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
+            try:
+                record = json.loads(first_line)
+            except json.JSONDecodeError:
+                return []
 
-                # Only extract from summary records
-                if record.get("type") == "summary" and record.get("leafUuid"):
-                    leaf_uuids.append(record["leafUuid"])
+            # Only the FIRST record indicates session resumption
+            # If first record is summary with leafUuid, this session was resumed
+            if record.get("type") == "summary" and record.get("leafUuid"):
+                return [record["leafUuid"]]
 
     except Exception as e:
         logger.warning(f"Failed to extract leafUuids from {filepath}: {e}")
 
-    return leaf_uuids
+    return []
+
+
+def extract_agent_parent(filepath: Path) -> Optional[str]:
+    """Extract parent session ID from an agent session.
+
+    Agent sessions (filenames starting with "agent-") have a sessionId field
+    in their first record that points to the parent session's ID. The parent
+    session ID is also the parent's filename (without .jsonl extension).
+
+    Args:
+        filepath: Path to agent JSONL file
+
+    Returns:
+        Parent session ID if found, None otherwise
+    """
+    # Only process agent sessions
+    if not filepath.stem.startswith("agent-"):
+        return None
+
+    try:
+        with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
+            first_line = f.readline().strip()
+            if not first_line:
+                return None
+
+            try:
+                record = json.loads(first_line)
+            except json.JSONDecodeError:
+                return None
+
+            # Agent sessions have sessionId pointing to parent
+            return record.get("sessionId")
+
+    except Exception as e:
+        logger.warning(f"Failed to extract agent parent from {filepath}: {e}")
+
+    return None
 
 
 def extract_message_uuids(filepath: Path) -> List[str]:
@@ -129,13 +175,18 @@ def extract_message_uuids(filepath: Path) -> List[str]:
 # ============================================================================
 
 def build_chain_graph(jsonl_dir: Path) -> Dict[str, Chain]:
-    """Build chain graph from leafUuid references in JSONL files.
+    """Build chain graph from session linking in JSONL files.
+
+    Handles two linking mechanisms:
+    1. Regular sessions: leafUuid in first summary -> message UUID in parent
+    2. Agent sessions: sessionId field -> parent session filename
 
     Algorithm:
     1. Pass 1: Collect leafUuid -> [sessions that reference it]
-    2. Pass 2: Collect uuid -> session that owns it
-    3. Pass 3: Build parent-child relationships
-    4. Pass 4: Group into chains (connected components)
+    2. Pass 2: Collect agent sessionId -> parent relationships
+    3. Pass 3: Collect uuid -> session that owns it
+    4. Pass 4: Build parent-child relationships from both mechanisms
+    5. Pass 5: Group into chains (connected components)
 
     Args:
         jsonl_dir: Directory containing JSONL files
@@ -149,11 +200,16 @@ def build_chain_graph(jsonl_dir: Path) -> Dict[str, Chain]:
     if not jsonl_files:
         return {}
 
-    # Pass 1: Collect leafUuid references
+    # Separate regular and agent sessions
+    regular_files = [f for f in jsonl_files if not f.stem.startswith("agent-")]
+    agent_files = [f for f in jsonl_files if f.stem.startswith("agent-")]
+    all_session_ids = set(f.stem for f in jsonl_files)
+
+    # Pass 1: Collect leafUuid references from regular sessions
     # leafUuid -> [sessions that have this as leafUuid in summary]
     leaf_refs: Dict[str, List[str]] = {}
 
-    for jsonl_file in jsonl_files:
+    for jsonl_file in regular_files:
         session_id = jsonl_file.stem
         leaf_uuids = extract_leaf_uuids(jsonl_file)
 
@@ -163,7 +219,19 @@ def build_chain_graph(jsonl_dir: Path) -> Dict[str, Chain]:
             if session_id not in leaf_refs[leaf_uuid]:
                 leaf_refs[leaf_uuid].append(session_id)
 
-    # Pass 2: Collect uuid ownership
+    # Pass 2: Collect agent -> parent relationships
+    # agent_session -> parent_session_id
+    agent_parents: Dict[str, str] = {}
+
+    for jsonl_file in agent_files:
+        session_id = jsonl_file.stem
+        parent_id = extract_agent_parent(jsonl_file)
+
+        # Parent ID must exist as a session file
+        if parent_id and parent_id in all_session_ids:
+            agent_parents[session_id] = parent_id
+
+    # Pass 3: Collect uuid ownership (for leafUuid matching)
     # message.uuid -> session that owns it
     uuid_to_session: Dict[str, str] = {}
 
@@ -174,12 +242,13 @@ def build_chain_graph(jsonl_dir: Path) -> Dict[str, Chain]:
         for uuid in message_uuids:
             uuid_to_session[uuid] = session_id
 
-    # Pass 3: Build parent-child relationships
+    # Pass 4: Build parent-child relationships from both mechanisms
     # child_session -> parent_session
     parent_map: Dict[str, str] = {}
     # parent_session -> [child_sessions]
     children_map: Dict[str, List[str]] = {}
 
+    # 4a: Regular session linking via leafUuid
     for leaf_uuid, child_sessions in leaf_refs.items():
         parent_session = uuid_to_session.get(leaf_uuid)
 
@@ -193,7 +262,17 @@ def build_chain_graph(jsonl_dir: Path) -> Dict[str, Chain]:
                     if child not in children_map[parent_session]:
                         children_map[parent_session].append(child)
 
-    # Pass 4: Group into chains (connected components)
+    # 4b: Agent session linking via sessionId
+    for agent_session, parent_session in agent_parents.items():
+        if agent_session != parent_session:  # Don't self-link
+            parent_map[agent_session] = parent_session
+
+            if parent_session not in children_map:
+                children_map[parent_session] = []
+            if agent_session not in children_map[parent_session]:
+                children_map[parent_session].append(agent_session)
+
+    # Pass 5: Group into chains (connected components)
     # Find all unique sessions
     all_sessions: Set[str] = set(f.stem for f in jsonl_files)
 

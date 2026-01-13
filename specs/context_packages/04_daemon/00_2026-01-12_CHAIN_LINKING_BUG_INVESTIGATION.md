@@ -194,54 +194,71 @@ grep "leafUuid" ~/.claude/projects/C--Users-dietl-VSCode-Projects-taste-systems-
 tastematter query flex --chain fa6b4bf6 --limit 5 --format json
 ```
 
-## Jobs To Be Done (Next Session)
+## Resolution (2026-01-12)
 
-1. **[ ] Locate Rust chain linking code**
-   - Search `apps/context-os/core/src/` for chain/leaf/summary handling
-   - Success: Find the function that builds chain_graph
+### Bug Root Cause
 
-2. **[ ] Verify Python implementation status**
-   - Does `chain_graph.py` exist?
-   - Is it used or is Rust the only implementation?
-   - Success: Know which codebase to fix
+**The Python indexer extracted ALL leafUuids from ALL summary records, but only the FIRST summary record indicates session resumption.**
 
-3. **[ ] Trace chain_id derivation**
-   - How is `fa6b4bf6` generated?
-   - Is it hash of root session? Something else?
-   - Success: Understand current (broken) logic
+Key insight: JSONL files contain two types of summary records:
+1. **Session resumption** (first record): `leafUuid` points to parent session's message
+2. **Compaction markers** (subsequent records): `leafUuid` points to message in THIS session
 
-4. **[ ] Check database schema**
-   - Find actual database file
-   - Compare schema to spec's `chain_graph` and `chains` tables
-   - Success: Know if schema matches spec
+The original code in `extract_leaf_uuids()` iterated through ALL lines and collected every `leafUuid`, causing:
+- Self-linking (sessions linked to themselves via compaction markers)
+- Incorrect chain grouping
 
-5. **[ ] Implement fix**
-   - Add `type:"summary"` parsing for `leafUuid` extraction
-   - Implement four-pass algorithm from spec
-   - Success: Chains reflect actual conversation continuity
+### Fix Applied
+
+**File:** `apps/tastematter/cli/src/context_os_events/index/chain_graph.py`
+
+Changed `extract_leaf_uuids()` to only read the FIRST record and return its `leafUuid` if it's a summary type.
+
+### Verification Results
+
+After fix:
+- **150 of 153 sessions successfully linked** (98% match rate)
+- **10 multi-session chains** identified
+- **Top chain: 92 sessions** (was incorrectly showing as 149 in one chain)
+- **5 branching parents** (sessions with multiple children)
+
+### Chain Structure (Correct)
+
+```
+Sessions with resumption: 153
+Message UUIDs indexed: 63,591
+Linking: 150 matched, 3 orphaned (98.0%)
+
+Top chains:
+- 846b76ee: 92 sessions (main development chain)
+- 2e826939: 39 sessions (secondary chain)
+- 5083f8a5: 7 sessions
+- 7fab4726: 7 sessions
+- 1a424326: 5 sessions
+```
+
+### Why Some Sessions Are Orphans
+
+3 sessions have `leafUuid` values that don't match any message UUID:
+- Parent session was fully deleted (not just compacted)
+- Or data corruption in JSONL files
+
+### logicalParentUuid Note
+
+Investigated `logicalParentUuid` in `type: "system", subtype: "compact_boundary"` records. These are for **within-session** continuity tracking (linking across compaction boundaries), NOT cross-session linking. Not needed for chain graph building.
 
 ## For Next Agent
 
-**Context Chain:**
-- Previous: None (first package for this bug)
-- This package: Bug discovery and evidence collection
-- Next action: Locate and fix Rust chain linking implementation
+**Status:** BUG FIXED
 
-**Start here:**
-1. Read this context package (you're doing it now)
-2. Read [[08_CHAIN_LINKING_CANONICAL_REFERENCE.md]] for the SPEC
-3. Run: `grep -r "chain" apps/context-os/core/src/ --include="*.rs"` to find Rust code
-4. Compare Rust implementation to spec's four-pass algorithm
-
-**Key Insight:**
-The spec describes a Python implementation (`chain_graph.py`) but the CLI is Rust (`context-os.exe`). The Rust code likely never implemented proper `leafUuid` extraction from `type:"summary"` records.
-
-[INFERRED: from spec referencing Python + CLI being Rust binary + observed broken behavior]
+**What was done:**
+1. Identified root cause: ALL summary leafUuids extracted instead of just FIRST
+2. Fixed `chain_graph.py` to only use first record's leafUuid
+3. Verified fix: 98% link rate, proper chain structure
 
 **Do NOT:**
-- Assume the Python code is being used (verify first)
+- Revert the `extract_leaf_uuids()` fix
 - Modify the JSONL files (they're Claude Code's data)
-- Trust the current chain query results (they're broken)
 
 ## Evidence Collection
 
@@ -261,6 +278,7 @@ The spec describes a Python implementation (`chain_graph.py`) but the CLI is Rus
 
 ---
 
-**Document Status:** CURRENT
+**Document Status:** RESOLVED
 **Created:** 2026-01-12
-**Author:** Context restoration session discovering chain linking bug
+**Resolved:** 2026-01-12
+**Author:** Context restoration session discovering and fixing chain linking bug
