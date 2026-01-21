@@ -458,3 +458,86 @@ class TestIntegration:
 
             assert len(files) == 2
             assert all(f.suffix == ".jsonl" for f in files)
+
+
+class TestSubdirectoryDiscovery:
+    """Test discovering JSONL files in subdirectories (glob bug fix).
+
+    Bug: Uses *.jsonl which misses {session}/subagents/agent-*.jsonl
+    Fix: Use **/*.jsonl for recursive discovery
+
+    Reference: specs/implementation/phase_00_glob_bug_fix/SPEC.md
+    """
+
+    def test_find_session_files_includes_subdirectories(self):
+        """Should find JSONL files in subagents/ subdirectories.
+
+        RED: Run before fix - finds only top-level files (2 instead of 3)
+        GREEN: Fix glob pattern to **/*.jsonl - finds all files (3)
+
+        This tests the actual Claude Code directory structure where agent
+        sessions are stored in {session-uuid}/subagents/agent-*.jsonl
+        """
+        from context_os_events.capture.jsonl_parser import (
+            find_session_files,
+            encode_project_path,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            claude_dir = Path(tmpdir)
+
+            # Create project folder with encoded name
+            project_path = r"C:\Users\test\my_project"
+            encoded = encode_project_path(project_path)
+            project_dir = claude_dir / encoded
+            project_dir.mkdir(parents=True)
+
+            # Create Claude Code's actual directory structure:
+            # 1. Top-level session
+            (project_dir / "session-abc123.jsonl").write_text(
+                '{"type":"user","message":"hello"}\n'
+            )
+
+            # 2. Another top-level file (agent at root - older format)
+            (project_dir / "agent-xyz789.jsonl").write_text(
+                '{"type":"user","message":"root agent"}\n'
+            )
+
+            # 3. Agent in subagents/ directory (MISSED by *.jsonl bug)
+            subagents_dir = project_dir / "session-abc123" / "subagents"
+            subagents_dir.mkdir(parents=True)
+            (subagents_dir / "agent-def456.jsonl").write_text(
+                '{"type":"user","message":"nested agent"}\n'
+            )
+
+            # Call function under test
+            files = find_session_files(project_path, claude_dir=claude_dir)
+
+            # Should find ALL 3 files (including subdirectory)
+            filenames = {f.name for f in files}
+            assert "session-abc123.jsonl" in filenames, "Should find top-level session"
+            assert "agent-xyz789.jsonl" in filenames, "Should find top-level agent"
+            assert "agent-def456.jsonl" in filenames, "Should find agent in subdirectory"
+            assert len(files) == 3, f"Expected 3 files, found {len(files)}: {filenames}"
+
+    def test_glob_pattern_behavior_documented(self):
+        """Document the difference between *.jsonl and **/*.jsonl patterns.
+
+        This test explicitly shows the bug behavior vs the fix.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            project_dir = Path(tmpdir)
+
+            # Create hierarchical structure
+            (project_dir / "session-1.jsonl").write_text('{"type":"user"}\n')
+            subdir = project_dir / "session-1" / "subagents"
+            subdir.mkdir(parents=True)
+            (subdir / "agent-1.jsonl").write_text('{"type":"user"}\n')
+
+            # BUG pattern: *.jsonl only finds top-level
+            buggy_files = list(project_dir.glob("*.jsonl"))
+            assert len(buggy_files) == 1, "*.jsonl misses subdirectory files"
+
+            # FIX pattern: **/*.jsonl finds all levels
+            fixed_files = list(project_dir.glob("**/*.jsonl"))
+            assert len(fixed_files) == 2, "**/*.jsonl finds all files"

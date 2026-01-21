@@ -49,8 +49,9 @@ apps/tastematter/
 │   └── context_packages/    # Session context (UNIFIED)
 │       ├── 01_query_engine/ # Python → Rust migration
 │       ├── 02_ui_foundation/# Svelte/Tauri UI
-│       ├── 03_current/      # Active development ← START HERE
-│       └── 04_daemon/       # Indexer investigation
+│       ├── 03_current/      # General development
+│       ├── 04_daemon/       # Indexer investigation
+│       └── 05_mcp_publishing/ # Phase 5: Context-as-a-service ← NEW
 │
 └── CLAUDE.md                # This file
 ```
@@ -84,8 +85,9 @@ The Rust core is READ-ONLY. The Python daemon (to be replaced with Rust indexer)
 |-------|-------|----------|
 | 01_query_engine | Python → Rust query engine | 11 |
 | 02_ui_foundation | Svelte/Tauri UI, TDD | 22 |
-| 03_current | Active development | 28+ |
+| 03_current | General development | 27 |
 | 04_daemon | Indexer/chain linking | 1 |
+| 05_mcp_publishing | Phase 5: Context-as-a-service | 1 |
 
 **Navigation:** Read chain README first, then packages in order.
 

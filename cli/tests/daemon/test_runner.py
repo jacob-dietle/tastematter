@@ -228,3 +228,76 @@ class TestDaemonStatePersistence:
         assert daemon.state.file_events_captured == 100
         assert daemon.state.git_commits_synced == 50
         assert daemon.state.sessions_parsed == 25
+
+
+class TestDaemonChainBuilding:
+    """Tests for chain building in run_sync."""
+
+    def test_run_sync_builds_chains(self, tmp_path):
+        """run_sync() should call _build_chains() after parsing sessions."""
+        from context_os_events.daemon.config import get_default_config
+        from context_os_events.daemon.runner import ContextOSDaemon
+
+        config = get_default_config()
+        state_file = tmp_path / "daemon.state.json"
+        daemon = ContextOSDaemon(config, state_file=state_file)
+
+        with patch.object(daemon, "_sync_git", return_value=5):
+            with patch.object(daemon, "_sync_sessions", return_value=10):
+                with patch.object(daemon, "_build_chains", return_value=3) as mock_build:
+                    daemon.run_sync()
+
+                    mock_build.assert_called_once()
+                    assert daemon.state.chains_built == 3
+                    assert daemon.state.last_chain_build is not None
+
+    def test_run_sync_includes_chains_in_event(self):
+        """run_sync() should include chains count in sync_complete event."""
+        from context_os_events.daemon.config import get_default_config
+        from context_os_events.daemon.runner import ContextOSDaemon
+
+        config = get_default_config()
+        daemon = ContextOSDaemon(config)
+
+        events_received = []
+
+        def handler(event: str, data: dict):
+            events_received.append((event, data))
+
+        daemon.on("sync_complete", handler)
+
+        with patch.object(daemon, "_sync_git", return_value=5):
+            with patch.object(daemon, "_sync_sessions", return_value=10):
+                with patch.object(daemon, "_build_chains", return_value=3):
+                    daemon.run_sync()
+
+        assert len(events_received) == 1
+        event_name, event_data = events_received[0]
+        assert event_name == "sync_complete"
+        assert "chains" in event_data
+        assert event_data["chains"] == 3
+
+    def test_run_sync_accumulates_chains_built(self, tmp_path):
+        """run_sync() should accumulate chains_built across calls."""
+        from context_os_events.daemon.config import get_default_config
+        from context_os_events.daemon.runner import ContextOSDaemon
+
+        config = get_default_config()
+        state_file = tmp_path / "daemon.state.json"
+        daemon = ContextOSDaemon(config, state_file=state_file)
+
+        # First sync
+        with patch.object(daemon, "_sync_git", return_value=0):
+            with patch.object(daemon, "_sync_sessions", return_value=0):
+                with patch.object(daemon, "_build_chains", return_value=5):
+                    daemon.run_sync()
+
+        assert daemon.state.chains_built == 5
+
+        # Second sync
+        with patch.object(daemon, "_sync_git", return_value=0):
+            with patch.object(daemon, "_sync_sessions", return_value=0):
+                with patch.object(daemon, "_build_chains", return_value=3):
+                    daemon.run_sync()
+
+        assert daemon.state.chains_built == 8

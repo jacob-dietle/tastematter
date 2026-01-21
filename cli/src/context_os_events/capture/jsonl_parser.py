@@ -9,7 +9,7 @@ Parses Claude session JSONL files to extract:
 import json
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from sqlite3 import Connection
 from typing import Any, Dict, List, Optional, TypedDict
@@ -187,8 +187,8 @@ def find_session_files(
     if not project_dir.exists():
         return []
 
-    # Find all JSONL files
-    files = list(project_dir.glob("*.jsonl"))
+    # Find all JSONL files (recursive to include subagents/ directories)
+    files = list(project_dir.glob("**/*.jsonl"))
 
     # Sort by modification time (newest first)
     files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
@@ -308,7 +308,9 @@ def parse_jsonl_line(line: str) -> Optional[ParsedMessage]:
         return None
 
     msg_type = data.get("type")
-    if msg_type not in ("user", "assistant", "tool_result"):
+
+    # Accept user, assistant, tool_result, and file-history-snapshot
+    if msg_type not in ("user", "assistant", "tool_result", "file-history-snapshot"):
         return None
 
     # Parse timestamp
@@ -318,17 +320,63 @@ def parse_jsonl_line(line: str) -> Optional[ParsedMessage]:
         timestamp_str = timestamp_str.replace("Z", "+00:00")
         timestamp = datetime.fromisoformat(timestamp_str)
     except ValueError:
-        timestamp = datetime.now()
+        timestamp = datetime.now(timezone.utc)
 
     # Extract message content
     message = data.get("message", {})
     role = message.get("role")
     content = message.get("content", data.get("content"))
 
-    # Extract tool uses if assistant message
+    # Extract tool uses based on message type
     tool_uses = []
+
+    # Source 1: Assistant messages with tool_use blocks
     if msg_type == "assistant" and isinstance(content, list):
         tool_uses = extract_tool_uses(content, timestamp)
+
+    # Source 2: User messages with toolUseResult (Gap 1 fix)
+    elif msg_type == "user":
+        tool_use_result = data.get("toolUseResult")
+        if tool_use_result and isinstance(tool_use_result, dict):
+            # Extract file path (direct or nested)
+            file_path = tool_use_result.get("filePath")
+            if not file_path:
+                file_obj = tool_use_result.get("file")
+                if file_obj and isinstance(file_obj, dict):
+                    file_path = file_obj.get("filePath")
+
+            if file_path:
+                # Map toolUseResult.type to is_read/is_write
+                result_type = tool_use_result.get("type", "")
+                is_read = result_type == "text"
+                is_write = result_type in ("update", "create")
+
+                tool_uses.append(ToolUse(
+                    id="toolUseResult",
+                    name="toolUseResult",
+                    input=tool_use_result,
+                    timestamp=timestamp,
+                    file_path=file_path,
+                    is_read=is_read,
+                    is_write=is_write
+                ))
+
+    # Source 3: file-history-snapshot records (Gap 2 fix)
+    elif msg_type == "file-history-snapshot":
+        snapshot = data.get("snapshot")
+        if snapshot and isinstance(snapshot, dict):
+            tracked_backups = snapshot.get("trackedFileBackups")
+            if tracked_backups and isinstance(tracked_backups, dict):
+                for file_path in tracked_backups.keys():
+                    tool_uses.append(ToolUse(
+                        id="file-history-snapshot",
+                        name="file-history-snapshot",
+                        input={"file_path": file_path},
+                        timestamp=timestamp,
+                        file_path=file_path,
+                        is_read=True,  # Tracking = reading
+                        is_write=False
+                    ))
 
     return ParsedMessage(
         type=msg_type,

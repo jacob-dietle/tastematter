@@ -1,0 +1,163 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+env:
+  R2_BUCKET: tastematter-releases
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: tastematter-windows-x86_64.exe
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact: tastematter-darwin-x86_64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: tastematter-darwin-aarch64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --manifest-path core/Cargo.toml --release --target ${{ matrix.target }}
+
+      - name: Rename binary (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cp core/target/${{ matrix.target }}/release/context-os ${{ matrix.artifact }}
+          chmod +x ${{ matrix.artifact }}
+
+      - name: Rename binary (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Copy-Item "core\target\${{ matrix.target }}\release\context-os.exe" "${{ matrix.artifact }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+          retention-days: 1
+
+  upload-to-r2:
+    name: Upload to Cloudflare R2
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Install rclone
+        run: |
+          curl https://rclone.org/install.sh | sudo bash
+
+      - name: Configure rclone for R2
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf << EOF
+          [r2]
+          type = s3
+          provider = Cloudflare
+          access_key_id = ${{ secrets.R2_ACCESS_KEY_ID }}
+          secret_access_key = ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          endpoint = ${{ secrets.R2_ENDPOINT }}
+          acl = public-read
+          EOF
+
+      - name: Upload binaries to R2
+        run: |
+          VERSION=${{ github.ref_name }}
+          echo "Uploading version: $VERSION"
+
+          # Upload each binary
+          for artifact_dir in artifacts/*/; do
+            artifact_name=$(basename "$artifact_dir")
+            echo "Uploading $artifact_name..."
+            rclone copy "artifacts/$artifact_name/$artifact_name" "r2:$R2_BUCKET/releases/$VERSION/"
+          done
+
+          # Update latest.txt
+          echo "$VERSION" > latest.txt
+          rclone copy latest.txt "r2:$R2_BUCKET/"
+          echo "Updated latest.txt to $VERSION"
+
+      - name: Upload install scripts to R2
+        run: |
+          echo "Uploading install scripts..."
+          rclone copy scripts/install/install.ps1 "r2:$R2_BUCKET/"
+          rclone copy scripts/install/install.sh "r2:$R2_BUCKET/"
+          rclone copy scripts/install/scoop/ "r2:$R2_BUCKET/scoop/"
+          rclone copy scripts/install/homebrew/ "r2:$R2_BUCKET/brew/"
+          echo "Install scripts uploaded"
+
+  create-github-release:
+    name: Create GitHub Release
+    needs: upload-to-r2
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten artifacts for release
+        run: |
+          mkdir -p release-files
+          find artifacts -type f -exec cp {} release-files/ \;
+          ls -la release-files/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release-files/*
+          generate_release_notes: true
+          body: |
+            ## Install
+
+            **Windows (PowerShell):**
+            ```powershell
+            irm https://install.tastematter.dev/install.ps1 | iex
+            ```
+
+            **macOS/Linux:**
+            ```bash
+            curl -fsSL https://install.tastematter.dev/install.sh | bash
+            ```
+
+            **Scoop (Windows):**
+            ```powershell
+            scoop bucket add tastematter https://install.tastematter.dev/scoop
+            scoop install tastematter
+            ```
+
+            **Homebrew (macOS):**
+            ```bash
+            brew tap jacob-dietle/tastematter https://install.tastematter.dev/brew
+            brew install tastematter
+            ```
+
+            ## Manual Download
+
+            Download the binary for your platform from the assets below, then add to your PATH.

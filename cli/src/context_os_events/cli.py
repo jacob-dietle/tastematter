@@ -440,8 +440,8 @@ def build_chains(project: str):
             log_command_complete("build-chains", start_time, {"chains_built": 0, "sessions_linked": 0})
             return
 
-        # Count JSONL files
-        jsonl_files = list(jsonl_dir.glob("*.jsonl"))
+        # Count JSONL files (recursive to include subagents/ directories)
+        jsonl_files = list(jsonl_dir.glob("**/*.jsonl"))
         if not jsonl_files:
             console.print(f"[yellow]No JSONL files found in:[/yellow] {jsonl_dir}")
             console.print("[dim]0 chains built, 0 sessions linked.[/dim]")

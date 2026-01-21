@@ -16,7 +16,7 @@ import json
 import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -51,6 +51,14 @@ WRITE_TOOLS = {"Edit", "NotebookEdit"}
 
 # Tools that create new files
 CREATE_TOOLS = {"Write"}
+
+# Mapping from toolUseResult.type to access_type
+# Reference: Canonical spec lines 256-267
+TOOL_USE_RESULT_TYPE_TO_ACCESS = {
+    "create": "create",
+    "update": "write",
+    "text": "read",
+}
 
 
 def _classify_access_type(tool_name: str) -> Optional[str]:
@@ -103,6 +111,75 @@ def _extract_file_path_from_tool(tool_name: str, input_data: Dict[str, Any]) -> 
     return None
 
 
+def _extract_tool_use_result_path(record: Dict[str, Any]) -> Optional[str]:
+    """Extract file path from user record's toolUseResult.
+
+    Args:
+        record: JSONL record with type="user"
+
+    Returns:
+        File path string or None if not present
+
+    Extraction priority:
+        1. toolUseResult.filePath (direct)
+        2. toolUseResult.file.filePath (nested)
+    """
+    tool_use_result = record.get("toolUseResult")
+    if not tool_use_result or not isinstance(tool_use_result, dict):
+        return None
+
+    # Priority 1: Direct filePath
+    if "filePath" in tool_use_result:
+        return tool_use_result["filePath"]
+
+    # Priority 2: Nested in file object
+    file_obj = tool_use_result.get("file")
+    if file_obj and isinstance(file_obj, dict) and "filePath" in file_obj:
+        return file_obj["filePath"]
+
+    return None
+
+
+def _classify_tool_use_result_access(record: Dict[str, Any]) -> str:
+    """Classify access type from toolUseResult.type.
+
+    Args:
+        record: JSONL record with toolUseResult
+
+    Returns:
+        "create", "write", or "read"
+
+    Mapping:
+        "create" → "create"
+        "update" → "write"
+        "text"   → "read"
+        unknown  → "read" (safe default)
+    """
+    tool_use_result = record.get("toolUseResult")
+    if not tool_use_result or not isinstance(tool_use_result, dict):
+        return "read"
+    result_type = tool_use_result.get("type", "")
+    return TOOL_USE_RESULT_TYPE_TO_ACCESS.get(result_type, "read")
+
+
+def _extract_file_history_paths(record: Dict[str, Any]) -> List[str]:
+    """Extract file paths from file-history-snapshot record.
+
+    Args:
+        record: JSONL record with type="file-history-snapshot"
+
+    Returns:
+        List of file path strings (keys of trackedFileBackups)
+    """
+    snapshot = record.get("snapshot")
+    if not snapshot or not isinstance(snapshot, dict):
+        return []
+    tracked_backups = snapshot.get("trackedFileBackups")
+    if not tracked_backups or not isinstance(tracked_backups, dict):
+        return []
+    return list(tracked_backups.keys())
+
+
 # ============================================================================
 # Extraction Functions
 # ============================================================================
@@ -137,16 +214,7 @@ def extract_file_accesses(filepath: Path, session_id: Optional[str] = None) -> L
                 except json.JSONDecodeError:
                     continue
 
-                # Only process assistant messages with tool_use
-                if record.get("type") != "assistant":
-                    continue
-
-                message = record.get("message", {})
-                content = message.get("content", [])
-
-                # Content can be string or list
-                if not isinstance(content, list):
-                    continue
+                record_type = record.get("type")
 
                 # Extract timestamp (use current time as fallback)
                 timestamp_str = record.get("timestamp")
@@ -154,39 +222,16 @@ def extract_file_accesses(filepath: Path, session_id: Optional[str] = None) -> L
                     try:
                         timestamp = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
                     except (ValueError, AttributeError):
-                        timestamp = datetime.now()
+                        timestamp = datetime.now(timezone.utc)
                 else:
-                    timestamp = datetime.now()
+                    timestamp = datetime.now(timezone.utc)
 
-                # Process each content block
-                for block in content:
-                    if not isinstance(block, dict):
-                        continue
-
-                    if block.get("type") != "tool_use":
-                        continue
-
-                    tool_name = block.get("name", "")
-                    input_data = block.get("input", {})
-
-                    # Skip non-file tools
-                    access_type = _classify_access_type(tool_name)
-                    if access_type is None:
-                        continue
-
-                    # Extract file path
-                    file_path = _extract_file_path_from_tool(tool_name, input_data)
-                    if file_path is None:
-                        continue
-
-                    # Deduplication key
+                # Helper function to add access to tracker
+                def add_access(file_path: str, access_type: str, tool_name: str):
                     key = (file_path, access_type)
-
                     if key in access_tracker:
-                        # Increment count for existing entry
                         access_tracker[key].access_count += 1
                     else:
-                        # Create new entry
                         access_tracker[key] = FileAccess(
                             session_id=session_id,
                             chain_id=None,  # Populated later by build_inverted_index
@@ -196,6 +241,51 @@ def extract_file_accesses(filepath: Path, session_id: Optional[str] = None) -> L
                             timestamp=timestamp,
                             access_count=1,
                         )
+
+                # Source 1: Assistant messages with tool_use
+                if record_type == "assistant":
+                    message = record.get("message", {})
+                    content = message.get("content", [])
+
+                    # Content can be string or list
+                    if not isinstance(content, list):
+                        continue
+
+                    # Process each content block
+                    for block in content:
+                        if not isinstance(block, dict):
+                            continue
+
+                        if block.get("type") != "tool_use":
+                            continue
+
+                        tool_name = block.get("name", "")
+                        input_data = block.get("input", {})
+
+                        # Skip non-file tools
+                        access_type = _classify_access_type(tool_name)
+                        if access_type is None:
+                            continue
+
+                        # Extract file path
+                        file_path = _extract_file_path_from_tool(tool_name, input_data)
+                        if file_path is None:
+                            continue
+
+                        add_access(file_path, access_type, tool_name)
+
+                # Source 2: User messages with toolUseResult (Gap 1 fix)
+                elif record_type == "user":
+                    file_path = _extract_tool_use_result_path(record)
+                    if file_path:
+                        access_type = _classify_tool_use_result_access(record)
+                        add_access(file_path, access_type, "toolUseResult")
+
+                # Source 3: file-history-snapshot records (Gap 2 fix)
+                elif record_type == "file-history-snapshot":
+                    tracked_paths = _extract_file_history_paths(record)
+                    for file_path in tracked_paths:
+                        add_access(file_path, "read", "file-history-snapshot")
 
     except Exception as e:
         logger.warning(f"Failed to extract file accesses from {filepath}: {e}")
@@ -229,8 +319,8 @@ def build_inverted_index(
             for session_id in chain.sessions:
                 session_to_chain[session_id] = chain_id
 
-    # Find all JSONL files
-    jsonl_files = list(jsonl_dir.glob("*.jsonl"))
+    # Find all JSONL files (recursive to include subagents/ directories)
+    jsonl_files = list(jsonl_dir.glob("**/*.jsonl"))
 
     if not jsonl_files:
         return {}

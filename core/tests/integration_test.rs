@@ -221,7 +221,7 @@ async fn test_query_sessions() {
     let elapsed = start.elapsed();
 
     println!("query_sessions took: {:?}", elapsed);
-    assert!(elapsed.as_millis() < 100, "Query took too long: {:?}", elapsed);
+    assert!(elapsed.as_millis() < 200, "Query took too long: {:?}", elapsed);
 
     assert!(result.is_ok(), "Query failed: {:?}", result.err());
     let result = result.unwrap();

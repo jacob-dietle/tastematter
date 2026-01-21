@@ -8,8 +8,9 @@ Unified context package archive organized by development phase.
 |-----------|----------|------------|-------|
 | [[01_query_engine/]] | 11 | 2025-12-16 to 2025-12-24 | Python query engine, indexes |
 | [[02_ui_foundation/]] | 22 | 2025-12-28 to 2026-01-04 | Svelte/Tauri UI, TDD |
-| [[03_current/]] | 28 | 2026-01-05 to 2026-01-12 | Rust port, bug fixes |
+| [[03_current/]] | 27 | 2026-01-05 to 2026-01-12 | Rust port, bug fixes |
 | [[04_daemon/]] | 1 | 2026-01-12 | Chain linking investigation |
+| [[05_mcp_publishing/]] | 1 | 2026-01-17 | Phase 5: Context-as-a-service |
 
 **Total:** 62 packages
 

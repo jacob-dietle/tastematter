@@ -644,3 +644,399 @@ class TestRealWorldScenarios:
             assert accesses[0].file_path == "/src/main.py"
         finally:
             filepath.unlink()
+
+
+class TestSubdirectoryIndexing:
+    """Test inverted index includes subdirectory sessions.
+
+    Bug: inverted_index.py:233 uses *.jsonl which misses {session}/subagents/agent-*.jsonl
+    Fix: Use **/*.jsonl for recursive discovery
+
+    Reference: specs/implementation/phase_00_glob_bug_fix/SPEC.md
+    """
+
+    def test_build_index_includes_subdirectory_sessions(self):
+        """Should index file accesses from agent sessions in subdirectories.
+
+        RED: Run before fix - index misses agent sessions in subdirectories
+        GREEN: Fix glob pattern to **/*.jsonl - index includes all sessions
+        """
+        from context_os_events.index.inverted_index import build_inverted_index
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            jsonl_dir = Path(tmpdir)
+
+            # Top-level session with file access
+            session_content = '{"type":"assistant","uuid":"a1","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"/src/main.py"}}]}}'
+            (jsonl_dir / "session-1.jsonl").write_text(session_content + '\n')
+
+            # Agent session in subdirectory with different file access
+            subdir = jsonl_dir / "session-1" / "subagents"
+            subdir.mkdir(parents=True)
+            agent_content = '{"type":"assistant","uuid":"a2","message":{"role":"assistant","content":[{"type":"tool_use","id":"t2","name":"Read","input":{"file_path":"/src/agent.py"}}]}}'
+            (subdir / "agent-x.jsonl").write_text(agent_content + '\n')
+
+            # Build index
+            index = build_inverted_index(jsonl_dir, chains=None)
+
+            # Should include files from BOTH sessions
+            indexed_files = set(index.keys())
+            assert "/src/main.py" in indexed_files, \
+                f"Should index top-level session. Got: {indexed_files}"
+            assert "/src/agent.py" in indexed_files, \
+                f"Should index agent in subdirectory. Got: {indexed_files}"
+
+    def test_glob_pattern_for_inverted_index(self):
+        """Verify the glob pattern difference for inverted index discovery."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            jsonl_dir = Path(tmpdir)
+
+            # Create structure with file accesses at different levels
+            (jsonl_dir / "session.jsonl").write_text('{"type":"user"}\n')
+            subdir = jsonl_dir / "session" / "subagents"
+            subdir.mkdir(parents=True)
+            (subdir / "agent.jsonl").write_text('{"type":"user"}\n')
+
+            # BUG: *.jsonl only finds top-level
+            buggy = list(jsonl_dir.glob("*.jsonl"))
+            assert len(buggy) == 1
+
+            # FIX: **/*.jsonl finds all levels
+            fixed = list(jsonl_dir.glob("**/*.jsonl"))
+            assert len(fixed) == 2
+
+
+class TestToolUseResultExtraction:
+    """Test extraction of file paths from user toolUseResult records.
+
+    Gap 1 from Package 17: Parser misses toolUseResult.filePath in user messages.
+    Reference: Canonical spec lines 256-267
+    """
+
+    def test_extract_tool_use_result_file_path(self):
+        """Should extract filePath from user record's toolUseResult.
+
+        RED: Run before implementation - should fail (no extraction)
+        GREEN: Add toolUseResult handling to extract_file_accesses()
+        """
+        from context_os_events.index.inverted_index import extract_file_accesses
+
+        # User message with toolUseResult (file creation confirmed)
+        jsonl_content = [
+            json.dumps({
+                "type": "user",
+                "uuid": "user-uuid-1",
+                "timestamp": "2026-01-16T10:00:00.000Z",
+                "sessionId": "test-session",
+                "toolUseResult": {
+                    "type": "create",
+                    "filePath": "/path/to/created/file.md",
+                    "content": "# New File"
+                }
+            })
+        ]
+
+        with tempfile.NamedTemporaryFile(
+            mode='w', suffix='.jsonl', delete=False
+        ) as f:
+            f.write('\n'.join(jsonl_content))
+            f.flush()
+            filepath = Path(f.name)
+
+        try:
+            accesses = extract_file_accesses(filepath, "test-session")
+
+            # Should find the file from toolUseResult
+            assert len(accesses) == 1, f"Expected 1 access, got {len(accesses)}"
+            assert accesses[0].file_path == "/path/to/created/file.md"
+            assert accesses[0].access_type == "create"
+            assert accesses[0].tool_name == "toolUseResult"
+        finally:
+            filepath.unlink()
+
+    def test_classify_tool_use_result_types(self):
+        """Should classify access_type based on toolUseResult.type.
+
+        Mapping:
+        - "create" → access_type = "create"
+        - "update" → access_type = "write"
+        - "text"   → access_type = "read"
+        """
+        from context_os_events.index.inverted_index import extract_file_accesses
+
+        jsonl_content = [
+            # Create
+            json.dumps({
+                "type": "user",
+                "timestamp": "2026-01-16T10:00:00.000Z",
+                "toolUseResult": {"type": "create", "filePath": "/file1.md"}
+            }),
+            # Update
+            json.dumps({
+                "type": "user",
+                "timestamp": "2026-01-16T10:01:00.000Z",
+                "toolUseResult": {"type": "update", "filePath": "/file2.py"}
+            }),
+            # Text (read)
+            json.dumps({
+                "type": "user",
+                "timestamp": "2026-01-16T10:02:00.000Z",
+                "toolUseResult": {"type": "text", "filePath": "/file3.rs"}
+            })
+        ]
+
+        with tempfile.NamedTemporaryFile(
+            mode='w', suffix='.jsonl', delete=False
+        ) as f:
+            f.write('\n'.join(jsonl_content))
+            f.flush()
+            filepath = Path(f.name)
+
+        try:
+            accesses = extract_file_accesses(filepath, "test-session")
+
+            # Sort by file path for predictable order
+            accesses.sort(key=lambda a: a.file_path)
+
+            assert len(accesses) == 3, f"Expected 3 accesses, got {len(accesses)}"
+            assert accesses[0].access_type == "create"  # file1.md
+            assert accesses[1].access_type == "write"   # file2.py
+            assert accesses[2].access_type == "read"    # file3.rs
+        finally:
+            filepath.unlink()
+
+    def test_extract_nested_file_path(self):
+        """Should extract filePath from nested file object.
+
+        Some toolUseResult records have filePath in nested file object:
+        toolUseResult.file.filePath instead of toolUseResult.filePath
+        """
+        from context_os_events.index.inverted_index import extract_file_accesses
+
+        jsonl_content = [
+            json.dumps({
+                "type": "user",
+                "timestamp": "2026-01-16T10:00:00.000Z",
+                "toolUseResult": {
+                    "type": "update",
+                    "file": {
+                        "filePath": "/nested/path/file.py",
+                        "content": "# Content"
+                    }
+                }
+            })
+        ]
+
+        with tempfile.NamedTemporaryFile(
+            mode='w', suffix='.jsonl', delete=False
+        ) as f:
+            f.write('\n'.join(jsonl_content))
+            f.flush()
+            filepath = Path(f.name)
+
+        try:
+            accesses = extract_file_accesses(filepath, "test-session")
+
+            assert len(accesses) == 1
+            assert accesses[0].file_path == "/nested/path/file.py"
+            assert accesses[0].access_type == "write"
+        finally:
+            filepath.unlink()
+
+
+class TestFileHistorySnapshotExtraction:
+    """Test extraction of file paths from file-history-snapshot records.
+
+    Gap 2 from Package 17: Parser rejects file-history-snapshot record type.
+    Reference: Canonical spec lines 353-372
+    """
+
+    def test_extract_tracked_file_paths(self):
+        """Should extract file paths from trackedFileBackups keys.
+
+        RED: Run before implementation - should fail (record type rejected)
+        GREEN: Add file-history-snapshot handling
+        """
+        from context_os_events.index.inverted_index import extract_file_accesses
+
+        jsonl_content = [
+            json.dumps({
+                "type": "file-history-snapshot",
+                "messageId": "test-msg-id",
+                "timestamp": "2026-01-16T09:00:00.000Z",
+                "snapshot": {
+                    "trackedFileBackups": {
+                        "/path/to/tracked/file1.py": {
+                            "backupFileName": "abc123@v3",
+                            "version": 3
+                        },
+                        "/path/to/tracked/file2.md": {
+                            "backupFileName": None,
+                            "version": 1
+                        }
+                    }
+                }
+            })
+        ]
+
+        with tempfile.NamedTemporaryFile(
+            mode='w', suffix='.jsonl', delete=False
+        ) as f:
+            f.write('\n'.join(jsonl_content))
+            f.flush()
+            filepath = Path(f.name)
+
+        try:
+            accesses = extract_file_accesses(filepath, "test-session")
+
+            # Should find both tracked files
+            assert len(accesses) == 2, f"Expected 2 accesses, got {len(accesses)}"
+
+            file_paths = {a.file_path for a in accesses}
+            assert "/path/to/tracked/file1.py" in file_paths
+            assert "/path/to/tracked/file2.md" in file_paths
+
+            # All should be classified as reads (tracking = reading)
+            for access in accesses:
+                assert access.access_type == "read"
+                assert access.tool_name == "file-history-snapshot"
+        finally:
+            filepath.unlink()
+
+    def test_handles_empty_tracked_files(self):
+        """Should handle file-history-snapshot with no tracked files."""
+        from context_os_events.index.inverted_index import extract_file_accesses
+
+        jsonl_content = [
+            json.dumps({
+                "type": "file-history-snapshot",
+                "timestamp": "2026-01-16T09:00:00.000Z",
+                "snapshot": {
+                    "trackedFileBackups": {}
+                }
+            })
+        ]
+
+        with tempfile.NamedTemporaryFile(
+            mode='w', suffix='.jsonl', delete=False
+        ) as f:
+            f.write('\n'.join(jsonl_content))
+            f.flush()
+            filepath = Path(f.name)
+
+        try:
+            accesses = extract_file_accesses(filepath, "test-session")
+            assert len(accesses) == 0
+        finally:
+            filepath.unlink()
+
+    def test_handles_windows_paths_in_tracked_files(self):
+        """Should handle Windows-style paths in trackedFileBackups keys."""
+        from context_os_events.index.inverted_index import extract_file_accesses
+
+        jsonl_content = [
+            json.dumps({
+                "type": "file-history-snapshot",
+                "timestamp": "2026-01-16T09:00:00.000Z",
+                "snapshot": {
+                    "trackedFileBackups": {
+                        "C:\\Users\\test\\file.py": {"version": 1},
+                        "_system\\specs\\file.md": {"version": 2}
+                    }
+                }
+            })
+        ]
+
+        with tempfile.NamedTemporaryFile(
+            mode='w', suffix='.jsonl', delete=False
+        ) as f:
+            f.write('\n'.join(jsonl_content))
+            f.flush()
+            filepath = Path(f.name)
+
+        try:
+            accesses = extract_file_accesses(filepath, "test-session")
+
+            assert len(accesses) == 2
+            file_paths = {a.file_path for a in accesses}
+            assert "C:\\Users\\test\\file.py" in file_paths
+            assert "_system\\specs\\file.md" in file_paths
+        finally:
+            filepath.unlink()
+
+
+class TestParserGapFixIntegration:
+    """Integration test verifying both gaps are fixed together.
+
+    This tests that all 3 sources are extracted from a single session:
+    1. assistant.tool_use (existing)
+    2. user.toolUseResult (Gap 1)
+    3. file-history-snapshot (Gap 2)
+    """
+
+    def test_extracts_all_sources_in_single_session(self):
+        """Should extract file paths from all 3 sources in one session."""
+        from context_os_events.index.inverted_index import extract_file_accesses
+
+        jsonl_content = [
+            # Source 1: Assistant tool_use (existing)
+            json.dumps({
+                "type": "assistant",
+                "timestamp": "2026-01-16T10:00:00.000Z",
+                "message": {
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "id": "toolu_1",
+                            "name": "Read",
+                            "input": {"file_path": "/assistant/read.py"}
+                        }
+                    ]
+                }
+            }),
+            # Source 2: User toolUseResult (Gap 1)
+            json.dumps({
+                "type": "user",
+                "timestamp": "2026-01-16T10:01:00.000Z",
+                "toolUseResult": {
+                    "type": "create",
+                    "filePath": "/user/created.md"
+                }
+            }),
+            # Source 3: file-history-snapshot (Gap 2)
+            json.dumps({
+                "type": "file-history-snapshot",
+                "timestamp": "2026-01-16T10:02:00.000Z",
+                "snapshot": {
+                    "trackedFileBackups": {
+                        "/tracked/file.ts": {"version": 1}
+                    }
+                }
+            })
+        ]
+
+        with tempfile.NamedTemporaryFile(
+            mode='w', suffix='.jsonl', delete=False
+        ) as f:
+            f.write('\n'.join(jsonl_content))
+            f.flush()
+            filepath = Path(f.name)
+
+        try:
+            accesses = extract_file_accesses(filepath, "test-session")
+
+            # Should find all 3 files
+            assert len(accesses) == 3, f"Expected 3 accesses, got {len(accesses)}"
+
+            file_paths = {a.file_path for a in accesses}
+            assert "/assistant/read.py" in file_paths, "Missing assistant tool_use"
+            assert "/user/created.md" in file_paths, "Missing user toolUseResult"
+            assert "/tracked/file.ts" in file_paths, "Missing file-history-snapshot"
+
+            # Verify tool_names
+            tool_names = {a.tool_name for a in accesses}
+            assert "Read" in tool_names
+            assert "toolUseResult" in tool_names
+            assert "file-history-snapshot" in tool_names
+        finally:
+            filepath.unlink()

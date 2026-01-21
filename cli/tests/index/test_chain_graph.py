@@ -20,13 +20,15 @@ class TestExtractLeafUuids:
     """Test extracting leafUuid references from JSONL files."""
 
     def test_extract_leaf_uuids_finds_summary_records(self):
-        """Should extract leafUuid from summary records.
+        """Should extract LAST leafUuid from summary records.
 
-        RED: Run before implementation - should fail
-        GREEN: Implement extract_leaf_uuids()
+        IMPORTANT: Claude Code stacks summaries oldest-first when continuing:
+        - Session C continues B continues A
+        - C gets: [summary from A, summary from B]
+        - FIRST summary → original root (A)
+        - LAST summary → immediate parent (B) ← We want this
 
-        JSONL structure (discovered from real files):
-        {"type":"summary","summary":"Context OS Daemon","leafUuid":"22288505-..."}
+        See Package 11 investigation (2026-01-15) for empirical verification.
         """
         from context_os_events.index.chain_graph import extract_leaf_uuids
 
@@ -48,9 +50,10 @@ class TestExtractLeafUuids:
         try:
             leaf_uuids = extract_leaf_uuids(filepath)
 
-            assert len(leaf_uuids) == 2
-            assert "uuid-parent-1" in leaf_uuids
-            assert "uuid-parent-2" in leaf_uuids
+            # Implementation returns LAST leafUuid only (immediate parent)
+            # See Package 11: Claude Code stacks summaries oldest-first
+            assert len(leaf_uuids) == 1
+            assert leaf_uuids[0] == "uuid-parent-2"  # LAST summary's leafUuid
         finally:
             filepath.unlink()
 
@@ -95,7 +98,9 @@ class TestExtractLeafUuids:
 
         try:
             leaf_uuids = extract_leaf_uuids(filepath)
-            assert len(leaf_uuids) == 2
+            # Returns LAST valid leafUuid only
+            assert len(leaf_uuids) == 1
+            assert leaf_uuids[0] == "uuid-2"  # LAST valid summary
         finally:
             filepath.unlink()
 
@@ -383,9 +388,11 @@ class TestRealWorldScenarios:
     """Test with realistic data patterns observed from actual JSONL files."""
 
     def test_handles_multiple_summary_records(self):
-        """Real JSONL files often have multiple summary records (conversation history).
+        """Real JSONL files have multiple summaries (conversation history stack).
 
-        Observed pattern: Each summary represents a previous conversation context.
+        Claude Code stacks summaries oldest-first when continuing sessions.
+        Only the LAST summary's leafUuid indicates the immediate parent.
+        Earlier summaries point to ancestors in the chain.
         """
         from context_os_events.index.chain_graph import extract_leaf_uuids
 
@@ -408,11 +415,10 @@ class TestRealWorldScenarios:
         try:
             leaf_uuids = extract_leaf_uuids(filepath)
 
-            # All three leafUuids should be extracted
-            assert len(leaf_uuids) == 3
-            assert "uuid-1" in leaf_uuids
-            assert "uuid-2" in leaf_uuids
-            assert "uuid-3" in leaf_uuids
+            # Only LAST leafUuid should be extracted (immediate parent)
+            # uuid-1, uuid-2 are ancestors; uuid-3 is immediate parent
+            assert len(leaf_uuids) == 1
+            assert leaf_uuids[0] == "uuid-3"  # LAST = immediate parent
         finally:
             filepath.unlink()
 

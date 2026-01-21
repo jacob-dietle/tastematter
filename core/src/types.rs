@@ -75,6 +75,33 @@ pub struct QueryChainsInput {
     pub limit: Option<u32>,
 }
 
+/// Input for search command - substring search across file paths
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuerySearchInput {
+    /// Pattern to search for (substring match, case-insensitive)
+    pub pattern: String,
+    /// Maximum results to return (default: 20)
+    pub limit: Option<u32>,
+}
+
+/// Input for file command - show sessions that touched a file
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueryFileInput {
+    /// File path to query (exact, suffix, or substring match)
+    pub file_path: String,
+    /// Maximum sessions to return (default: 20)
+    pub limit: Option<u32>,
+}
+
+/// Input for co-access command - find files accessed together
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueryCoAccessInput {
+    /// Anchor file to find co-accessed files for
+    pub file_path: String,
+    /// Maximum results to return (default: 10)
+    pub limit: Option<u32>,
+}
+
 // =============================================================================
 // QUERY OUTPUT TYPES - query_flex
 // =============================================================================
@@ -220,6 +247,131 @@ pub struct ChainQueryResult {
 }
 
 // =============================================================================
+// QUERY OUTPUT TYPES - query_search
+// =============================================================================
+
+/// Search result item
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchResultItem {
+    pub file_path: String,
+    pub access_count: u32,
+}
+
+/// Search query result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchResult {
+    pub receipt_id: String,
+    pub timestamp: String,
+    pub pattern: String,
+    pub total_matches: usize,
+    pub results: Vec<SearchResultItem>,
+}
+
+// =============================================================================
+// QUERY OUTPUT TYPES - query_file
+// =============================================================================
+
+/// Session that touched a file
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileSessionInfo {
+    pub session_id: String,
+    pub access_types: Vec<String>,
+    pub last_access: Option<String>,
+    pub chain_id: Option<String>,
+}
+
+/// File query result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileQueryResult {
+    pub receipt_id: String,
+    pub timestamp: String,
+    pub file_path: String,
+    pub found: bool,
+    pub matched_path: Option<String>,
+    pub sessions: Vec<FileSessionInfo>,
+}
+
+// =============================================================================
+// QUERY OUTPUT TYPES - query_co_access
+// =============================================================================
+
+/// Co-accessed file with PMI score
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CoAccessItem {
+    pub file_path: String,
+    pub pmi_score: f64,
+}
+
+/// Co-access query result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CoAccessResult {
+    pub receipt_id: String,
+    pub timestamp: String,
+    pub query_file: String,
+    pub results: Vec<CoAccessItem>,
+}
+
+// =============================================================================
+// QUERY OUTPUT TYPES - query_verify
+// =============================================================================
+
+/// Input for verify command
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueryVerifyInput {
+    /// Receipt ID to verify (e.g., "q_abc123")
+    pub receipt_id: String,
+}
+
+/// Verification status
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum VerificationStatus {
+    #[serde(rename = "MATCH")]
+    Match,
+    #[serde(rename = "DRIFT")]
+    Drift,
+    #[serde(rename = "NOT_FOUND")]
+    NotFound,
+}
+
+/// Verification result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VerifyResult {
+    pub receipt_id: String,
+    pub status: VerificationStatus,
+    pub original_timestamp: Option<String>,
+    pub verified_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub drift_summary: Option<String>,
+}
+
+// =============================================================================
+// QUERY OUTPUT TYPES - query_receipts
+// =============================================================================
+
+/// Input for receipts command
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct QueryReceiptsInput {
+    /// Maximum receipts to return (default: 20)
+    pub limit: Option<u32>,
+}
+
+/// Receipt summary item
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReceiptItem {
+    pub receipt_id: String,
+    pub timestamp: String,
+    pub query_type: String,
+    pub result_count: usize,
+}
+
+/// Receipts list result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReceiptsResult {
+    pub receipts: Vec<ReceiptItem>,
+    pub total_count: usize,
+}
+
+// =============================================================================
 // QUERY OUTPUT TYPES - query_sessions
 // =============================================================================
 
@@ -284,6 +436,71 @@ pub struct SessionQueryResult {
     pub sessions: Vec<SessionData>,
     pub chains: Vec<ChainSummary>,
     pub summary: SessionSummary,
+}
+
+// =============================================================================
+// WRITE INPUT TYPES (Phase 1: Storage Foundation)
+// =============================================================================
+
+/// Input for inserting a git commit
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitCommitInput {
+    /// Full commit hash
+    pub hash: String,
+    /// Short hash (first 7 chars)
+    pub short_hash: String,
+    /// Commit timestamp (ISO8601)
+    pub timestamp: String,
+    /// Commit message
+    pub message: Option<String>,
+    /// Author name
+    pub author_name: Option<String>,
+    /// Author email
+    pub author_email: Option<String>,
+    /// Files changed (JSON array)
+    pub files_changed: Option<String>,
+    /// Number of insertions
+    pub insertions: Option<i32>,
+    /// Number of deletions
+    pub deletions: Option<i32>,
+    /// Number of files changed
+    pub files_count: Option<i32>,
+    /// Whether this is an agent-generated commit
+    pub is_agent_commit: bool,
+}
+
+/// Input for inserting a Claude session
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionInput {
+    /// Session ID (UUID from JSONL filename)
+    pub session_id: String,
+    /// Project path
+    pub project_path: Option<String>,
+    /// Started timestamp (ISO8601)
+    pub started_at: Option<String>,
+    /// Ended timestamp (ISO8601)
+    pub ended_at: Option<String>,
+    /// Duration in seconds
+    pub duration_seconds: Option<i32>,
+    /// User message count
+    pub user_message_count: Option<i32>,
+    /// Assistant message count
+    pub assistant_message_count: Option<i32>,
+    /// Total message count
+    pub total_messages: Option<i32>,
+    /// Files read (JSON array)
+    pub files_read: Option<String>,
+    /// Files written (JSON array)
+    pub files_written: Option<String>,
+    /// Tools used (JSON object)
+    pub tools_used: Option<String>,
+}
+
+/// Result of a write operation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WriteResult {
+    /// Number of rows affected
+    pub rows_affected: u64,
 }
 
 // =============================================================================

@@ -63,9 +63,17 @@ class Chain:
 def extract_leaf_uuids(filepath: Path) -> List[str]:
     """Extract session resumption leafUuid from JSONL file.
 
-    IMPORTANT: Only the FIRST record's leafUuid indicates session resumption.
-    Subsequent summary records are compaction markers within the same session,
-    their leafUuids point to messages in THIS session, not a parent.
+    IMPORTANT: Use the LAST summary's leafUuid, not the first.
+
+    Claude Code stacks summaries oldest-first:
+    - When session B continues from A, B gets a summary with leafUuid -> A
+    - When session C continues from B, C gets [summary from A, summary from B]
+    - The FIRST summary always points to the original root
+    - The LAST summary points to the immediate parent
+
+    This was discovered through empirical testing on 2026-01-15.
+    Previous "first record only" approach caused all sessions to link
+    to the root (star topology) instead of proper chains.
 
     Args:
         filepath: Path to JSONL file
@@ -74,20 +82,29 @@ def extract_leaf_uuids(filepath: Path) -> List[str]:
         List with single leafUuid if session was resumed, empty otherwise
     """
     try:
+        last_leaf_uuid = None
+
         with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
-            first_line = f.readline().strip()
-            if not first_line:
-                return []
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
 
-            try:
-                record = json.loads(first_line)
-            except json.JSONDecodeError:
-                return []
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
 
-            # Only the FIRST record indicates session resumption
-            # If first record is summary with leafUuid, this session was resumed
-            if record.get("type") == "summary" and record.get("leafUuid"):
-                return [record["leafUuid"]]
+                # Collect all summary leafUuids until we hit a non-summary
+                if record.get("type") == "summary" and record.get("leafUuid"):
+                    last_leaf_uuid = record["leafUuid"]
+                else:
+                    # Stop at first non-summary record
+                    break
+
+        # Return the LAST summary's leafUuid (immediate parent)
+        if last_leaf_uuid:
+            return [last_leaf_uuid]
 
     except Exception as e:
         logger.warning(f"Failed to extract leafUuids from {filepath}: {e}")
@@ -194,8 +211,10 @@ def build_chain_graph(jsonl_dir: Path) -> Dict[str, Chain]:
     Returns:
         Dict mapping chain_id to Chain objects
     """
-    # Find all JSONL files
-    jsonl_files = list(jsonl_dir.glob("*.jsonl"))
+    # Find all JSONL files (including agent sessions in subdirectories)
+    # Agent sessions are stored in {parent_session}/subagents/agent-*.jsonl
+    # Using **/*.jsonl to recursively find all sessions
+    jsonl_files = list(jsonl_dir.glob("**/*.jsonl"))
 
     if not jsonl_files:
         return {}

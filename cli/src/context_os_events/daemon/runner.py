@@ -117,7 +117,7 @@ class ContextOSDaemon:
         logger.info("Daemon stopped")
 
     def run_sync(self) -> None:
-        """Run git sync + session parse.
+        """Run git sync + session parse + chain building.
 
         Called by scheduler at configured interval.
         Also can be called manually for immediate sync.
@@ -126,12 +126,15 @@ class ContextOSDaemon:
 
         git_commits = self._sync_git()
         sessions = self._sync_sessions()
+        chains = self._build_chains()
 
         # Update state
         self.state.last_git_sync = datetime.now()
         self.state.last_session_parse = datetime.now()
+        self.state.last_chain_build = datetime.now()
         self.state.git_commits_synced += git_commits
         self.state.sessions_parsed += sessions
+        self.state.chains_built += chains
 
         # Persist state
         self.state.save(self._state_file)
@@ -140,10 +143,11 @@ class ContextOSDaemon:
         self.emit("sync_complete", {
             "git_commits": git_commits,
             "sessions": sessions,
+            "chains": chains,
             "timestamp": datetime.now().isoformat(),
         })
 
-        logger.info(f"Sync complete: {git_commits} commits, {sessions} sessions")
+        logger.info(f"Sync complete: {git_commits} commits, {sessions} sessions, {chains} chains")
 
     def on(self, event: str, handler: EventHandler) -> None:
         """Register event handler.
@@ -247,6 +251,40 @@ class ContextOSDaemon:
             return result.get("sessions_parsed", 0)
         except Exception as e:
             logger.error(f"Session sync failed: {e}")
+            return 0
+
+    def _build_chains(self) -> int:
+        """Build chain graph from session data. Returns number of chains built."""
+        try:
+            from context_os_events.index.chain_graph import build_chain_graph, persist_chains
+            from context_os_events.db.connection import get_connection
+            from pathlib import Path
+            import os
+
+            db = get_connection()
+
+            # Get project path from config or use cwd
+            project_path = self.config.get("project", {}).get("path") or os.getcwd()
+
+            # Find Claude project directory
+            claude_projects_dir = Path.home() / ".claude" / "projects"
+            # Convert path to Claude's format (replace special chars with dashes)
+            project_key = project_path.replace(":", "-").replace("/", "-").replace("\\", "-")
+            jsonl_dir = claude_projects_dir / project_key
+
+            if not jsonl_dir.exists():
+                logger.warning(f"No Claude project directory found at {jsonl_dir}")
+                db.close()
+                return 0
+
+            # Build and persist chains
+            chains = build_chain_graph(jsonl_dir)
+            stats = persist_chains(db, chains)
+            db.close()
+
+            return stats.get("chains_stored", 0)
+        except Exception as e:
+            logger.error(f"Chain build failed: {e}")
             return 0
 
 

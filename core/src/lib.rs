@@ -12,8 +12,11 @@
 //! let result = engine.query_flex(QueryFlexInput::default()).await?;
 //! ```
 
+pub mod capture;
+pub mod daemon;
 pub mod error;
 pub mod http;
+pub mod index;
 pub mod query;
 pub mod storage;
 pub mod types;

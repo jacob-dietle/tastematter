@@ -253,3 +253,72 @@ class TestBuildChainsIntegration:
             assert result.exit_code == 0
             chains = conn.execute("SELECT COUNT(*) as c FROM chains").fetchone()
             assert chains['c'] >= 1
+
+
+class TestSubdirectoryDiscovery:
+    """Test that build-chains discovers JSONL files in subdirectories.
+
+    Bug: cli.py:444 uses *.jsonl which misses {session}/subagents/agent-*.jsonl
+    Fix: Use **/*.jsonl for recursive discovery
+
+    Reference: specs/implementation/phase_00_glob_bug_fix/SPEC.md
+    """
+
+    def test_build_chains_counts_subdirectory_files(self, cli_runner, mock_db):
+        """build-chains should count and process JSONL files in subdirectories.
+
+        RED: Run before fix - reports fewer files than exist (misses subdirectory)
+        GREEN: Fix glob pattern to **/*.jsonl - finds all files
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+
+            # Create hierarchical structure matching Claude Code:
+            # 2 top-level sessions + 1 agent in subdirectory = 3 total
+
+            # Top-level sessions
+            session_a = tmpdir / "session-a.jsonl"
+            session_a.write_text('{"type":"user","uuid":"a-end","message":{}}\n')
+
+            session_b = tmpdir / "session-b.jsonl"
+            session_b.write_text('{"type":"user","uuid":"b-end","message":{}}\n')
+
+            # Agent in subagents/ directory (MISSED by *.jsonl bug)
+            subagents_dir = tmpdir / "session-a" / "subagents"
+            subagents_dir.mkdir(parents=True)
+            agent_x = subagents_dir / "agent-x.jsonl"
+            agent_x.write_text(
+                '{"type":"summary","sessionId":"session-a"}\n'
+                '{"type":"user","uuid":"x-end","message":{}}\n'
+            )
+
+            with patch('context_os_events.cli.get_connection', return_value=mock_db):
+                with patch('context_os_events.cli.get_jsonl_dir_for_project', return_value=tmpdir):
+                    result = cli_runner.invoke(cli, ['build-chains'])
+
+            # Output should show 3 session files found (not 2)
+            assert "3" in result.output or "Found 3" in result.output, \
+                f"Expected 3 files found, but output was: {result.output}"
+
+    def test_glob_pattern_finds_all_levels(self):
+        """Verify **/*.jsonl finds files at all directory levels.
+
+        This is a unit test for the glob pattern itself.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+
+            # Create 3-level deep structure
+            (tmpdir / "level0.jsonl").write_text("{}\n")
+            (tmpdir / "subdir1").mkdir()
+            (tmpdir / "subdir1" / "level1.jsonl").write_text("{}\n")
+            (tmpdir / "subdir1" / "subdir2").mkdir()
+            (tmpdir / "subdir1" / "subdir2" / "level2.jsonl").write_text("{}\n")
+
+            # BUG: *.jsonl only finds level 0
+            buggy = list(tmpdir.glob("*.jsonl"))
+            assert len(buggy) == 1, "*.jsonl should only find top level"
+
+            # FIX: **/*.jsonl finds all levels
+            fixed = list(tmpdir.glob("**/*.jsonl"))
+            assert len(fixed) == 3, "**/*.jsonl should find all 3 levels"
