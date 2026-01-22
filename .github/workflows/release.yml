@@ -74,7 +74,7 @@ jobs:
       - name: Configure rclone for R2
         run: |
           mkdir -p ~/.config/rclone
-          cat > ~/.config/rclone/rclone.conf << EOF
+          cat > ~/.config/rclone/rclone.conf <<EOF
           [r2]
           type = s3
           provider = Cloudflare
@@ -86,6 +86,10 @@ jobs:
           EOF
           # Strip leading whitespace from config
           sed -i 's/^[[:space:]]*//' ~/.config/rclone/rclone.conf
+          echo "=== rclone config ==="
+          cat ~/.config/rclone/rclone.conf | head -10
+          echo "=== testing rclone ==="
+          rclone lsd r2: || echo "lsd failed"
 
       - name: Upload binaries to R2
         run: |
