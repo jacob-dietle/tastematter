@@ -1,47 +1,175 @@
-# Svelte + TS + Vite
+# Tastematter
 
-This template should help get you started developing with Svelte and TypeScript in Vite.
+Context intelligence CLI for Claude Code sessions. Query your work patterns, find related files, and understand what you've been working on.
 
-## Recommended IDE Setup
+## Install
 
-[VS Code](https://code.visualstudio.com/) + [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode).
-
-## Need an official Svelte framework?
-
-Check out [SvelteKit](https://github.com/sveltejs/kit#readme), which is also powered by Vite. Deploy anywhere with its serverless-first approach and adapt to various platforms, with out of the box support for TypeScript, SCSS, and Less, and easily-added support for mdsvex, GraphQL, PostCSS, Tailwind CSS, and more.
-
-## Technical considerations
-
-**Why use this over SvelteKit?**
-
-- It brings its own routing solution which might not be preferable for some users.
-- It is first and foremost a framework that just happens to use Vite under the hood, not a Vite app.
-
-This template contains as little as possible to get started with Vite + TypeScript + Svelte, while taking into account the developer experience with regards to HMR and intellisense. It demonstrates capabilities on par with the other `create-vite` templates and is a good starting point for beginners dipping their toes into a Vite + Svelte project.
-
-Should you later need the extended capabilities and extensibility provided by SvelteKit, the template has been structured similarly to SvelteKit so that it is easy to migrate.
-
-**Why `global.d.ts` instead of `compilerOptions.types` inside `jsconfig.json` or `tsconfig.json`?**
-
-Setting `compilerOptions.types` shuts out all other types not explicitly listed in the configuration. Using triple-slash references keeps the default TypeScript setting of accepting type information from the entire workspace, while also adding `svelte` and `vite/client` type information.
-
-**Why include `.vscode/extensions.json`?**
-
-Other templates indirectly recommend extensions via the README, but this file allows VS Code to prompt the user to install the recommended extension upon opening the project.
-
-**Why enable `allowJs` in the TS template?**
-
-While `allowJs: false` would indeed prevent the use of `.js` files in the project, it does not prevent the use of JavaScript syntax in `.svelte` files. In addition, it would force `checkJs: false`, bringing the worst of both worlds: not being able to guarantee the entire codebase is TypeScript, and also having worse typechecking for the existing JavaScript. In addition, there are valid use cases in which a mixed codebase may be relevant.
-
-**Why is HMR not preserving my local component state?**
-
-HMR state preservation comes with a number of gotchas! It has been disabled by default in both `svelte-hmr` and `@sveltejs/vite-plugin-svelte` due to its often surprising behavior. You can read the details [here](https://github.com/rixo/svelte-hmr#svelte-hmr).
-
-If you have state that's important to retain within a component, consider creating an external store which would not be replaced by HMR.
-
-```ts
-// store.ts
-// An extremely simple external store
-import { writable } from 'svelte/store'
-export default writable(0)
+**Windows (PowerShell):**
+```powershell
+irm https://install.tastematter.dev/install.ps1 | iex
 ```
+
+**macOS/Linux:**
+```bash
+curl -fsSL https://install.tastematter.dev/install.sh | bash
+```
+
+## Quick Start
+
+```bash
+# Check installation
+tastematter --version
+
+# Initialize (first time only) - index your Claude Code sessions
+tastematter parse-sessions --project ~/.claude/projects
+tastematter build-chains
+tastematter index-files
+
+# Query your most accessed files (last 7 days)
+tastematter query flex --time 7d --limit 10
+
+# Find files related to a specific file
+tastematter query co-access path/to/file.ts --limit 10
+
+# List your conversation chains
+tastematter query chains --limit 10
+
+# Start HTTP server for browser tools
+tastematter serve --port 3001
+```
+
+## Commands
+
+| Command | Purpose |
+|---------|---------|
+| `query flex` | Flexible file queries with time/pattern filters |
+| `query co-access` | Find files accessed together |
+| `query chains` | List conversation chains |
+| `query session` | Get all files from a session |
+| `query search` | Search file paths by keyword |
+| `parse-sessions` | Index Claude Code JSONL files |
+| `build-chains` | Build conversation chain graph |
+| `index-files` | Build file access index |
+| `serve` | Start HTTP API server |
+| `daemon` | Background sync commands |
+| `watch` | Watch directory for changes |
+
+## Query Examples
+
+### Find your hot files
+```bash
+# Most accessed files in the last 30 days
+tastematter query flex --time 30d --limit 20
+
+# Files matching a pattern
+tastematter query flex --files "*pixee*" --time 14d
+
+# With full aggregations (for detailed analysis)
+tastematter query flex --time 7d --agg count,recency,sessions,chains --format json
+```
+
+### Understand relationships
+```bash
+# What files are accessed together with this one?
+tastematter query co-access src/main.rs --limit 15
+
+# What files were in this session?
+tastematter query session abc123-def456 --format json
+```
+
+### Explore work history
+```bash
+# Recent conversation chains
+tastematter query chains --limit 10
+
+# Search for files by keyword
+tastematter query search "authentication"
+```
+
+## Data Location
+
+- **Database:** `~/.context-os/context_os_events.db`
+- **Config:** `~/.context-os/config.yaml`
+- **Query receipts:** `~/.context-os/query_ledger/`
+
+## How It Works
+
+Tastematter indexes your Claude Code session files (JSONL) and builds:
+
+1. **File access history** - Which files were read/written, when, how often
+2. **Session context** - What files were accessed together in each session
+3. **Conversation chains** - How sessions link together via `leafUuid`
+4. **Co-access graph** - Which files appear together (implicit relationships)
+
+This lets you query patterns like:
+- "What am I working on?" (most accessed files)
+- "What's related to X?" (co-access relationships)
+- "What did I do last week?" (temporal queries)
+- "What did I abandon?" (old files with no recent activity)
+
+## Integration with Claude Code
+
+Add to your `CLAUDE.md` for Claude to use tastematter:
+
+```markdown
+## Context Queries
+
+Use tastematter to understand work context:
+- `tastematter query flex --time 7d` - Recent activity
+- `tastematter query co-access <file>` - Related files
+- `tastematter query chains --limit 5` - Conversation threads
+```
+
+See the [context-query skill](.claude/skills/context-query/SKILL.md) for advanced query strategies.
+
+## Troubleshooting
+
+### "No such table" or empty results
+```bash
+# Check database exists
+ls ~/.context-os/context_os_events.db
+
+# Re-initialize if missing
+tastematter parse-sessions --project ~/.claude/projects
+tastematter build-chains
+tastematter index-files
+```
+
+### Windows path issues
+Use backslashes for Windows paths:
+```powershell
+tastematter parse-sessions --project "C:\Users\YourName\.claude\projects"
+```
+
+### Update to latest version
+Just re-run the install command - it will overwrite the existing binary.
+
+## Development
+
+```bash
+# Build from source
+cd core
+cargo build --release
+
+# Run tests
+cargo test
+
+# The binary will be at:
+./target/release/tastematter
+```
+
+## Architecture
+
+```
+~/.context-os/
+├── context_os_events.db    # SQLite database (all indexed data)
+├── config.yaml             # Daemon configuration
+├── daemon.state.json       # Daemon state
+└── query_ledger/           # Query receipts for verification
+```
+
+The CLI is read-only against the database. Use `parse-sessions`, `build-chains`, and `index-files` to populate it from your Claude Code session data.
+
+## License
+
+Private - Not for distribution.
