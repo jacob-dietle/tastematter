@@ -18,7 +18,7 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact: tastematter-windows-x86_64.exe
-          - os: macos-latest
+          - os: macos-13  # Intel runner for x86_64
             target: x86_64-apple-darwin
             artifact: tastematter-darwin-x86_64
           - os: macos-latest
