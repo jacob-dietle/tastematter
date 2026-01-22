@@ -81,8 +81,11 @@ jobs:
           access_key_id = ${{ secrets.R2_ACCESS_KEY_ID }}
           secret_access_key = ${{ secrets.R2_SECRET_ACCESS_KEY }}
           endpoint = ${{ secrets.R2_ENDPOINT }}
-          acl = public-read
+          region = auto
+          no_check_bucket = true
           EOF
+          # Strip leading whitespace from config
+          sed -i 's/^[[:space:]]*//' ~/.config/rclone/rclone.conf
 
       - name: Upload binaries to R2
         run: |
