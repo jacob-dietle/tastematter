@@ -1,25 +1,25 @@
-//! context-os CLI - Fast file access intelligence
+//! Tastematter CLI - Context intelligence for Claude Code
 //!
-//! A standalone CLI for querying context-os data with <100ms latency.
+//! A standalone CLI for querying Claude Code session data with <100ms latency.
 //!
 //! # Usage
 //!
 //! ```bash
 //! # Query most accessed files in the last 7 days
-//! context-os query flex --time 7d
+//! tastematter query flex --time 7d
 //!
 //! # Query chains
-//! context-os query chains --limit 5
+//! tastematter query chains --limit 5
 //!
 //! # Query timeline data
-//! context-os query timeline --time 14d
+//! tastematter query timeline --time 14d
 //!
 //! # Query sessions
-//! context-os query sessions --time 7d
+//! tastematter query sessions --time 7d
 //! ```
 
 use clap::{Parser, Subcommand};
-use context_os_core::{
+use tastematter::{
     capture::file_watcher::{
         create_event_from_path, event_types, EventDebouncer, EventFilter, FileEvent,
         WatcherConfig, WatcherStats,
@@ -37,9 +37,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "context-os")]
+#[command(name = "tastematter")]
 #[command(version = "0.1.0")]
-#[command(about = "Context OS - Fast file access intelligence", long_about = None)]
+#[command(about = "Tastematter - Context intelligence for Claude Code", long_about = None)]
 struct Cli {
     /// Database path (optional, auto-discovers if not provided)
     #[arg(long, global = true)]
@@ -462,7 +462,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         },
         Commands::Serve { port, host, cors } => {
-            use context_os_core::http::{create_router, AppState};
+            use tastematter::http::{create_router, AppState};
             use std::sync::Arc;
             use std::time::Instant;
 
@@ -512,7 +512,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     #[derive(serde::Serialize)]
                     struct SyncOutput {
                         result: SyncResult,
-                        commits: Vec<context_os_core::capture::git_sync::GitCommit>,
+                        commits: Vec<tastematter::capture::git_sync::GitCommit>,
                     }
 
                     let output_data = SyncOutput { result, commits };
@@ -620,7 +620,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             project,
             format,
         } => {
-            use context_os_core::capture::jsonl_parser::encode_project_path;
+            use tastematter::capture::jsonl_parser::encode_project_path;
 
             // Determine Claude directory
             let claude_path = if let Some(dir) = claude_dir {
@@ -694,7 +694,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             struct ChainOutput {
                                 result: ChainBuildResult,
                                 largest_chain: usize,
-                                chains: std::collections::HashMap<String, context_os_core::index::chain_graph::Chain>,
+                                chains: std::collections::HashMap<String, tastematter::index::chain_graph::Chain>,
                             }
                             let output_data = ChainOutput {
                                 result,
@@ -708,7 +708,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             struct ChainOutput {
                                 result: ChainBuildResult,
                                 largest_chain: usize,
-                                chains: std::collections::HashMap<String, context_os_core::index::chain_graph::Chain>,
+                                chains: std::collections::HashMap<String, tastematter::index::chain_graph::Chain>,
                             }
                             let output_data = ChainOutput {
                                 result,
@@ -735,7 +735,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             format,
             query,
         } => {
-            use context_os_core::capture::jsonl_parser::encode_project_path;
+            use tastematter::capture::jsonl_parser::encode_project_path;
 
             // Determine Claude directory
             let claude_path = if let Some(dir) = claude_dir {
@@ -1047,7 +1047,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                     if !state_path.exists() {
                         println!("Status: not running (no state file)");
-                        println!("Run 'context-os daemon once' or 'context-os daemon start' to begin syncing.");
+                        println!("Run 'tastematter daemon once' or 'tastematter daemon start' to begin syncing.");
                     } else {
                         let state = DaemonState::load_or_default(&state_path);
                         println!("=== Daemon Status ===");

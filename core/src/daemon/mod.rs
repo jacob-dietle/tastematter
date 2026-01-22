@@ -9,9 +9,9 @@
 //! # Usage
 //!
 //! ```bash
-//! context-os daemon --once    # Single sync cycle
-//! context-os daemon start     # Run daemon loop
-//! context-os daemon status    # Show current state
+//! tastematter daemon --once    # Single sync cycle
+//! tastematter daemon start     # Run daemon loop
+//! tastematter daemon status    # Show current state
 //! ```
 
 pub mod config;
@@ -35,8 +35,8 @@ mod cli_tests {
 
     #[test]
     fn test_daemon_help_shows_subcommands() {
-        // `context-os daemon --help` lists subcommands
-        let mut cmd = Command::cargo_bin("context-os").unwrap();
+        // `tastematter daemon --help` lists subcommands
+        let mut cmd = Command::cargo_bin("tastematter").unwrap();
         let output = cmd.args(["daemon", "--help"]).output().unwrap();
 
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -49,8 +49,8 @@ mod cli_tests {
 
     #[test]
     fn test_daemon_status_runs_without_crash() {
-        // `context-os daemon status` should not crash
-        let mut cmd = Command::cargo_bin("context-os").unwrap();
+        // `tastematter daemon status` should not crash
+        let mut cmd = Command::cargo_bin("tastematter").unwrap();
         let output = cmd.args(["daemon", "status"]).output().unwrap();
 
         // Should either succeed or fail gracefully
@@ -65,8 +65,8 @@ mod cli_tests {
 
     #[test]
     fn test_daemon_once_help_shows_options() {
-        // `context-os daemon once --help` shows options
-        let mut cmd = Command::cargo_bin("context-os").unwrap();
+        // `tastematter daemon once --help` shows options
+        let mut cmd = Command::cargo_bin("tastematter").unwrap();
         let output = cmd.args(["daemon", "once", "--help"]).output().unwrap();
 
         assert!(output.status.success());
@@ -79,8 +79,8 @@ mod cli_tests {
 
     #[test]
     fn test_daemon_start_help_shows_options() {
-        // `context-os daemon start --help` shows options
-        let mut cmd = Command::cargo_bin("context-os").unwrap();
+        // `tastematter daemon start --help` shows options
+        let mut cmd = Command::cargo_bin("tastematter").unwrap();
         let output = cmd.args(["daemon", "start", "--help"]).output().unwrap();
 
         assert!(output.status.success());

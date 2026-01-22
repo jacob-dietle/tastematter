@@ -39,14 +39,14 @@ jobs:
       - name: Rename binary (Unix)
         if: runner.os != 'Windows'
         run: |
-          cp core/target/${{ matrix.target }}/release/context-os ${{ matrix.artifact }}
+          cp core/target/${{ matrix.target }}/release/tastematter ${{ matrix.artifact }}
           chmod +x ${{ matrix.artifact }}
 
       - name: Rename binary (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Copy-Item "core\target\${{ matrix.target }}\release\context-os.exe" "${{ matrix.artifact }}"
+          Copy-Item "core\target\${{ matrix.target }}\release\tastematter.exe" "${{ matrix.artifact }}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

@@ -1,14 +1,14 @@
 [package]
-name = "context-os-core"
+name = "tastematter"
 version = "0.1.0"
 edition = "2021"
-description = "Core query library for context-os"
+description = "Context intelligence CLI for Claude Code sessions"
 
 [lib]
 crate-type = ["rlib"]
 
 [[bin]]
-name = "context-os"
+name = "tastematter"
 path = "src/main.rs"
 
 [dependencies]

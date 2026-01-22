@@ -340,34 +340,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
 
 [[package]]
-name = "context-os-core"
-version = "0.1.0"
-dependencies = [
- "assert_cmd",
- "axum",
- "chrono",
- "clap",
- "dirs",
- "git2",
- "glob",
- "log",
- "md5",
- "notify",
- "rusqlite",
- "serde",
- "serde_json",
- "serde_yaml",
- "sqlx",
- "tempfile",
- "thiserror 1.0.69",
- "tokio",
- "tower 0.4.13",
- "tower-http",
- "uuid",
- "walkdir",
-]
-
-[[package]]
 name = "core-foundation-sys"
 version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2111,6 +2083,34 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "tastematter"
+version = "0.1.0"
+dependencies = [
+ "assert_cmd",
+ "axum",
+ "chrono",
+ "clap",
+ "dirs",
+ "git2",
+ "glob",
+ "log",
+ "md5",
+ "notify",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sqlx",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tower 0.4.13",
+ "tower-http",
+ "uuid",
+ "walkdir",
 ]
 
 [[package]]
