@@ -4,9 +4,9 @@ Context packages documenting the indexer/daemon investigation and Claude Code da
 
 ## Overview
 
-**Date Range:** 2026-01-12 to 2026-01-20
-**Package Count:** 30
-**Theme:** Chain linking bug, data model, Intel Layer priority, CLI fix, daemon, **FULL RUST PORT COMPLETE (All 9 Phases)**, **GLOB BUG FOUND**, **CANONICAL SPEC COMPLETE**, **TDD FIX APPLIED**, **TEST ALIGNMENT COMPLETE**, **PARSER GAP FIX COMPLETE**, **TYPE CONTRACTS COMPLETE**, **PHASE 3 GIT SYNC COMPLETE**, **PHASE 4 JSONL PARSER COMPLETE**, **PHASE 5 CHAIN GRAPH COMPLETE**, **PHASE 6 INVERTED INDEX COMPLETE**, **PHASE 7 FILE WATCHER COMPLETE**, **PHASE 8 DAEMON RUNNER COMPLETE**, **PARITY TEST SUITE COMPLETE**, **CLI DISTRIBUTION ARCHITECTURE**
+**Date Range:** 2026-01-12 to 2026-01-23
+**Package Count:** 31
+**Theme:** Chain linking bug, data model, Intel Layer priority, CLI fix, daemon, **FULL RUST PORT COMPLETE (All 9 Phases)**, **GLOB BUG FOUND**, **CANONICAL SPEC COMPLETE**, **TDD FIX APPLIED**, **TEST ALIGNMENT COMPLETE**, **PARSER GAP FIX COMPLETE**, **TYPE CONTRACTS COMPLETE**, **PHASE 3 GIT SYNC COMPLETE**, **PHASE 4 JSONL PARSER COMPLETE**, **PHASE 5 CHAIN GRAPH COMPLETE**, **PHASE 6 INVERTED INDEX COMPLETE**, **PHASE 7 FILE WATCHER COMPLETE**, **PHASE 8 DAEMON RUNNER COMPLETE**, **PARITY TEST SUITE COMPLETE**, **CLI DISTRIBUTION ARCHITECTURE**, **DAEMON AUTO-SETUP COMPLETE**
 
 ## Narrative
 
@@ -51,6 +51,7 @@ This chain documents investigating and fixing the chain linking bug:
 | 28 | 2026-01-19 | **PHASE8_DAEMON_RUNNER_COMPLETE** (20 tests, ~761 lines, daemon CLI, 169 Rust tests total, **PORT COMPLETE**) |
 | 29 | 2026-01-19 | **PARITY_TEST_SUITE_COMPLETE** (27 parity tests, Python vs Rust verification, all 4 dimensions) |
 | 30 | 2026-01-20 | **CLI_DISTRIBUTION_ARCHITECTURE** (5 new query commands, tastematter.cmd wrapper, PATH fix, install scripts planned) |
+| 31 | 2026-01-23 | **DAEMON_AUTO_SETUP_COMPLETE** (Cross-platform install on login, v0.1.0-alpha.9, no admin required) |
 
 ## Key Findings
 
@@ -72,7 +73,7 @@ This chain documents investigating and fixing the chain linking bug:
 
 ## Current State
 
-**Latest package:** [[30_2026-01-20_CLI_DISTRIBUTION_ARCHITECTURE]]
+**Latest package:** [[31_2026-01-23_DAEMON_AUTO_SETUP_COMPLETE]]
 **Canonical specs:**
 - [[canonical/07_CLAUDE_CODE_DATA_MODEL.md]]
 - [[canonical/08_PYTHON_PORT_INVENTORY.md]]
