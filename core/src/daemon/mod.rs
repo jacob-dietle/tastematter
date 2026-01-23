@@ -15,12 +15,17 @@
 //! ```
 
 pub mod config;
+pub mod platform;
 pub mod state;
 pub mod sync;
 
 pub use config::{
     load_config, validate_config, DaemonConfig, LoggingConfig, ProjectConfig, SyncConfig,
     WatchConfig,
+};
+pub use platform::{
+    get_platform, get_platform_name, DaemonPlatform, InstallConfig, InstallResult, PlatformError,
+    PlatformStatus,
 };
 pub use state::DaemonState;
 pub use sync::{run_sync, SyncResult};

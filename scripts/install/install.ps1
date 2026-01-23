@@ -74,7 +74,24 @@ if ($currentPath -notlike "*$InstallDir*") {
     Write-Host "[tastematter] $InstallDir already in PATH"
 }
 
+# Register daemon to run on login (best-effort, warn on failure)
+Write-Host "[tastematter] Setting up background sync..."
+try {
+    $daemonResult = & $binaryPath daemon install --interval 30 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "[tastematter] Background sync registered (runs on login)" -ForegroundColor Green
+    } else {
+        Write-Host "[tastematter] Warning: Could not register background sync" -ForegroundColor Yellow
+        Write-Host "  Run 'tastematter daemon install' manually to enable" -ForegroundColor Yellow
+    }
+} catch {
+    Write-Host "[tastematter] Warning: Could not register background sync" -ForegroundColor Yellow
+    Write-Host "  Run 'tastematter daemon install' manually to enable" -ForegroundColor Yellow
+}
+
 Write-Host ""
 Write-Host "[tastematter] Installation complete!" -ForegroundColor Green
 Write-Host "  Run 'tastematter --help' to get started"
+Write-Host "  Background sync will start on next login"
+Write-Host "  Check status with: tastematter daemon status"
 Write-Host "  (Restart terminal first if PATH was updated)"

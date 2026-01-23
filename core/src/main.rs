@@ -26,7 +26,10 @@ use tastematter::{
     },
     capture::git_sync::{sync_commits, SyncOptions, SyncResult},
     capture::jsonl_parser::{sync_sessions, ParseOptions, ParseResult, SessionSummary},
-    daemon::{load_config, run_sync, DaemonConfig, DaemonState},
+    daemon::{
+        get_platform, get_platform_name, load_config, run_sync, DaemonConfig, DaemonPlatform,
+        DaemonState, InstallConfig,
+    },
     index::chain_graph::{build_chain_graph, ChainBuildResult},
     index::inverted_index::{build_inverted_index, get_sessions_for_file, IndexBuildResult},
     Database, QueryChainsInput, QueryCoAccessInput, QueryEngine, QueryFileInput,
@@ -182,8 +185,16 @@ enum DaemonCommands {
         #[arg(long)]
         project: Option<String>,
     },
-    /// Show daemon status
+    /// Show daemon status (sync state + platform registration)
     Status,
+    /// Install daemon to run on login
+    Install {
+        /// Sync interval in minutes
+        #[arg(long, default_value = "30")]
+        interval: u32,
+    },
+    /// Uninstall daemon from login
+    Uninstall,
 }
 
 #[derive(Subcommand)]
@@ -1039,32 +1050,117 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 DaemonCommands::Status => {
-                    // Load state
+                    // Platform registration status
+                    println!("=== Platform Status ===");
+                    let platform = get_platform();
+                    match platform.status() {
+                        Ok(status) => {
+                            println!("Platform: {}", status.platform_name);
+                            println!(
+                                "Registered: {}",
+                                if status.installed { "Yes" } else { "No" }
+                            );
+                            if status.installed {
+                                println!(
+                                    "Running: {}",
+                                    if status.running {
+                                        "Yes"
+                                    } else {
+                                        "No (will start on next login)"
+                                    }
+                                );
+                                println!("Details: {}", status.message);
+                            }
+                        }
+                        Err(e) => {
+                            println!("Platform: {}", get_platform_name());
+                            println!("Status check failed: {}", e);
+                        }
+                    }
+
+                    // Sync state
                     let state_path = dirs::home_dir()
                         .ok_or("Could not find home directory")?
                         .join(".context-os")
                         .join("daemon.state.json");
 
+                    println!("\n=== Sync State ===");
                     if !state_path.exists() {
-                        println!("Status: not running (no state file)");
-                        println!("Run 'tastematter daemon once' or 'tastematter daemon start' to begin syncing.");
+                        println!("No sync history (no state file)");
+                        println!(
+                            "Run 'tastematter daemon once' or 'tastematter daemon start' to begin syncing."
+                        );
                     } else {
                         let state = DaemonState::load_or_default(&state_path);
-                        println!("=== Daemon Status ===");
                         if let Some(started) = state.started_at {
                             println!("Started: {}", started.format("%Y-%m-%d %H:%M:%S UTC"));
                         }
                         if let Some(last_sync) = state.last_git_sync {
-                            println!("Last git sync: {}", last_sync.format("%Y-%m-%d %H:%M:%S UTC"));
+                            println!(
+                                "Last git sync: {}",
+                                last_sync.format("%Y-%m-%d %H:%M:%S UTC")
+                            );
                         }
                         if let Some(last_parse) = state.last_session_parse {
-                            println!("Last session parse: {}", last_parse.format("%Y-%m-%d %H:%M:%S UTC"));
+                            println!(
+                                "Last session parse: {}",
+                                last_parse.format("%Y-%m-%d %H:%M:%S UTC")
+                            );
                         }
                         println!("\n=== Cumulative Stats ===");
                         println!("Git commits synced: {}", state.git_commits_synced);
                         println!("Sessions parsed: {}", state.sessions_parsed);
                         println!("Chains built: {}", state.chains_built);
                         println!("File events captured: {}", state.file_events_captured);
+                    }
+                }
+                DaemonCommands::Install { interval } => {
+                    println!("Installing daemon to run on login...");
+
+                    // Find the binary path
+                    let binary_path = std::env::current_exe()
+                        .map_err(|e| format!("Could not find current executable: {}", e))?;
+
+                    let config = InstallConfig {
+                        binary_path,
+                        interval_minutes: interval,
+                        ..Default::default()
+                    };
+
+                    let platform = get_platform();
+                    match platform.install(&config) {
+                        Ok(result) => {
+                            if result.success {
+                                println!("{}", result.message);
+                                if let Some(details) = result.details {
+                                    println!("{}", details);
+                                }
+                                println!("\nDaemon will start automatically on next login.");
+                                println!("To start it now, run: tastematter daemon start --interval {}", interval);
+                            } else {
+                                eprintln!("Installation failed: {}", result.message);
+                                std::process::exit(1);
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Installation failed: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                DaemonCommands::Uninstall => {
+                    println!("Uninstalling daemon...");
+
+                    let platform = get_platform();
+                    match platform.uninstall() {
+                        Ok(()) => {
+                            println!("Daemon uninstalled successfully.");
+                            println!("It will no longer start on login.");
+                        }
+                        Err(e) => {
+                            eprintln!("Uninstall failed: {}", e);
+                            std::process::exit(1);
+                        }
                     }
                 }
             }

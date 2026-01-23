@@ -81,14 +81,32 @@ if [ ! -x "$INSTALL_DIR/$BINARY_NAME" ]; then
 fi
 
 # Check PATH
+PATH_UPDATED=false
 if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
     echo -e "${YELLOW}[tastematter] Add to PATH:${NC}"
     echo ""
     echo "  export PATH=\"\$PATH:$INSTALL_DIR\""
     echo ""
     echo -e "${YELLOW}  Add this to ~/.bashrc or ~/.zshrc for persistence${NC}"
+    PATH_UPDATED=true
+    # Temporarily add to PATH for daemon install
+    export PATH="$PATH:$INSTALL_DIR"
+fi
+
+# Register daemon to run on login (best-effort, warn on failure)
+echo -e "${CYAN}[tastematter]${NC} Setting up background sync..."
+if "$INSTALL_DIR/$BINARY_NAME" daemon install --interval 30 2>/dev/null; then
+    echo -e "${GREEN}[tastematter] Background sync registered (runs on login)${NC}"
+else
+    echo -e "${YELLOW}[tastematter] Warning: Could not register background sync${NC}"
+    echo -e "${YELLOW}  Run 'tastematter daemon install' manually to enable${NC}"
 fi
 
 echo ""
 echo -e "${GREEN}[tastematter] Installation complete!${NC}"
 echo "  Run '$BINARY_NAME --help' to get started"
+echo "  Background sync will start on next login"
+echo "  Check status with: tastematter daemon status"
+if [ "$PATH_UPDATED" = true ]; then
+    echo "  (Add $INSTALL_DIR to PATH first)"
+fi
