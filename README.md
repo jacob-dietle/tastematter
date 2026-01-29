@@ -1,6 +1,53 @@
 # Tastematter
 
-Context intelligence CLI for Claude Code sessions. Query your work patterns, find related files, and understand what you've been working on.
+**Every Claude Code session starts fresh. Your work doesn't.**
+
+---
+
+## The Problem
+
+You've been working on a project for weeks. Hundreds of sessions. Thousands of files touched.
+
+Then you come back after a few days off. Where were you? Which files actually matter? Claude has no idea - it starts every session with a blank slate.
+
+## Sound Familiar?
+
+- **"Where was I?"** - You return to a project and can't remember what you were doing
+- **"Which files matter?"** - 50+ files in your codebase, but which ones are you actually working on?
+- **"I have to re-explain everything"** - Claude doesn't know your recent context
+- **"What else should I look at?"** - Files are related, but you can't see the connections
+
+## Enter Tastematter
+
+Tastematter gives Claude memory of your work.
+
+It indexes your Claude Code sessions and lets you (or Claude) query:
+- **Your hot files** - What you've actually been working on
+- **File relationships** - Which files get accessed together
+- **Work history** - What you did last week, last month
+- **Session chains** - How your conversations connect
+
+---
+
+## See It In Action
+
+```
+You: What was I working on for the auth feature?
+
+Claude: Let me check your recent activity...
+
+        [runs: tastematter query flex --files "*auth*" --time 14d]
+
+        You've been focused on:
+        • src/auth/middleware.ts (12 sessions, 2 days ago)
+        • src/auth/jwt.ts (8 sessions)
+        • tests/auth.test.ts (6 sessions)
+
+        Your last session touched middleware.ts and jwt.ts together.
+        Want me to continue where you left off?
+```
+
+---
 
 ## Install
 
@@ -14,132 +61,94 @@ irm https://install.tastematter.dev/install.ps1 | iex
 curl -fsSL https://install.tastematter.dev/install.sh | bash
 ```
 
-## Quick Start
+## Quick Setup (5 minutes)
 
 ```bash
-# Check installation
-tastematter --version
-
-# Initialize (first time only) - index your Claude Code sessions
+# 1. Index your Claude Code sessions
 tastematter parse-sessions --project ~/.claude/projects
 tastematter build-chains
 tastematter index-files
 
-# Query your most accessed files (last 7 days)
+# 2. Query your work
 tastematter query flex --time 7d --limit 10
-
-# Find files related to a specific file
-tastematter query co-access path/to/file.ts --limit 10
-
-# List your conversation chains
-tastematter query chains --limit 10
 ```
 
-## Commands
+That's it. Now Claude (with the skill) or you can query your work patterns.
 
-| Command | Purpose |
-|---------|---------|
-| `query flex` | Flexible file queries with time/pattern filters |
-| `query co-access` | Find files accessed together |
-| `query chains` | List conversation chains |
-| `query session` | Get all files from a session |
-| `query search` | Search file paths by keyword |
+---
+
+## Want Help Getting Set Up?
+
+Setting up your first Context OS can be tricky. I'll walk you through it.
+
+**[Book a free 15-minute setup call](https://cal.com/jacobdietle/tastematter-cli-setup)**
+
+---
+
+## Claude Code Skill
+
+This repo includes a skill that teaches Claude how to use tastematter.
+
+**To install:**
+1. Copy `.claude/skills/context-query/` to your project's `.claude/skills/` directory
+2. Claude will automatically use it when you ask about work context
+
+---
+
+## Commands Reference
+
+<details>
+<summary>Click to expand full command reference</summary>
+
+### Query Commands
+
+| Command | What It Does |
+|---------|-------------|
+| `query flex` | Find files by time range, pattern, or session |
+| `query co-access <file>` | Find files that get accessed with this one |
+| `query chains` | List your conversation chains |
+| `query sessions` | Query session-level data |
+| `query search <pattern>` | Search file paths by keyword |
+
+### Index Commands
+
+| Command | What It Does |
+|---------|-------------|
 | `parse-sessions` | Index Claude Code JSONL files |
 | `build-chains` | Build conversation chain graph |
 | `index-files` | Build file access index |
 
-## Query Examples
+### Examples
 
-### Find your hot files
 ```bash
 # Most accessed files in the last 30 days
 tastematter query flex --time 30d --limit 20
 
 # Files matching a pattern
-tastematter query flex --files "*pixee*" --time 14d
+tastematter query flex --files "*auth*" --time 14d
 
-# With full aggregations (for detailed analysis)
-tastematter query flex --time 7d --agg count,recency,sessions,chains --format json
-```
-
-### Understand relationships
-```bash
 # What files are accessed together with this one?
 tastematter query co-access src/main.rs --limit 15
 
-# What files were in this session?
-tastematter query session abc123-def456 --format json
-```
-
-### Explore work history
-```bash
 # Recent conversation chains
 tastematter query chains --limit 10
-
-# Search for files by keyword
-tastematter query search "authentication"
 ```
 
-## Claude Code Skill
+</details>
 
-This repo includes a skill that teaches Claude how to use tastematter effectively.
-
-**To install the skill:**
-
-1. Copy the `.claude/skills/context-query/` folder to your project's `.claude/skills/` directory
-2. Claude will automatically use it when you ask about work context
-
-**Or reference it in your CLAUDE.md:**
-```markdown
-## Context Queries
-
-Use tastematter to understand work context:
-- `tastematter query flex --time 7d` - Recent activity
-- `tastematter query co-access <file>` - Related files
-- `tastematter query chains --limit 5` - Conversation threads
-```
+---
 
 ## How It Works
 
-Tastematter indexes your Claude Code session files (JSONL) and builds:
+Tastematter indexes your Claude Code session files and builds:
+- **File access history** - Which files were read/written, when, how often
+- **Session context** - What files were accessed together
+- **Conversation chains** - How sessions link via `leafUuid`
+- **Co-access graph** - Implicit file relationships
 
-1. **File access history** - Which files were read/written, when, how often
-2. **Session context** - What files were accessed together in each session
-3. **Conversation chains** - How sessions link together via `leafUuid`
-4. **Co-access graph** - Which files appear together (implicit relationships)
+Data is stored locally at `~/.context-os/context_os_events.db`.
 
-This lets you query patterns like:
-- "What am I working on?" (most accessed files)
-- "What's related to X?" (co-access relationships)
-- "What did I do last week?" (temporal queries)
-- "What did I abandon?" (old files with no recent activity)
-
-## Data Location
-
-- **Database:** `~/.context-os/context_os_events.db`
-- **Config:** `~/.context-os/config.yaml`
-
-## Troubleshooting
-
-### "No such table" or empty results
-```bash
-# Check database exists
-ls ~/.context-os/context_os_events.db
-
-# Re-initialize if missing
-tastematter parse-sessions --project ~/.claude/projects
-tastematter build-chains
-tastematter index-files
-```
-
-### Windows path issues
-Use backslashes for Windows paths:
-```powershell
-tastematter parse-sessions --project "C:\Users\YourName\.claude\projects"
-```
-
-### Update to latest version
-Re-run the install command - it will overwrite the existing binary.
+---
 
 ## License
 
