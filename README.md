@@ -49,6 +49,47 @@ Claude: Let me check your recent activity...
 
 ---
 
+## How It Works
+
+Your work exists at three levels:
+
+```
+┌───────────────────────────────────────┐
+│            WORKSTREAMS                │  Your actual projects
+│  ┌─────────────┐  ┌─────────────┐     │
+│  │ auth        │  │ api         │     │
+│  │ feature     │  │ redesign    │     │
+│  └─────────────┘  └─────────────┘     │
+│           [ COHERENT ]                │
+└───────────────────┬───────────────────┘
+                    │
+               ▲    │    ▼                 TASTEMATTER
+                    │
+┌───────────────────┴───────────────────┐
+│              SESSIONS                 │  Individual conversations
+│  ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐     │
+│  │ Mon │ │ Tue │ │ Wed │ │ Thu │     │
+│  └─────┘ └─────┘ └─────┘ └─────┘     │
+│          [ SCATTERED ]                │
+└───────────────────┬───────────────────┘
+                    │
+               ▲    │    ▼                 TASTEMATTER
+                    │
+┌───────────────────┴───────────────────┐
+│             JSONL DATA                │  Raw Claude Code events
+│  ░░░ ░░░ ░░░ ░░░ ░░░ ░░░ ░░░ ░░░     │
+│         [ FRAGMENTED ]                │
+└───────────────────────────────────────┘
+```
+
+**One workstream = many sessions = hundreds of JSONL entries.**
+
+Claude starts fresh every session. It can't see that your "auth feature" work spans Monday, Wednesday, and Friday across dozens of JSONL files.
+
+Tastematter connects the dots. It lets Claude navigate **up** (restore workstream context) and **down** (drill into specific events).
+
+---
+
 ## Install
 
 **Windows (PowerShell):**
@@ -135,18 +176,6 @@ tastematter query chains --limit 10
 ```
 
 </details>
-
----
-
-## How It Works
-
-Tastematter indexes your Claude Code session files and builds:
-- **File access history** - Which files were read/written, when, how often
-- **Session context** - What files were accessed together
-- **Conversation chains** - How sessions link via `leafUuid`
-- **Co-access graph** - Implicit file relationships
-
-Data is stored locally at `~/.context-os/context_os_events.db`.
 
 ---
 
