@@ -21,20 +21,21 @@
 use clap::{Parser, Subcommand};
 use tastematter::{
     capture::file_watcher::{
-        create_event_from_path, event_types, EventDebouncer, EventFilter, FileEvent,
-        WatcherConfig, WatcherStats,
+        create_event_from_path, event_types, EventDebouncer, EventFilter,
+        WatcherStats,
     },
     capture::git_sync::{sync_commits, SyncOptions, SyncResult},
     capture::jsonl_parser::{sync_sessions, ParseOptions, ParseResult, SessionSummary},
     daemon::{
-        get_platform, get_platform_name, load_config, run_sync, DaemonConfig, DaemonPlatform,
-        DaemonState, InstallConfig,
+        get_platform, get_platform_name, load_config, run_sync,
+        DaemonPlatform, DaemonState, InstallConfig,
     },
     index::chain_graph::{build_chain_graph, ChainBuildResult},
     index::inverted_index::{build_inverted_index, get_sessions_for_file, IndexBuildResult},
-    Database, QueryChainsInput, QueryCoAccessInput, QueryEngine, QueryFileInput,
-    QueryFlexInput, QueryReceiptsInput, QuerySearchInput, QuerySessionsInput,
-    QueryTimelineInput, QueryVerifyInput,
+    intelligence::{IntelClient, ChainNamingRequest},
+    CommandExecutedEvent, Database, QueryChainsInput, QueryCoAccessInput, QueryEngine,
+    QueryFileInput, QueryFlexInput, QueryReceiptsInput, QuerySearchInput, QuerySessionsInput,
+    QueryTimelineInput, QueryVerifyInput, TimeRangeBucket,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -164,6 +165,11 @@ enum Commands {
         #[command(subcommand)]
         daemon_cmd: DaemonCommands,
     },
+    /// Intelligence commands for AI-powered analysis
+    Intel {
+        #[command(subcommand)]
+        intel_cmd: IntelCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -195,6 +201,24 @@ enum DaemonCommands {
     },
     /// Uninstall daemon from login
     Uninstall,
+}
+
+#[derive(Subcommand)]
+enum IntelCommands {
+    /// Check intel service health
+    Health,
+    /// Name a chain using AI
+    #[command(name = "name-chain")]
+    NameChain {
+        /// Chain ID to name
+        chain_id: String,
+        /// Comma-separated list of files touched
+        #[arg(long)]
+        files: Option<String>,
+        /// Number of sessions in chain
+        #[arg(long, default_value = "1")]
+        session_count: i32,
+    },
 }
 
 #[derive(Subcommand)]
@@ -355,6 +379,55 @@ enum QueryCommands {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
+    // Initialize telemetry (fire-and-forget, never blocks)
+    let telemetry = tastematter::TelemetryClient::init();
+    let start_time = std::time::Instant::now();
+
+    // Track result count and time range for telemetry enrichment
+    let mut result_count: Option<u32> = None;
+    let mut time_range_bucket: Option<TimeRangeBucket> = None;
+
+    // Extract command name and time range for telemetry
+    let command_name = match &cli.command {
+        Commands::Query { query_type } => match query_type {
+            QueryCommands::Flex { time, .. } => {
+                time_range_bucket = Some(TimeRangeBucket::from_time_arg(time));
+                "query_flex"
+            }
+            QueryCommands::Chains { .. } => "query_chains",
+            QueryCommands::Timeline { time, .. } => {
+                time_range_bucket = Some(TimeRangeBucket::from_time_arg(time));
+                "query_timeline"
+            }
+            QueryCommands::Sessions { time, .. } => {
+                time_range_bucket = Some(TimeRangeBucket::from_time_arg(time));
+                "query_sessions"
+            }
+            QueryCommands::Search { .. } => "query_search",
+            QueryCommands::File { .. } => "query_file",
+            QueryCommands::CoAccess { .. } => "query_coaccess",
+            QueryCommands::Verify { .. } => "query_verify",
+            QueryCommands::Receipts { .. } => "query_receipts",
+        },
+        Commands::Serve { .. } => "serve",
+        Commands::SyncGit { .. } => "sync_git",
+        Commands::ParseSessions { .. } => "parse_sessions",
+        Commands::BuildChains { .. } => "build_chains",
+        Commands::IndexFiles { .. } => "index_files",
+        Commands::Watch { .. } => "watch",
+        Commands::Daemon { daemon_cmd } => match daemon_cmd {
+            DaemonCommands::Once { .. } => "daemon_once",
+            DaemonCommands::Start { .. } => "daemon_start",
+            DaemonCommands::Status => "daemon_status",
+            DaemonCommands::Install { .. } => "daemon_install",
+            DaemonCommands::Uninstall => "daemon_uninstall",
+        },
+        Commands::Intel { intel_cmd } => match intel_cmd {
+            IntelCommands::Health => "intel_health",
+            IntelCommands::NameChain { .. } => "intel_name_chain",
+        },
+    };
+
     // Open database (from explicit path or auto-discover)
     let db = if let Some(ref path) = cli.db {
         Database::open(path).await?
@@ -385,13 +458,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     limit: Some(limit),
                     sort,
                 };
-                let result = engine.query_flex(input).await?;
-                output(&result, &format)?;
+                let query_result = engine.query_flex(input).await?;
+                result_count = Some(query_result.result_count as u32);
+                output(&query_result, &format)?;
             }
             QueryCommands::Chains { limit, format } => {
                 let input = QueryChainsInput { limit: Some(limit) };
-                let result = engine.query_chains(input).await?;
-                output(&result, &format)?;
+                let query_result = engine.query_chains(input).await?;
+                result_count = Some(query_result.chains.len() as u32);
+                output(&query_result, &format)?;
             }
             QueryCommands::Timeline {
                 time,
@@ -406,8 +481,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     chain,
                     limit: Some(limit),
                 };
-                let result = engine.query_timeline(input).await?;
-                output(&result, &format)?;
+                let query_result = engine.query_timeline(input).await?;
+                result_count = Some(query_result.files.len() as u32);
+                output(&query_result, &format)?;
             }
             QueryCommands::Sessions {
                 time,
@@ -420,8 +496,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     chain,
                     limit: Some(limit),
                 };
-                let result = engine.query_sessions(input).await?;
-                output(&result, &format)?;
+                let query_result = engine.query_sessions(input).await?;
+                result_count = Some(query_result.sessions.len() as u32);
+                output(&query_result, &format)?;
             }
             QueryCommands::Search {
                 pattern,
@@ -432,8 +509,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     pattern,
                     limit: Some(limit),
                 };
-                let result = engine.query_search(input).await?;
-                output(&result, &format)?;
+                let query_result = engine.query_search(input).await?;
+                result_count = Some(query_result.total_matches as u32);
+                output(&query_result, &format)?;
             }
             QueryCommands::File {
                 file_path,
@@ -444,8 +522,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     file_path,
                     limit: Some(limit),
                 };
-                let result = engine.query_file(input).await?;
-                output(&result, &format)?;
+                let query_result = engine.query_file(input).await?;
+                result_count = Some(query_result.sessions.len() as u32);
+                output(&query_result, &format)?;
             }
             QueryCommands::CoAccess {
                 file_path,
@@ -456,20 +535,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     file_path,
                     limit: Some(limit),
                 };
-                let result = engine.query_co_access(input).await?;
-                output(&result, &format)?;
+                let query_result = engine.query_co_access(input).await?;
+                result_count = Some(query_result.results.len() as u32);
+                output(&query_result, &format)?;
             }
             QueryCommands::Verify { receipt_id, format } => {
                 let input = QueryVerifyInput { receipt_id };
-                let result = engine.query_verify(input).await?;
-                output(&result, &format)?;
+                let query_result = engine.query_verify(input).await?;
+                output(&query_result, &format)?;
             }
             QueryCommands::Receipts { limit, format } => {
                 let input = QueryReceiptsInput {
                     limit: Some(limit),
                 };
-                let result = engine.query_receipts(input).await?;
-                output(&result, &format)?;
+                let query_result = engine.query_receipts(input).await?;
+                result_count = Some(query_result.receipts.len() as u32);
+                output(&query_result, &format)?;
             }
         },
         Commands::Serve { port, host, cors } => {
@@ -962,8 +1043,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         config.project.path = Some(p);
                     }
 
-                    // Run sync
-                    let result = run_sync(&config).map_err(|e| format!("Sync error: {}", e))?;
+                    // Run sync (now async with database persistence)
+                    let result = run_sync(&config).await.map_err(|e| format!("Sync error: {}", e))?;
 
                     // Output results
                     println!("{}", serde_json::to_string_pretty(&result)?);
@@ -1005,9 +1086,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let mut state = DaemonState::load_or_default(&state_path);
                     state.started_at = Some(chrono::Utc::now());
 
-                    // Run initial sync
+                    // Run initial sync (now async with database persistence)
                     eprintln!("Running initial sync...");
-                    let result = run_sync(&config).map_err(|e| format!("Sync error: {}", e))?;
+                    let result = run_sync(&config).await.map_err(|e| format!("Sync error: {}", e))?;
                     state.git_commits_synced += result.git_commits_synced as i64;
                     state.sessions_parsed += result.sessions_parsed as i64;
                     state.chains_built += result.chains_built as i64;
@@ -1021,14 +1102,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         result.git_commits_synced, result.sessions_parsed, result.chains_built
                     );
 
-                    // Daemon loop
+                    // Daemon loop (use tokio sleep for async compatibility)
                     let interval_duration = std::time::Duration::from_secs(interval as u64 * 60);
                     loop {
                         eprintln!("Next sync in {} minutes...", interval);
-                        std::thread::sleep(interval_duration);
+                        tokio::time::sleep(interval_duration).await;
 
                         eprintln!("Running sync...");
-                        match run_sync(&config) {
+                        match run_sync(&config).await {
                             Ok(result) => {
                                 state.git_commits_synced += result.git_commits_synced as i64;
                                 state.sessions_parsed += result.sessions_parsed as i64;
@@ -1165,7 +1246,86 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
+        Commands::Intel { intel_cmd } => {
+            let client = IntelClient::default();
+
+            match intel_cmd {
+                IntelCommands::Health => {
+                    // Check the health endpoint
+                    let url = format!("{}/api/intel/health", client.base_url);
+                    match client.health_check().await {
+                        true => {
+                            println!("Intel service: OK");
+                            println!("URL: {}", url);
+                        }
+                        false => {
+                            println!("Intel service: UNAVAILABLE");
+                            println!("URL: {}", url);
+                            println!("\nStart the service with: cd apps/tastematter/intel && bun run dev");
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                IntelCommands::NameChain {
+                    chain_id,
+                    files,
+                    session_count,
+                } => {
+                    // Parse files from comma-separated string
+                    let files_touched: Vec<String> = files
+                        .map(|f| f.split(',').map(|s| s.trim().to_string()).collect())
+                        .unwrap_or_default();
+
+                    let request = ChainNamingRequest {
+                        chain_id: chain_id.clone(),
+                        files_touched,
+                        session_count,
+                        recent_sessions: vec![],
+                        tools_used: None,
+                        first_user_intent: None,
+                        commit_messages: None,
+                        first_user_message: None,
+                        conversation_excerpt: None,
+                    };
+
+                    match client.name_chain(&request).await {
+                        Ok(Some(response)) => {
+                            result_count = Some(1);
+                            println!("{}", serde_json::to_string_pretty(&response)?);
+                        }
+                        Ok(None) => {
+                            eprintln!("Intel service unavailable or returned error.");
+                            eprintln!("Start the service with: cd apps/tastematter/intel && bun run dev");
+                            std::process::exit(1);
+                        }
+                        Err(e) => {
+                            eprintln!("Error calling intel service: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+            }
+        }
     }
+
+    // Capture telemetry event using typed helper (fire-and-forget)
+    let mut event = CommandExecutedEvent::new(
+        command_name,
+        start_time.elapsed().as_millis() as u64,
+        true, // success (errors exit earlier via process::exit)
+    );
+
+    // Enrich with result count if available
+    if let Some(count) = result_count {
+        event = event.with_result_count(count);
+    }
+
+    // Enrich with time range bucket if available
+    if let Some(bucket) = time_range_bucket {
+        event = event.with_time_range(bucket);
+    }
+
+    telemetry.capture_command(event);
 
     Ok(())
 }

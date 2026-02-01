@@ -15,6 +15,7 @@
 //! ```
 
 pub mod config;
+pub mod gitops;
 pub mod platform;
 pub mod state;
 pub mod sync;
@@ -27,6 +28,7 @@ pub use platform::{
     get_platform, get_platform_name, DaemonPlatform, InstallConfig, InstallResult, PlatformError,
     PlatformStatus,
 };
+pub use gitops::{collect_gitops_signals, load_user_rules, GitOpsError};
 pub use state::DaemonState;
 pub use sync::{run_sync, SyncResult};
 
@@ -106,8 +108,8 @@ mod integration_tests {
     // TDD Cycle 5: Integration Tests (4 tests)
     // ========================================================================
 
-    #[test]
-    fn test_full_daemon_workflow_config_state_sync() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_full_daemon_workflow_config_state_sync() {
         // E2E: Config → State → Sync → Update State
         let temp_dir = TempDir::new().unwrap();
 
@@ -127,7 +129,7 @@ mod integration_tests {
         assert_eq!(state.sessions_parsed, 0);
 
         // 3. Run sync
-        let result = run_sync(&config).unwrap();
+        let result = run_sync(&config).await.unwrap();
 
         // Sync ran (counts depend on actual data)
         assert!(result.duration_ms > 0);
@@ -167,11 +169,11 @@ mod integration_tests {
         assert!(loaded.started_at.is_some());
     }
 
-    #[test]
-    fn test_sync_result_aggregates_all_phases() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_sync_result_aggregates_all_phases() {
         // SyncResult should have data from all phases
         let config = DaemonConfig::default();
-        let result = run_sync(&config).unwrap();
+        let result = run_sync(&config).await.unwrap();
 
         // All fields should be set (even if 0)
         // The key is that the orchestrator ran all phases

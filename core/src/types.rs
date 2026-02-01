@@ -236,6 +236,10 @@ pub struct ChainData {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub time_range: Option<ChainTimeRange>,
+
+    /// AI-generated human-readable name for the chain (from Intel service)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generated_name: Option<String>,
 }
 
 /// Chain query result
@@ -494,6 +498,10 @@ pub struct SessionInput {
     pub files_written: Option<String>,
     /// Tools used (JSON object)
     pub tools_used: Option<String>,
+    /// First user message (captures user intent)
+    pub first_user_message: Option<String>,
+    /// Full conversation excerpt (all user messages concatenated, truncated)
+    pub conversation_excerpt: Option<String>,
 }
 
 /// Result of a write operation
@@ -501,6 +509,50 @@ pub struct SessionInput {
 pub struct WriteResult {
     /// Number of rows affected
     pub rows_affected: u64,
+}
+
+// =============================================================================
+// TYPE CONVERSIONS (Database Write Path)
+// =============================================================================
+
+impl From<crate::capture::jsonl_parser::SessionSummary> for SessionInput {
+    fn from(s: crate::capture::jsonl_parser::SessionSummary) -> Self {
+        SessionInput {
+            session_id: s.session_id,
+            project_path: Some(s.project_path),
+            started_at: Some(s.started_at.to_rfc3339()),
+            ended_at: Some(s.ended_at.to_rfc3339()),
+            duration_seconds: Some(s.duration_seconds as i32),
+            user_message_count: Some(s.user_message_count),
+            assistant_message_count: Some(s.assistant_message_count),
+            total_messages: Some(s.total_messages),
+            files_read: Some(serde_json::to_string(&s.files_read).unwrap_or_default()),
+            files_written: Some(serde_json::to_string(&s.files_written).unwrap_or_default()),
+            tools_used: Some(serde_json::to_string(&s.tools_used).unwrap_or_default()),
+            first_user_message: s.first_user_message,
+            conversation_excerpt: s.conversation_excerpt,
+        }
+    }
+}
+
+impl Default for SessionInput {
+    fn default() -> Self {
+        SessionInput {
+            session_id: String::new(),
+            project_path: None,
+            started_at: None,
+            ended_at: None,
+            duration_seconds: None,
+            user_message_count: None,
+            assistant_message_count: None,
+            total_messages: None,
+            files_read: None,
+            files_written: None,
+            tools_used: None,
+            first_user_message: None,
+            conversation_excerpt: None,
+        }
+    }
 }
 
 // =============================================================================
@@ -591,5 +643,104 @@ mod tests {
         assert!(!json.contains("session_count"));
         assert!(!json.contains("sessions"));
         assert!(!json.contains("chains"));
+    }
+
+    // =========================================================================
+    // TDD: Database Unification - ChainData with generated_name
+    // =========================================================================
+
+    #[test]
+    fn test_chain_data_has_generated_name_field() {
+        // ChainData should have an optional generated_name field for Intel enrichment
+        let chain = ChainData {
+            chain_id: "abc123".to_string(),
+            session_count: 10,
+            file_count: 25,
+            time_range: None,
+            generated_name: Some("Authentication refactor".to_string()),
+        };
+
+        assert_eq!(chain.generated_name, Some("Authentication refactor".to_string()));
+    }
+
+    #[test]
+    fn test_chain_data_serializes_generated_name() {
+        // generated_name should be included in JSON when present
+        let chain = ChainData {
+            chain_id: "abc123".to_string(),
+            session_count: 10,
+            file_count: 25,
+            time_range: None,
+            generated_name: Some("Query engine port".to_string()),
+        };
+
+        let json = serde_json::to_string(&chain).unwrap();
+        assert!(json.contains("generated_name"));
+        assert!(json.contains("Query engine port"));
+    }
+
+    #[test]
+    fn test_chain_data_omits_generated_name_when_none() {
+        // generated_name should be omitted from JSON when None (skip_serializing_if)
+        let chain = ChainData {
+            chain_id: "abc123".to_string(),
+            session_count: 10,
+            file_count: 25,
+            time_range: None,
+            generated_name: None,
+        };
+
+        let json = serde_json::to_string(&chain).unwrap();
+        assert!(!json.contains("generated_name"));
+    }
+
+    // =========================================================================
+    // TDD: Database Write Path - SessionSummary → SessionInput conversion
+    // =========================================================================
+
+    #[test]
+    fn test_session_summary_to_input_conversion() {
+        use crate::capture::jsonl_parser::SessionSummary;
+        use chrono::Utc;
+        use std::collections::HashMap;
+
+        let summary = SessionSummary {
+            session_id: "test-123".to_string(),
+            project_path: "/test/project".to_string(),
+            started_at: Utc::now(),
+            ended_at: Utc::now(),
+            duration_seconds: 7200,
+            user_message_count: 10,
+            assistant_message_count: 15,
+            total_messages: 25,
+            files_read: vec!["file1.rs".to_string()],
+            files_written: vec![],
+            files_created: vec![],
+            tools_used: HashMap::from([("Read".to_string(), 5)]),
+            grep_patterns: vec![],
+            file_size_bytes: 1000,
+            first_user_message: Some("Help me".to_string()),
+            conversation_excerpt: Some("[User]: Help me".to_string()),
+        };
+
+        let input: SessionInput = summary.into();
+
+        assert_eq!(input.session_id, "test-123");
+        assert_eq!(input.project_path, Some("/test/project".to_string()));
+        assert_eq!(input.duration_seconds, Some(7200));
+        assert_eq!(input.user_message_count, Some(10));
+        assert_eq!(input.assistant_message_count, Some(15));
+        assert_eq!(input.total_messages, Some(25));
+        assert_eq!(input.first_user_message, Some("Help me".to_string()));
+        // files_read should be JSON serialized
+        assert!(input.files_read.as_ref().unwrap().contains("file1.rs"));
+    }
+
+    #[test]
+    fn test_session_input_default() {
+        let input = SessionInput::default();
+        assert!(input.session_id.is_empty());
+        assert!(input.project_path.is_none());
+        assert!(input.duration_seconds.is_none());
     }
 }

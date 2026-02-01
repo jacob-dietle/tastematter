@@ -155,14 +155,17 @@ impl QueryEngine {
 
         // FIX BUG-001: Compute file_count dynamically by joining to session data
         // instead of reading from stale chains.files_json column
+        // FIX: LEFT JOIN chain_metadata to include Intel-generated names
         let sql = format!(
             "SELECT
                 cg.chain_id,
                 COUNT(DISTINCT cg.session_id) as session_count,
-                COUNT(DISTINCT json_each.value) as file_count
+                COUNT(DISTINCT json_each.value) as file_count,
+                cm.generated_name
              FROM chain_graph cg
              JOIN claude_sessions s ON cg.session_id = s.session_id
              LEFT JOIN json_each(s.files_read) ON s.files_read IS NOT NULL AND s.files_read != '[]'
+             LEFT JOIN chain_metadata cm ON cg.chain_id = cm.chain_id
              GROUP BY cg.chain_id
              ORDER BY session_count DESC
              LIMIT {}",
@@ -181,6 +184,7 @@ impl QueryEngine {
                     session_count: row.get::<i64, _>("session_count") as u32,
                     file_count: row.get::<i64, _>("file_count") as u32,
                     time_range: None, // TODO: Add time range query if needed
+                    generated_name: row.get::<Option<String>, _>("generated_name"),
                 }
             })
             .collect();
@@ -1023,8 +1027,9 @@ impl QueryEngine {
             INSERT INTO claude_sessions (
                 session_id, project_path, started_at, ended_at, duration_seconds,
                 user_message_count, assistant_message_count, total_messages,
-                files_read, files_written, tools_used
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                files_read, files_written, tools_used,
+                first_user_message, conversation_excerpt
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#;
 
         let result = sqlx::query(sql)
@@ -1039,6 +1044,8 @@ impl QueryEngine {
             .bind(&session.files_read)
             .bind(&session.files_written)
             .bind(&session.tools_used)
+            .bind(&session.first_user_message)
+            .bind(&session.conversation_excerpt)
             .execute(self.db.pool())
             .await
             .map_err(CoreError::Database)?;
@@ -1116,6 +1123,152 @@ impl QueryEngine {
         Ok(WriteResult {
             rows_affected: events.len() as u64,
         })
+    }
+
+    // =========================================================================
+    // DATABASE WRITE PATH - Session & Chain Persistence (Critical Fix)
+    // =========================================================================
+
+    /// Upsert a Claude session into the database (INSERT OR REPLACE)
+    ///
+    /// Uses INSERT OR REPLACE to handle re-syncs gracefully.
+    /// This is the **critical fix** for the database write path bug where
+    /// parsed sessions were never persisted.
+    ///
+    /// # Arguments
+    /// * `session` - The session data to insert/update
+    ///
+    /// # Returns
+    /// * `Result<WriteResult, CoreError>` - Number of rows affected or error
+    pub async fn upsert_session(&self, session: &SessionInput) -> Result<WriteResult, CoreError> {
+        let sql = r#"
+            INSERT OR REPLACE INTO claude_sessions (
+                session_id, project_path, started_at, ended_at, duration_seconds,
+                user_message_count, assistant_message_count, total_messages,
+                files_read, files_written, tools_used,
+                first_user_message, conversation_excerpt
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        "#;
+
+        let result = sqlx::query(sql)
+            .bind(&session.session_id)
+            .bind(&session.project_path)
+            .bind(&session.started_at)
+            .bind(&session.ended_at)
+            .bind(session.duration_seconds)
+            .bind(session.user_message_count)
+            .bind(session.assistant_message_count)
+            .bind(session.total_messages)
+            .bind(&session.files_read)
+            .bind(&session.files_written)
+            .bind(&session.tools_used)
+            .bind(&session.first_user_message)
+            .bind(&session.conversation_excerpt)
+            .execute(self.db.pool())
+            .await
+            .map_err(CoreError::Database)?;
+
+        Ok(WriteResult {
+            rows_affected: result.rows_affected(),
+        })
+    }
+
+    /// Persist chains to database (chains + chain_graph tables)
+    ///
+    /// Uses INSERT OR REPLACE to handle re-syncs gracefully.
+    /// This is the **critical fix** for the database write path bug where
+    /// chain graph data was never persisted.
+    ///
+    /// # Arguments
+    /// * `chains` - HashMap of chain_id → Chain objects from chain graph builder
+    ///
+    /// # Returns
+    /// * `Result<WriteResult, CoreError>` - Total rows affected or error
+    pub async fn persist_chains(
+        &self,
+        chains: &std::collections::HashMap<String, crate::index::chain_graph::Chain>,
+    ) -> Result<WriteResult, CoreError> {
+        let mut rows = 0u64;
+
+        // Drop and recreate tables to avoid FK constraint issues from old Python schema
+        // The old Python schema had FK constraints that cause issues during Rust sync
+        sqlx::query("DROP TABLE IF EXISTS chain_graph")
+            .execute(self.db.pool())
+            .await
+            .map_err(CoreError::Database)?;
+
+        sqlx::query("DROP TABLE IF EXISTS chains")
+            .execute(self.db.pool())
+            .await
+            .map_err(CoreError::Database)?;
+
+        // Recreate tables WITHOUT foreign key constraints
+        sqlx::query(
+            "CREATE TABLE chains (
+                chain_id TEXT PRIMARY KEY,
+                root_session_id TEXT,
+                session_count INTEGER,
+                files_count INTEGER,
+                updated_at TEXT
+            )"
+        )
+        .execute(self.db.pool())
+        .await
+        .map_err(CoreError::Database)?;
+
+        sqlx::query(
+            "CREATE TABLE chain_graph (
+                session_id TEXT PRIMARY KEY,
+                chain_id TEXT,
+                parent_session_id TEXT,
+                is_root BOOLEAN,
+                indexed_at TEXT
+            )"
+        )
+        .execute(self.db.pool())
+        .await
+        .map_err(CoreError::Database)?;
+
+        for chain in chains.values() {
+            // Insert chain metadata
+            sqlx::query(
+                "INSERT OR REPLACE INTO chains (
+                    chain_id, root_session_id, session_count, files_count, updated_at
+                ) VALUES (?, ?, ?, ?, datetime('now'))"
+            )
+            .bind(&chain.chain_id)
+            .bind(&chain.root_session)
+            .bind(chain.sessions.len() as i32)
+            .bind(chain.files_list.len() as i32)
+            .execute(self.db.pool())
+            .await
+            .map_err(CoreError::Database)?;
+            rows += 1;
+
+            // Insert session memberships
+            for session_id in &chain.sessions {
+                let is_root = *session_id == chain.root_session;
+                let parent = chain.branches.iter()
+                    .find(|(_, children)| children.contains(session_id))
+                    .map(|(p, _)| p.clone());
+
+                sqlx::query(
+                    "INSERT OR REPLACE INTO chain_graph (
+                        session_id, chain_id, parent_session_id, is_root, indexed_at
+                    ) VALUES (?, ?, ?, ?, datetime('now'))"
+                )
+                .bind(session_id)
+                .bind(&chain.chain_id)
+                .bind(&parent)
+                .bind(is_root)
+                .execute(self.db.pool())
+                .await
+                .map_err(CoreError::Database)?;
+                rows += 1;
+            }
+        }
+
+        Ok(WriteResult { rows_affected: rows })
     }
 }
 
