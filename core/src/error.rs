@@ -18,6 +18,12 @@ pub enum CoreError {
 
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
+
+    #[error("Intelligence service unavailable")]
+    IntelServiceUnavailable,
+
+    #[error("Intelligence service error: {0}")]
+    IntelServiceError(String),
 }
 
 /// Tauri-compatible error format
@@ -51,6 +57,16 @@ impl From<CoreError> for CommandError {
                 code: "SERIALIZATION_ERROR".to_string(),
                 message: "Failed to serialize result".to_string(),
                 details: Some(e.to_string()),
+            },
+            CoreError::IntelServiceUnavailable => CommandError {
+                code: "INTEL_SERVICE_UNAVAILABLE".to_string(),
+                message: "Intelligence service is not available".to_string(),
+                details: None,
+            },
+            CoreError::IntelServiceError(msg) => CommandError {
+                code: "INTEL_SERVICE_ERROR".to_string(),
+                message: "Intelligence service error".to_string(),
+                details: Some(msg),
             },
         }
     }

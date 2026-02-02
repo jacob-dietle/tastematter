@@ -27,8 +27,8 @@ use tastematter::{
     capture::git_sync::{sync_commits, SyncOptions, SyncResult},
     capture::jsonl_parser::{sync_sessions, ParseOptions, ParseResult, SessionSummary},
     daemon::{
-        get_platform, get_platform_name, load_config, run_sync,
-        DaemonPlatform, DaemonState, InstallConfig,
+        get_platform, load_config, run_sync,
+        DaemonPlatform, InstallConfig,
     },
     index::chain_graph::{build_chain_graph, ChainBuildResult},
     index::inverted_index::{build_inverted_index, get_sessions_for_file, IndexBuildResult},
@@ -375,7 +375,7 @@ enum QueryCommands {
     },
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
@@ -428,7 +428,146 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     };
 
-    // Open database (from explicit path or auto-discover)
+    // Handle daemon commands FIRST - they manage their own database lifecycle
+    // (create directory, create schema on fresh install)
+    if let Commands::Daemon { ref daemon_cmd } = cli.command {
+        // Daemon commands are handled separately because they:
+        // 1. Create the database directory if it doesn't exist
+        // 2. Create the schema on fresh install
+        // 3. Don't need a pre-existing database
+        let daemon_result: Result<(), Box<dyn std::error::Error>> = match daemon_cmd {
+            DaemonCommands::Once { project } => {
+                eprintln!("Running single sync cycle...");
+                let mut config = load_config(None).map_err(|e| format!("Config error: {}", e))?;
+                if let Some(p) = project {
+                    config.project.path = Some(p.clone());
+                }
+                let result = run_sync(&config).await.map_err(|e| format!("Sync error: {}", e))?;
+                println!("{}", serde_json::to_string_pretty(&result)?);
+                if !result.errors.is_empty() {
+                    eprintln!("\nWarnings/Errors:");
+                    for err in &result.errors {
+                        eprintln!("  - {}", err);
+                    }
+                }
+                eprintln!(
+                    "\nSync complete: {} commits, {} sessions, {} chains, {} files indexed in {}ms",
+                    result.git_commits_synced,
+                    result.sessions_parsed,
+                    result.chains_built,
+                    result.files_indexed,
+                    result.duration_ms
+                );
+                Ok(())
+            }
+            DaemonCommands::Start { interval, project } => {
+                let interval_mins = *interval;
+                eprintln!("Starting daemon (sync every {} min)...", interval_mins);
+                let mut config = load_config(None).map_err(|e| format!("Config error: {}", e))?;
+                config.sync.interval_minutes = interval_mins;
+                if let Some(p) = project {
+                    config.project.path = Some(p.clone());
+                }
+                let interval_duration = std::time::Duration::from_secs(interval_mins as u64 * 60);
+                loop {
+                    let start = std::time::Instant::now();
+                    match run_sync(&config).await {
+                        Ok(result) => {
+                            eprintln!(
+                                "[{}] Sync: {} commits, {} sessions, {} chains in {}ms",
+                                chrono::Local::now().format("%H:%M:%S"),
+                                result.git_commits_synced,
+                                result.sessions_parsed,
+                                result.chains_built,
+                                result.duration_ms
+                            );
+                        }
+                        Err(e) => eprintln!("[{}] Sync error: {}", chrono::Local::now().format("%H:%M:%S"), e),
+                    }
+                    let elapsed = start.elapsed();
+                    if elapsed < interval_duration {
+                        tokio::time::sleep(interval_duration - elapsed).await;
+                    }
+                }
+            }
+            DaemonCommands::Status => {
+                let platform = get_platform();
+                match platform.status() {
+                    Ok(status) => {
+                        println!("Platform: {}", status.platform_name);
+                        println!("Installed: {}", if status.installed { "Yes" } else { "No" });
+                        println!("Running: {}", if status.running { "Yes" } else { "No" });
+                        if let Some(last_run) = status.last_run {
+                            println!("Last run: {}", last_run.format("%Y-%m-%d %H:%M:%S"));
+                        }
+                        if let Some(next_run) = status.next_run {
+                            println!("Next run: {}", next_run.format("%Y-%m-%d %H:%M:%S"));
+                        }
+                        if !status.message.is_empty() {
+                            println!("Details: {}", status.message);
+                        }
+                        if !status.installed {
+                            eprintln!("\nTo install as a background service:");
+                            eprintln!("  tastematter daemon install");
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Could not get daemon status: {}", e);
+                    }
+                }
+                Ok(())
+            }
+            DaemonCommands::Install { interval } => {
+                let interval_mins = *interval;
+                let platform = get_platform();
+                let binary_path = std::env::current_exe()
+                    .map_err(|e| format!("Could not determine binary path: {}", e))?;
+                let config = InstallConfig {
+                    binary_path,
+                    interval_minutes: interval_mins,
+                    ..InstallConfig::default()
+                };
+                match platform.install(&config) {
+                    Ok(result) => {
+                        println!("{}", result.message);
+                        if result.success {
+                            println!("The daemon will sync every {} minutes.", interval_mins);
+                            println!("\nTo check status: tastematter daemon status");
+                            println!("To uninstall: tastematter daemon uninstall");
+                        }
+                        if let Some(details) = result.details {
+                            println!("Details: {}", details);
+                        }
+                    }
+                    Err(e) => eprintln!("Failed to install daemon: {}", e),
+                }
+                Ok(())
+            }
+            DaemonCommands::Uninstall => {
+                let platform = get_platform();
+                match platform.uninstall() {
+                    Ok(()) => println!("Daemon uninstalled successfully!"),
+                    Err(e) => eprintln!("Failed to uninstall daemon: {}", e),
+                }
+                Ok(())
+            }
+        };
+
+        // Send telemetry for daemon commands (fire-and-forget)
+        let mut event = CommandExecutedEvent::new(
+            command_name,
+            start_time.elapsed().as_millis() as u64,
+            daemon_result.is_ok(),
+        );
+        if let Some(bucket) = time_range_bucket {
+            event = event.with_time_range(bucket);
+        }
+        telemetry.capture_command(event);
+
+        return daemon_result.map_err(|e| e.into());
+    }
+
+    // For non-daemon commands, open database (requires existing DB)
     let db = if let Some(ref path) = cli.db {
         Database::open(path).await?
     } else {
@@ -438,6 +577,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let engine = QueryEngine::new(db);
 
     match cli.command {
+        // Daemon commands already handled above
+        Commands::Daemon { .. } => unreachable!("Daemon commands handled above"),
         Commands::Query { query_type } => match query_type {
             QueryCommands::Flex {
                 time,
@@ -1029,222 +1170,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!("Events captured: {}", final_stats.events_captured);
             eprintln!("Events filtered: {}", final_stats.events_filtered);
             eprintln!("Events debounced: {}", final_stats.events_debounced);
-        }
-        Commands::Daemon { daemon_cmd } => {
-            match daemon_cmd {
-                DaemonCommands::Once { project } => {
-                    eprintln!("Running single sync cycle...");
-
-                    // Load or create config
-                    let mut config = load_config(None).map_err(|e| format!("Config error: {}", e))?;
-
-                    // Apply project filter if provided
-                    if let Some(p) = project {
-                        config.project.path = Some(p);
-                    }
-
-                    // Run sync (now async with database persistence)
-                    let result = run_sync(&config).await.map_err(|e| format!("Sync error: {}", e))?;
-
-                    // Output results
-                    println!("{}", serde_json::to_string_pretty(&result)?);
-
-                    if !result.errors.is_empty() {
-                        eprintln!("\nWarnings/Errors:");
-                        for err in &result.errors {
-                            eprintln!("  - {}", err);
-                        }
-                    }
-
-                    eprintln!(
-                        "\nSync complete: {} commits, {} sessions, {} chains, {} files indexed in {}ms",
-                        result.git_commits_synced,
-                        result.sessions_parsed,
-                        result.chains_built,
-                        result.files_indexed,
-                        result.duration_ms
-                    );
-                }
-                DaemonCommands::Start { interval, project } => {
-                    eprintln!("Starting daemon (interval: {}min)...", interval);
-                    eprintln!("Press Ctrl+C to stop");
-
-                    // Load or create config
-                    let mut config = load_config(None).map_err(|e| format!("Config error: {}", e))?;
-                    config.sync.interval_minutes = interval;
-
-                    // Apply project filter if provided
-                    if let Some(p) = project {
-                        config.project.path = Some(p);
-                    }
-
-                    // Load state
-                    let state_path = dirs::home_dir()
-                        .ok_or("Could not find home directory")?
-                        .join(".context-os")
-                        .join("daemon.state.json");
-                    let mut state = DaemonState::load_or_default(&state_path);
-                    state.started_at = Some(chrono::Utc::now());
-
-                    // Run initial sync (now async with database persistence)
-                    eprintln!("Running initial sync...");
-                    let result = run_sync(&config).await.map_err(|e| format!("Sync error: {}", e))?;
-                    state.git_commits_synced += result.git_commits_synced as i64;
-                    state.sessions_parsed += result.sessions_parsed as i64;
-                    state.chains_built += result.chains_built as i64;
-                    state.last_git_sync = Some(chrono::Utc::now());
-                    state.last_session_parse = Some(chrono::Utc::now());
-                    state.last_chain_build = Some(chrono::Utc::now());
-                    let _ = state.save(&state_path);
-
-                    eprintln!(
-                        "Initial sync: {} commits, {} sessions, {} chains",
-                        result.git_commits_synced, result.sessions_parsed, result.chains_built
-                    );
-
-                    // Daemon loop (use tokio sleep for async compatibility)
-                    let interval_duration = std::time::Duration::from_secs(interval as u64 * 60);
-                    loop {
-                        eprintln!("Next sync in {} minutes...", interval);
-                        tokio::time::sleep(interval_duration).await;
-
-                        eprintln!("Running sync...");
-                        match run_sync(&config).await {
-                            Ok(result) => {
-                                state.git_commits_synced += result.git_commits_synced as i64;
-                                state.sessions_parsed += result.sessions_parsed as i64;
-                                state.chains_built += result.chains_built as i64;
-                                state.last_git_sync = Some(chrono::Utc::now());
-                                state.last_session_parse = Some(chrono::Utc::now());
-                                state.last_chain_build = Some(chrono::Utc::now());
-                                let _ = state.save(&state_path);
-
-                                eprintln!(
-                                    "Sync complete: {} commits, {} sessions, {} chains",
-                                    result.git_commits_synced, result.sessions_parsed, result.chains_built
-                                );
-                            }
-                            Err(e) => {
-                                eprintln!("Sync error: {}", e);
-                            }
-                        }
-                    }
-                }
-                DaemonCommands::Status => {
-                    // Platform registration status
-                    println!("=== Platform Status ===");
-                    let platform = get_platform();
-                    match platform.status() {
-                        Ok(status) => {
-                            println!("Platform: {}", status.platform_name);
-                            println!(
-                                "Registered: {}",
-                                if status.installed { "Yes" } else { "No" }
-                            );
-                            if status.installed {
-                                println!(
-                                    "Running: {}",
-                                    if status.running {
-                                        "Yes"
-                                    } else {
-                                        "No (will start on next login)"
-                                    }
-                                );
-                                println!("Details: {}", status.message);
-                            }
-                        }
-                        Err(e) => {
-                            println!("Platform: {}", get_platform_name());
-                            println!("Status check failed: {}", e);
-                        }
-                    }
-
-                    // Sync state
-                    let state_path = dirs::home_dir()
-                        .ok_or("Could not find home directory")?
-                        .join(".context-os")
-                        .join("daemon.state.json");
-
-                    println!("\n=== Sync State ===");
-                    if !state_path.exists() {
-                        println!("No sync history (no state file)");
-                        println!(
-                            "Run 'tastematter daemon once' or 'tastematter daemon start' to begin syncing."
-                        );
-                    } else {
-                        let state = DaemonState::load_or_default(&state_path);
-                        if let Some(started) = state.started_at {
-                            println!("Started: {}", started.format("%Y-%m-%d %H:%M:%S UTC"));
-                        }
-                        if let Some(last_sync) = state.last_git_sync {
-                            println!(
-                                "Last git sync: {}",
-                                last_sync.format("%Y-%m-%d %H:%M:%S UTC")
-                            );
-                        }
-                        if let Some(last_parse) = state.last_session_parse {
-                            println!(
-                                "Last session parse: {}",
-                                last_parse.format("%Y-%m-%d %H:%M:%S UTC")
-                            );
-                        }
-                        println!("\n=== Cumulative Stats ===");
-                        println!("Git commits synced: {}", state.git_commits_synced);
-                        println!("Sessions parsed: {}", state.sessions_parsed);
-                        println!("Chains built: {}", state.chains_built);
-                        println!("File events captured: {}", state.file_events_captured);
-                    }
-                }
-                DaemonCommands::Install { interval } => {
-                    println!("Installing daemon to run on login...");
-
-                    // Find the binary path
-                    let binary_path = std::env::current_exe()
-                        .map_err(|e| format!("Could not find current executable: {}", e))?;
-
-                    let config = InstallConfig {
-                        binary_path,
-                        interval_minutes: interval,
-                        ..Default::default()
-                    };
-
-                    let platform = get_platform();
-                    match platform.install(&config) {
-                        Ok(result) => {
-                            if result.success {
-                                println!("{}", result.message);
-                                if let Some(details) = result.details {
-                                    println!("{}", details);
-                                }
-                                println!("\nDaemon will start automatically on next login.");
-                                println!("To start it now, run: tastematter daemon start --interval {}", interval);
-                            } else {
-                                eprintln!("Installation failed: {}", result.message);
-                                std::process::exit(1);
-                            }
-                        }
-                        Err(e) => {
-                            eprintln!("Installation failed: {}", e);
-                            std::process::exit(1);
-                        }
-                    }
-                }
-                DaemonCommands::Uninstall => {
-                    println!("Uninstalling daemon...");
-
-                    let platform = get_platform();
-                    match platform.uninstall() {
-                        Ok(()) => {
-                            println!("Daemon uninstalled successfully.");
-                            println!("It will no longer start on login.");
-                        }
-                        Err(e) => {
-                            eprintln!("Uninstall failed: {}", e);
-                            std::process::exit(1);
-                        }
-                    }
-                }
-            }
         }
         Commands::Intel { intel_cmd } => {
             let client = IntelClient::default();

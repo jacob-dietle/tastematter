@@ -17,11 +17,17 @@ pub mod daemon;
 pub mod error;
 pub mod http;
 pub mod index;
+pub mod intelligence;
 pub mod query;
 pub mod storage;
+pub mod telemetry;
 pub mod types;
 
 pub use error::{CommandError, CoreError};
 pub use query::QueryEngine;
 pub use storage::Database;
+pub use telemetry::{
+    CommandExecutedEvent, ErrorCode, ErrorOccurredEvent, FeatureUsedEvent, SyncCompletedEvent,
+    TelemetryClient, TimeRangeBucket,
+};
 pub use types::*;

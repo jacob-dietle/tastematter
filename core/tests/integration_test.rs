@@ -4,7 +4,7 @@
 //! 1. Queries work correctly
 //! 2. Latency is <100ms
 
-use context_os_core::{
+use tastematter::{
     Database, QueryEngine, QueryFlexInput, QueryChainsInput,
     QueryTimelineInput, QuerySessionsInput,
 };
@@ -264,4 +264,63 @@ async fn test_latency_benchmark() {
     println!("Status: {}", if max_ms < 100 { "PASS" } else { "FAIL" });
 
     assert!(max_ms < 100, "Max latency exceeded 100ms: {}ms", max_ms);
+}
+
+// =============================================================================
+// Fresh Install TDD Tests (Phase: Database Write Path)
+// =============================================================================
+
+/// Test 2: Query Succeeds After Fresh Install
+///
+/// Verifies that query_flex() returns empty results (not an error) when
+/// executed against a freshly created database with schema but no data.
+///
+/// This tests the critical user experience: after running `daemon once` on
+/// a fresh install, query commands should succeed gracefully rather than
+/// crashing with "table not found" errors.
+#[tokio::test]
+async fn test_query_succeeds_after_fresh_daemon_sync() {
+    use tastematter::Database;
+
+    // 1. Create temp database (simulates fresh install after daemon sync)
+    let temp_dir = tempfile::tempdir().unwrap();
+    let db_path = temp_dir.path().join("fresh_install.db");
+
+    // 2. Open with write mode and create schema (what daemon sync does)
+    let db = Database::open_rw(&db_path)
+        .await
+        .expect("Should create fresh database");
+
+    db.ensure_schema()
+        .await
+        .expect("Schema creation should succeed");
+
+    // 3. Re-open in read mode (what query commands do)
+    // Note: We can use the existing db since it's already open
+    let engine = QueryEngine::new(db);
+
+    // 4. Execute query - should succeed with empty results
+    let result = engine.query_flex(QueryFlexInput {
+        time: Some("1d".to_string()),
+        limit: Some(3),
+        ..Default::default()
+    }).await;
+
+    // 5. Assert: Query succeeds (returns Ok, not Err)
+    assert!(
+        result.is_ok(),
+        "Query should succeed on fresh database. Error: {:?}",
+        result.err()
+    );
+
+    // 6. Assert: Returns empty results (not error)
+    let result = result.unwrap();
+    assert_eq!(
+        result.result_count, 0,
+        "Fresh database should return 0 results"
+    );
+    assert!(
+        !result.receipt_id.is_empty(),
+        "Receipt ID should still be generated"
+    );
 }

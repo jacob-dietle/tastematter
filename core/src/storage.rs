@@ -111,6 +111,117 @@ impl Database {
         Ok(Self { pool, path })
     }
 
+    /// Ensure core database schema exists.
+    ///
+    /// Creates all required tables if they don't exist. Safe to call multiple
+    /// times (idempotent via IF NOT EXISTS). This enables fresh installs to
+    /// work without manual database setup.
+    ///
+    /// Tables created:
+    /// - claude_sessions: Parsed session data from JSONL files
+    /// - git_commits: Git history
+    /// - file_events: File system events
+    /// - chains: Chain metadata
+    /// - chain_graph: Session-to-chain mappings
+    /// - _metadata: Schema version tracking
+    ///
+    /// # Returns
+    /// * `Ok(())` - Schema exists (created or already present)
+    /// * `Err(CoreError)` - Schema creation failed
+    pub async fn ensure_schema(&self) -> Result<(), CoreError> {
+        // Core schema SQL - uses IF NOT EXISTS for idempotency
+        const SCHEMA_SQL: &str = r#"
+            -- Layer 1: File Events
+            CREATE TABLE IF NOT EXISTS file_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                path TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                size_bytes INTEGER,
+                old_path TEXT,
+                is_directory BOOLEAN DEFAULT FALSE,
+                extension TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_file_events_path ON file_events(path);
+            CREATE INDEX IF NOT EXISTS idx_file_events_timestamp ON file_events(timestamp);
+
+            -- Layer 2: Claude Sessions
+            CREATE TABLE IF NOT EXISTS claude_sessions (
+                session_id TEXT PRIMARY KEY,
+                project_path TEXT,
+                started_at TEXT,
+                ended_at TEXT,
+                duration_seconds INTEGER,
+                user_message_count INTEGER,
+                assistant_message_count INTEGER,
+                total_messages INTEGER,
+                files_read TEXT,
+                files_written TEXT,
+                tools_used TEXT,
+                file_size_bytes INTEGER,
+                first_user_message TEXT,
+                conversation_excerpt TEXT,
+                parsed_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_claude_sessions_started ON claude_sessions(started_at);
+            CREATE INDEX IF NOT EXISTS idx_claude_sessions_project ON claude_sessions(project_path);
+
+            -- Layer 3: Git Commits
+            CREATE TABLE IF NOT EXISTS git_commits (
+                hash TEXT PRIMARY KEY,
+                short_hash TEXT,
+                timestamp TEXT NOT NULL,
+                message TEXT,
+                author_name TEXT,
+                author_email TEXT,
+                files_changed TEXT,
+                files_added TEXT,
+                files_deleted TEXT,
+                files_modified TEXT,
+                insertions INTEGER,
+                deletions INTEGER,
+                files_count INTEGER,
+                is_agent_commit BOOLEAN,
+                is_merge_commit BOOLEAN,
+                synced_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_git_commits_timestamp ON git_commits(timestamp);
+
+            -- Layer 4: Chains (session groupings)
+            CREATE TABLE IF NOT EXISTS chains (
+                chain_id TEXT PRIMARY KEY,
+                root_session_id TEXT,
+                session_count INTEGER,
+                files_count INTEGER,
+                updated_at TEXT
+            );
+
+            -- Layer 5: Chain Graph (session-to-chain mapping)
+            CREATE TABLE IF NOT EXISTS chain_graph (
+                session_id TEXT PRIMARY KEY,
+                chain_id TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_chain_graph_chain ON chain_graph(chain_id);
+
+            -- Metadata
+            CREATE TABLE IF NOT EXISTS _metadata (
+                key TEXT PRIMARY KEY,
+                value TEXT,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            INSERT OR IGNORE INTO _metadata (key, value) VALUES ('schema_version', '2.1');
+        "#;
+
+        // Execute schema SQL
+        sqlx::query(SCHEMA_SQL)
+            .execute(&self.pool)
+            .await
+            .map_err(CoreError::Database)?;
+
+        Ok(())
+    }
+
     /// Get a reference to the connection pool
     ///
     /// Use this to execute queries via sqlx.
@@ -339,7 +450,9 @@ mod tests {
                 total_messages INTEGER,
                 files_read TEXT,
                 files_written TEXT,
-                tools_used TEXT
+                tools_used TEXT,
+                first_user_message TEXT,
+                conversation_excerpt TEXT
             )",
             [],
         ).unwrap();
@@ -362,6 +475,8 @@ mod tests {
             files_read: Some("[\"file1.rs\", \"file2.rs\"]".to_string()),
             files_written: Some("[\"file1.rs\"]".to_string()),
             tools_used: Some("{\"Read\": 5, \"Edit\": 3}".to_string()),
+            first_user_message: Some("Help me refactor this code".to_string()),
+            conversation_excerpt: Some("[User 1]: Help me refactor this code".to_string()),
         };
 
         // Insert and verify
@@ -444,5 +559,87 @@ mod tests {
         );
 
         println!("Batch insert of 1000 commits took {:?}", elapsed);
+    }
+
+    /// Test: ensure_schema() creates tables on fresh database
+    ///
+    /// RED phase: This test should FAIL because ensure_schema() doesn't exist yet.
+    /// GREEN phase: Implement ensure_schema() that creates all required tables.
+    #[tokio::test]
+    async fn test_ensure_schema_creates_tables_on_fresh_db() {
+        // Create temp database (empty - no tables)
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("fresh.db");
+
+        // Open with rwc mode (creates empty file)
+        let db = Database::open_rw(&db_path).await.unwrap();
+
+        // Run ensure_schema
+        db.ensure_schema().await.expect("ensure_schema should succeed");
+
+        // Verify core tables exist by querying them
+        let tables = vec![
+            "claude_sessions",
+            "git_commits",
+            "file_events",
+            "chains",
+            "chain_graph",
+            "_metadata",
+        ];
+
+        for table in tables {
+            let result = sqlx::query(&format!("SELECT COUNT(*) FROM {}", table))
+                .fetch_one(db.pool())
+                .await;
+            assert!(result.is_ok(), "Table '{}' should exist after ensure_schema", table);
+        }
+    }
+
+    /// Test: ensure_schema() is idempotent (safe to call multiple times)
+    #[tokio::test]
+    async fn test_ensure_schema_is_idempotent() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("idempotent.db");
+
+        let db = Database::open_rw(&db_path).await.unwrap();
+
+        // Call ensure_schema multiple times - should not error
+        db.ensure_schema().await.expect("First call should succeed");
+        db.ensure_schema().await.expect("Second call should succeed");
+        db.ensure_schema().await.expect("Third call should succeed");
+
+        // Verify tables still work
+        let result = sqlx::query("SELECT COUNT(*) FROM claude_sessions")
+            .fetch_one(db.pool())
+            .await;
+        assert!(result.is_ok(), "Tables should still be queryable");
+    }
+
+    /// Test: ensure_schema() doesn't destroy existing data
+    #[tokio::test]
+    async fn test_ensure_schema_preserves_existing_data() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("existing.db");
+
+        // Create database and add some data
+        let db = Database::open_rw(&db_path).await.unwrap();
+        db.ensure_schema().await.unwrap();
+
+        // Insert test data
+        sqlx::query("INSERT INTO claude_sessions (session_id) VALUES ('test-session-123')")
+            .execute(db.pool())
+            .await
+            .unwrap();
+
+        // Call ensure_schema again
+        db.ensure_schema().await.expect("Should not destroy data");
+
+        // Verify data still exists
+        let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM claude_sessions WHERE session_id = 'test-session-123'")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+
+        assert_eq!(row.0, 1, "Existing data should be preserved");
     }
 }

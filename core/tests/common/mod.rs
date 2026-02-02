@@ -1,6 +1,6 @@
 //! Common test utilities for HTTP integration tests
 
-use context_os_core::{http::{create_router, AppState}, Database, QueryEngine};
+use tastematter::{http::{create_router, AppState}, Database, QueryEngine};
 use std::sync::Arc;
 use std::time::Instant;
 

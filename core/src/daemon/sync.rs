@@ -53,13 +53,24 @@ pub async fn run_sync(config: &DaemonConfig) -> Result<SyncResult, String> {
     let mut result = SyncResult::default();
 
     // Open database in write mode for persistence
-    let db_path = dirs::home_dir()
+    let db_dir = dirs::home_dir()
         .ok_or("Could not find home directory")?
-        .join(".context-os")
-        .join("context_os_events.db");
+        .join(".context-os");
+    let db_path = db_dir.join("context_os_events.db");
+
+    // Ensure directory exists (required for fresh installs)
+    if let Err(e) = fs::create_dir_all(&db_dir) {
+        result.errors.push(format!("Could not create database directory: {}", e));
+    }
 
     let engine = match Database::open_rw(&db_path).await {
-        Ok(db) => Some(QueryEngine::new(db)),
+        Ok(db) => {
+            // Ensure schema exists (idempotent - safe on existing DBs, required for fresh installs)
+            if let Err(e) = db.ensure_schema().await {
+                result.errors.push(format!("Schema init error: {}", e));
+            }
+            Some(QueryEngine::new(db))
+        }
         Err(e) => {
             result.errors.push(format!("DB open error (continuing without persistence): {}", e));
             None
@@ -86,7 +97,7 @@ pub async fn run_sync(config: &DaemonConfig) -> Result<SyncResult, String> {
 
     // 3.5 Intelligence enrichment (optional - graceful degradation)
     if let Some(ref chains) = chains {
-        enrich_chains_phase(chains, &mut result);
+        enrich_chains_phase(chains, &mut result).await;
     }
 
     // 4. Inverted index (uses chains for context)
@@ -244,168 +255,154 @@ fn should_summarize_chain(chain: &Chain) -> bool {
 /// - If Intel service is unavailable, logs a message and returns 0
 /// - If cache cannot be opened, logs and continues without caching
 /// - Never fails the sync - enrichment is optional
-fn enrich_chains_phase(chains: &HashMap<String, Chain>, result: &mut SyncResult) -> i32 {
+async fn enrich_chains_phase(chains: &HashMap<String, Chain>, result: &mut SyncResult) -> i32 {
     // Empty chains = nothing to do
     if chains.is_empty() {
         return 0;
     }
 
-    // Use existing runtime if available, otherwise create new one
-    // This handles both daemon context (already in tokio) and CLI context (needs new runtime)
-    let run_async = |fut| {
-        if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            tokio::task::block_in_place(|| handle.block_on(fut))
-        } else {
-            tokio::runtime::Runtime::new()
-                .map(|rt| rt.block_on(fut))
-                .unwrap_or(0)
+    let client = IntelClient::default();
+
+    // Check if service is available
+    if !client.health_check().await {
+        result
+            .errors
+            .push("Intel: Service unavailable - skipping enrichment".to_string());
+        return 0;
+    }
+
+    // Open cache - use main database for unified storage
+    let cache_path = match dirs::home_dir() {
+        Some(h) => h.join(".context-os").join("context_os_events.db"),
+        None => {
+            result
+                .errors
+                .push("Intel: Could not find home directory".to_string());
+            return 0;
         }
     };
 
-    run_async(async {
-        let client = IntelClient::default();
-
-        // Check if service is available
-        if !client.health_check().await {
+    let cache = match MetadataStore::new(&cache_path).await {
+        Ok(c) => c,
+        Err(e) => {
             result
                 .errors
-                .push("Intel: Service unavailable - skipping enrichment".to_string());
+                .push(format!("Intel: Cache error - {}", e));
             return 0;
         }
+    };
 
-        // Open cache - use main database for unified storage
-        let cache_path = match dirs::home_dir() {
-            Some(h) => h.join(".context-os").join("context_os_events.db"),
-            None => {
-                result
-                    .errors
-                    .push("Intel: Could not find home directory".to_string());
-                return 0;
+    // Open database pool for querying session data
+    let db_pool = match SqlitePool::connect(&format!("sqlite:{}", cache_path.display())).await {
+        Ok(p) => Some(p),
+        Err(e) => {
+            result
+                .errors
+                .push(format!("Intel: Could not open DB for session data - {}", e));
+            None
+        }
+    };
+
+    // Load workstreams for hybrid tagging (Phase 4)
+    // Try to find project root from CWD, fallback to empty list
+    let workstreams = std::env::current_dir()
+        .map(|cwd| load_workstreams(&cwd))
+        .unwrap_or_default();
+
+    let mut named_count = 0;
+    let mut summarized_count = 0;
+
+    for (chain_id, chain) in chains.iter() {
+        // =====================================================
+        // Chain Naming (existing behavior)
+        // =====================================================
+
+        let needs_naming = matches!(cache.get_chain_name(chain_id).await, Ok(None));
+
+        if needs_naming {
+            // Query session intent data from root session if DB is available
+            let intent_data = if let Some(ref pool) = db_pool {
+                query_session_intent(pool, &chain.root_session).await
+            } else {
+                SessionIntentData {
+                    first_user_message: None,
+                    conversation_excerpt: None,
+                }
+            };
+
+            // Use conversation_excerpt as first_user_intent (backward compat)
+            // but also populate explicit A/B test fields
+            let first_user_intent = intent_data.conversation_excerpt.clone();
+
+            // Build request with enrichment fields
+            let request = ChainNamingRequest {
+                chain_id: chain_id.clone(),
+                files_touched: chain.files_list.clone(),
+                session_count: chain.sessions.len() as i32,
+                recent_sessions: chain.sessions.iter().take(5).cloned().collect(),
+                // Enrichment fields
+                tools_used: None, // TODO: Aggregate from sessions
+                first_user_intent,
+                commit_messages: None, // TODO: Query from git_commits
+                // A/B test fields - explicit separation for quality comparison
+                first_user_message: intent_data.first_user_message,
+                conversation_excerpt: intent_data.conversation_excerpt,
+            };
+
+            // Call Intel service
+            if let Ok(Some(response)) = client.name_chain(&request).await {
+                // Cache the result
+                if cache.cache_chain_name(&response).await.is_ok() {
+                    named_count += 1;
+                }
             }
-        };
+        }
 
-        let cache = match MetadataStore::new(&cache_path).await {
-            Ok(c) => c,
-            Err(e) => {
-                result
-                    .errors
-                    .push(format!("Intel: Cache error - {}", e));
-                return 0;
-            }
-        };
+        // =====================================================
+        // Chain Summary (Phase 6 - new behavior)
+        // =====================================================
 
-        // Open database pool for querying session data
-        let db_pool = match SqlitePool::connect(&format!("sqlite:{}", cache_path.display())).await {
-            Ok(p) => Some(p),
-            Err(e) => {
-                result
-                    .errors
-                    .push(format!("Intel: Could not open DB for session data - {}", e));
-                None
-            }
-        };
+        // Only summarize "interesting" chains that aren't already cached
+        if should_summarize_chain(chain) {
+            let needs_summary = matches!(cache.get_chain_summary(chain_id).await, Ok(None));
 
-        // Load workstreams for hybrid tagging (Phase 4)
-        // Try to find project root from CWD, fallback to empty list
-        let workstreams = std::env::current_dir()
-            .map(|cwd| load_workstreams(&cwd))
-            .unwrap_or_default();
-
-        let mut named_count = 0;
-        let mut summarized_count = 0;
-
-        for (chain_id, chain) in chains.iter() {
-            // =====================================================
-            // Chain Naming (existing behavior)
-            // =====================================================
-
-            let needs_naming = matches!(cache.get_chain_name(chain_id).await, Ok(None));
-
-            if needs_naming {
-                // Query session intent data from root session if DB is available
-                let intent_data = if let Some(ref pool) = db_pool {
-                    query_session_intent(pool, &chain.root_session).await
+            if needs_summary {
+                // Aggregate excerpts from all sessions in the chain (Phase 5)
+                let aggregated_excerpt = if let Some(ref pool) = db_pool {
+                    aggregate_chain_excerpts(pool, &chain.sessions).await
                 } else {
-                    SessionIntentData {
-                        first_user_message: None,
-                        conversation_excerpt: None,
-                    }
+                    None
                 };
 
-                // Use conversation_excerpt as first_user_intent (backward compat)
-                // but also populate explicit A/B test fields
-                let first_user_intent = intent_data.conversation_excerpt.clone();
-
-                // Build request with enrichment fields
-                let request = ChainNamingRequest {
+                let request = ChainSummaryRequest {
                     chain_id: chain_id.clone(),
+                    conversation_excerpt: aggregated_excerpt,
                     files_touched: chain.files_list.clone(),
                     session_count: chain.sessions.len() as i32,
-                    recent_sessions: chain.sessions.iter().take(5).cloned().collect(),
-                    // Enrichment fields
-                    tools_used: None, // TODO: Aggregate from sessions
-                    first_user_intent,
-                    commit_messages: None, // TODO: Query from git_commits
-                    // A/B test fields - explicit separation for quality comparison
-                    first_user_message: intent_data.first_user_message,
-                    conversation_excerpt: intent_data.conversation_excerpt,
+                    duration_seconds: Some(chain.total_duration_seconds),
+                    existing_workstreams: Some(workstreams.clone()),
                 };
 
-                // Call Intel service
-                if let Ok(Some(response)) = client.name_chain(&request).await {
+                // Call Intel service for summary
+                if let Ok(Some(response)) = client.summarize_chain(&request).await {
                     // Cache the result
-                    if cache.cache_chain_name(&response).await.is_ok() {
-                        named_count += 1;
-                    }
-                }
-            }
-
-            // =====================================================
-            // Chain Summary (Phase 6 - new behavior)
-            // =====================================================
-
-            // Only summarize "interesting" chains that aren't already cached
-            if should_summarize_chain(chain) {
-                let needs_summary = matches!(cache.get_chain_summary(chain_id).await, Ok(None));
-
-                if needs_summary {
-                    // Aggregate excerpts from all sessions in the chain (Phase 5)
-                    let aggregated_excerpt = if let Some(ref pool) = db_pool {
-                        aggregate_chain_excerpts(pool, &chain.sessions).await
-                    } else {
-                        None
-                    };
-
-                    let request = ChainSummaryRequest {
-                        chain_id: chain_id.clone(),
-                        conversation_excerpt: aggregated_excerpt,
-                        files_touched: chain.files_list.clone(),
-                        session_count: chain.sessions.len() as i32,
-                        duration_seconds: Some(chain.total_duration_seconds),
-                        existing_workstreams: Some(workstreams.clone()),
-                    };
-
-                    // Call Intel service for summary
-                    if let Ok(Some(response)) = client.summarize_chain(&request).await {
-                        // Cache the result
-                        if cache.cache_chain_summary(&response).await.is_ok() {
-                            summarized_count += 1;
-                        }
+                    if cache.cache_chain_summary(&response).await.is_ok() {
+                        summarized_count += 1;
                     }
                 }
             }
         }
+    }
 
-        // Log summary of enrichment results
-        if named_count > 0 || summarized_count > 0 {
-            result.errors.push(format!(
-                "Intel: Named {} chains, Summarized {} chains",
-                named_count, summarized_count
-            ));
-        }
+    // Log summary of enrichment results
+    if named_count > 0 || summarized_count > 0 {
+        result.errors.push(format!(
+            "Intel: Named {} chains, Summarized {} chains",
+            named_count, summarized_count
+        ));
+    }
 
-        named_count + summarized_count
-    })
+    named_count + summarized_count
 }
 
 /// Session intent data for chain naming.
@@ -705,26 +702,26 @@ mod tests {
     // TDD Cycle 4: Intelligence Enrichment (3 tests) - RED PHASE
     // ========================================================================
 
-    #[test]
-    fn test_enrich_chains_returns_count_of_chains_processed() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_enrich_chains_returns_count_of_chains_processed() {
         // enrich_chains_phase() returns the number of chains it attempted to enrich
         let chains: HashMap<String, Chain> = HashMap::new();
         let mut result = SyncResult::default();
 
-        let enriched = enrich_chains_phase(&chains, &mut result);
+        let enriched = enrich_chains_phase(&chains, &mut result).await;
 
         // With empty chains, should process 0
         assert_eq!(enriched, 0);
     }
 
-    #[test]
-    fn test_enrich_chains_adds_message_to_errors_on_service_unavailable() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_enrich_chains_adds_message_to_errors_on_service_unavailable() {
         // When Intel service is unavailable, enrich_chains_phase() should add an info message
         // to result.errors (using errors as a message log for now)
         let chains: HashMap<String, Chain> = HashMap::new();
         let mut result = SyncResult::default();
 
-        let _ = enrich_chains_phase(&chains, &mut result);
+        let _ = enrich_chains_phase(&chains, &mut result).await;
 
         // Should have some message about Intel service status
         // (either "unavailable" or "enriched X chains")
@@ -733,8 +730,8 @@ mod tests {
         let _ = result.errors.len();
     }
 
-    #[test]
-    fn test_enrich_chains_skips_already_cached_chains() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_enrich_chains_skips_already_cached_chains() {
         // enrich_chains_phase() should check cache first and skip chains that are already named
         // This test verifies the function signature works - actual caching tested in integration
         let mut chains: HashMap<String, Chain> = HashMap::new();
@@ -754,7 +751,7 @@ mod tests {
         let mut result = SyncResult::default();
 
         // Should not panic and should handle gracefully
-        let enriched = enrich_chains_phase(&chains, &mut result);
+        let enriched = enrich_chains_phase(&chains, &mut result).await;
 
         // With service unavailable, enriched should be 0
         assert!(enriched >= 0);
@@ -1024,5 +1021,134 @@ mod tests {
         assert!(aggregated.contains("Session 1"));
         // Should not contain session 2 or 3 headers
         assert!(!aggregated.contains("Session 2"));
+    }
+
+    // =========================================================================
+    // Fresh Install TDD Tests (Phase: Database Write Path)
+    // =========================================================================
+
+    /// Test 1: Fresh Install End-to-End
+    ///
+    /// Verifies the complete fresh install sequence:
+    /// 1. DB directory creation when ~/.context-os/ doesn't exist
+    /// 2. Database file creation via open_rw()
+    /// 3. Schema table creation via ensure_schema()
+    ///
+    /// This tests the critical path that run_sync() follows on a fresh install,
+    /// isolated from the real home directory.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_fresh_install_creates_db_and_schema() {
+        use crate::storage::Database;
+
+        // 1. Create temp dir to simulate fresh install (NO existing .context-os)
+        let temp_home = tempfile::TempDir::new().unwrap();
+        let db_dir = temp_home.path().join(".context-os");
+        let db_path = db_dir.join("context_os_events.db");
+
+        // 2. Verify directory does NOT exist (fresh install state)
+        assert!(!db_dir.exists(), "DB dir should not exist initially");
+
+        // 3. Create directory (mirrors run_sync line 61-64)
+        fs::create_dir_all(&db_dir).expect("Should create DB directory");
+        assert!(db_dir.exists(), "DB directory should be created");
+
+        // 4. Open database in write mode (mirrors run_sync line 66-72)
+        let db = Database::open_rw(&db_path)
+            .await
+            .expect("Should open/create database");
+        assert!(db_path.exists(), "Database file should be created");
+
+        // 5. Initialize schema (mirrors run_sync ensure_schema call)
+        db.ensure_schema()
+            .await
+            .expect("Schema initialization should succeed");
+
+        // 6. Verify all 6 core tables exist
+        let tables = vec![
+            "claude_sessions",
+            "git_commits",
+            "file_events",
+            "chains",
+            "chain_graph",
+            "_metadata",
+        ];
+
+        for table in tables {
+            let result = sqlx::query(&format!("SELECT COUNT(*) FROM {}", table))
+                .fetch_one(db.pool())
+                .await;
+            assert!(
+                result.is_ok(),
+                "Table '{}' should exist after fresh install sequence",
+                table
+            );
+        }
+
+        // 7. Verify schema version was set
+        let version: (String,) = sqlx::query_as("SELECT value FROM _metadata WHERE key = 'schema_version'")
+            .fetch_one(db.pool())
+            .await
+            .expect("Schema version should exist");
+        assert_eq!(version.0, "2.1", "Schema version should be 2.1");
+    }
+
+    /// Test 3: Zero Sessions Graceful Handling
+    ///
+    /// Verifies that sync handles an empty Claude sessions directory gracefully:
+    /// - sessions_parsed = 0
+    /// - chains_built = 0
+    /// - No errors (beyond expected Intel service unavailability)
+    ///
+    /// This simulates a fresh install where the user hasn't run any Claude sessions yet.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_sync_handles_zero_sessions_gracefully() {
+        use crate::storage::Database;
+
+        // 1. Create temp directory structure
+        let temp_home = tempfile::TempDir::new().unwrap();
+
+        // Create .claude/projects/ with NO session files (zero sessions state)
+        let claude_dir = temp_home.path().join(".claude");
+        let projects_dir = claude_dir.join("projects");
+        fs::create_dir_all(&projects_dir).expect("Should create Claude projects dir");
+
+        // Create database
+        let db_dir = temp_home.path().join(".context-os");
+        fs::create_dir_all(&db_dir).unwrap();
+        let db_path = db_dir.join("context_os_events.db");
+        let db = Database::open_rw(&db_path).await.unwrap();
+        db.ensure_schema().await.unwrap();
+        let engine = crate::query::QueryEngine::new(db);
+
+        // 2. Run session parsing phase with empty directory
+        let mut result = SyncResult::default();
+        let config = DaemonConfig::default();
+
+        let session_ids = sync_sessions_phase(&claude_dir, &config, &mut result, Some(&engine)).await;
+
+        // 3. Assert graceful handling of zero sessions
+        assert_eq!(result.sessions_parsed, 0, "Should parse 0 sessions from empty directory");
+        assert!(session_ids.is_empty(), "Session IDs should be empty");
+
+        // 4. Run chain building phase with empty sessions
+        let chains = build_chains_phase(&claude_dir, &mut result, Some(&engine)).await;
+
+        // 5. Assert graceful handling of zero chains
+        assert_eq!(result.chains_built, 0, "Should build 0 chains from empty sessions");
+
+        // Chains may be Some(empty HashMap) or None depending on implementation
+        if let Some(chains) = chains {
+            assert!(chains.is_empty(), "Chain map should be empty");
+        }
+
+        // 6. Verify no critical errors (Intel unavailable is expected)
+        let critical_errors: Vec<_> = result.errors.iter()
+            .filter(|e| !e.contains("Intel") && !e.contains("Service unavailable"))
+            .collect();
+        assert!(
+            critical_errors.is_empty(),
+            "Should have no critical errors for zero sessions. Errors: {:?}",
+            critical_errors
+        );
     }
 }

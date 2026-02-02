@@ -104,6 +104,16 @@ pub struct SessionSummary {
     // Incremental sync
     /// File size for change detection
     pub file_size_bytes: i64,
+
+    // Intent extraction
+    /// First user message content (captures user's stated intent)
+    /// Extracted from first type="user" record with string message.content
+    pub first_user_message: Option<String>,
+
+    /// Session conversation excerpt for chain naming
+    /// Contains user messages concatenated (truncated at ~8K chars)
+    /// Provides full context for Haiku classification
+    pub conversation_excerpt: Option<String>,
 }
 
 /// Options for parsing sessions.
@@ -511,10 +521,30 @@ pub fn aggregate_session(
     let mut min_ts: Option<DateTime<Utc>> = None;
     let mut max_ts: Option<DateTime<Utc>> = None;
 
+    // Track first user message and full conversation excerpt for intent extraction
+    let mut first_user_message: Option<String> = None;
+    let mut user_messages: Vec<String> = Vec::new();
+    const MAX_EXCERPT_CHARS: usize = 8000; // ~2K tokens for Haiku
+
     for msg in messages {
         // Count messages by role
         match msg.role.as_deref() {
-            Some("user") => user_count += 1,
+            Some("user") => {
+                user_count += 1;
+                // Extract user message content if it's a string
+                // message.content can be string or array - we want the string form
+                if let Some(text) = msg.content.as_str() {
+                    let trimmed = text.trim();
+                    if !trimmed.is_empty() {
+                        // Capture first user message
+                        if first_user_message.is_none() {
+                            first_user_message = Some(trimmed.to_string());
+                        }
+                        // Collect all user messages for excerpt
+                        user_messages.push(trimmed.to_string());
+                    }
+                }
+            }
             Some("assistant") => assistant_count += 1,
             _ => {}
         }
@@ -564,6 +594,26 @@ pub fn aggregate_session(
     let ended_at = max_ts.unwrap_or_else(Utc::now);
     let duration_seconds = (ended_at - started_at).num_seconds();
 
+    // Build conversation excerpt from user messages (truncated if too long)
+    let conversation_excerpt = if user_messages.is_empty() {
+        None
+    } else {
+        let mut excerpt = String::new();
+        for (i, msg) in user_messages.iter().enumerate() {
+            if !excerpt.is_empty() {
+                excerpt.push_str("\n---\n");
+            }
+            excerpt.push_str(&format!("[User {}]: {}", i + 1, msg));
+            // Truncate if exceeding max length
+            if excerpt.len() > MAX_EXCERPT_CHARS {
+                excerpt.truncate(MAX_EXCERPT_CHARS);
+                excerpt.push_str("...[truncated]");
+                break;
+            }
+        }
+        Some(excerpt)
+    };
+
     SessionSummary {
         session_id: session_id.to_string(),
         project_path: project_path.to_string(),
@@ -579,6 +629,8 @@ pub fn aggregate_session(
         tools_used,
         grep_patterns,
         file_size_bytes,
+        first_user_message,
+        conversation_excerpt,
     }
 }
 

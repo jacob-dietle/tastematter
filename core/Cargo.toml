@@ -31,6 +31,8 @@ md5 = "0.7"
 walkdir = "2.4"
 notify = "6.1"
 serde_yaml = "0.9"
+posthog-rs = { version = "0.3", default-features = false }
+reqwest = { version = "0.12", features = ["json"] }
 
 [dev-dependencies]
 tokio = { version = "1.40", features = ["full", "test-util"] }
