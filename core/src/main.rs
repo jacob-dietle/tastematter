@@ -42,7 +42,7 @@ use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "tastematter")]
-#[command(version = "0.1.0")]
+#[command(version = env!("TASTEMATTER_VERSION"))]
 #[command(about = "Tastematter - Context intelligence for Claude Code", long_about = None)]
 struct Cli {
     /// Database path (optional, auto-discovers if not provided)
