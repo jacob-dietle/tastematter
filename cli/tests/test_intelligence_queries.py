@@ -37,7 +37,9 @@ class TestIntelligenceQueries:
                 tools_used TEXT,
                 grep_patterns TEXT,
                 file_size_bytes INTEGER,
-                parsed_at TEXT
+                parsed_at TEXT,
+                first_user_message TEXT,
+                conversation_excerpt TEXT
             );
 
             CREATE TABLE git_commits (

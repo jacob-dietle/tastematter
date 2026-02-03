@@ -4,9 +4,9 @@ Context packages documenting the indexer/daemon investigation and Claude Code da
 
 ## Overview
 
-**Date Range:** 2026-01-12 to 2026-01-23
-**Package Count:** 31
-**Theme:** Chain linking bug, data model, Intel Layer priority, CLI fix, daemon, **FULL RUST PORT COMPLETE (All 9 Phases)**, **GLOB BUG FOUND**, **CANONICAL SPEC COMPLETE**, **TDD FIX APPLIED**, **TEST ALIGNMENT COMPLETE**, **PARSER GAP FIX COMPLETE**, **TYPE CONTRACTS COMPLETE**, **PHASE 3 GIT SYNC COMPLETE**, **PHASE 4 JSONL PARSER COMPLETE**, **PHASE 5 CHAIN GRAPH COMPLETE**, **PHASE 6 INVERTED INDEX COMPLETE**, **PHASE 7 FILE WATCHER COMPLETE**, **PHASE 8 DAEMON RUNNER COMPLETE**, **PARITY TEST SUITE COMPLETE**, **CLI DISTRIBUTION ARCHITECTURE**, **DAEMON AUTO-SETUP COMPLETE**
+**Date Range:** 2026-01-12 to 2026-02-03
+**Package Count:** 48
+**Theme:** Chain linking bug, data model, Intel Layer priority, CLI fix, daemon, **FULL RUST PORT COMPLETE (All 9 Phases)**, **GLOB BUG FOUND**, **CANONICAL SPEC COMPLETE**, **TDD FIX APPLIED**, **TEST ALIGNMENT COMPLETE**, **PARSER GAP FIX COMPLETE**, **TYPE CONTRACTS COMPLETE**, **PHASE 3 GIT SYNC COMPLETE**, **PHASE 4 JSONL PARSER COMPLETE**, **PHASE 5 CHAIN GRAPH COMPLETE**, **PHASE 6 INVERTED INDEX COMPLETE**, **PHASE 7 FILE WATCHER COMPLETE**, **PHASE 8 DAEMON RUNNER COMPLETE**, **PARITY TEST SUITE COMPLETE**, **CLI DISTRIBUTION ARCHITECTURE**, **DAEMON AUTO-SETUP COMPLETE**, **TELEMETRY INSTRUMENTATION COMPLETE**, **INTEL SERVICE PHASE 1 COMPLETE**, **PHASE 3+4 PARALLEL COMPLETE**
 
 ## Narrative
 
@@ -52,6 +52,23 @@ This chain documents investigating and fixing the chain linking bug:
 | 29 | 2026-01-19 | **PARITY_TEST_SUITE_COMPLETE** (27 parity tests, Python vs Rust verification, all 4 dimensions) |
 | 30 | 2026-01-20 | **CLI_DISTRIBUTION_ARCHITECTURE** (5 new query commands, tastematter.cmd wrapper, PATH fix, install scripts planned) |
 | 31 | 2026-01-23 | **DAEMON_AUTO_SETUP_COMPLETE** (Cross-platform install on login, v0.1.0-alpha.9, no admin required) |
+| 32 | 2026-01-24 | **ALPHA_DISTRIBUTION_INFRA** (Landing page at tastematter.dev, PostHog telemetry integration) |
+| 33 | 2026-01-24 | **TELEMETRY_SCHEMA_DESIGN** (Privacy-first telemetry schema, typed event structs, PostHog dashboard) |
+| 34 | 2026-01-24 | **TELEMETRY_INSTRUMENTATION_COMPLETE** (main.rs instrumented, result_count + time_range_bucket, 9 tests) |
+| 35 | 2026-01-25 | **INTEL_SERVICE_PHASE1_COMPLETE** (TypeScript + Bun + Elysia foundation, 26 tests, TDD methodology) |
+| 36 | 2026-01-26 | **PHASE2_CHAIN_NAMING_READY** (Context gap analysis, spec verified, implementation path clear) |
+| 37 | 2026-01-26 | **PHASE2_CHAIN_NAMING_COMPLETE** (TDD implementation, 48 tests, tool_choice pattern, endpoint live) |
+| 38 | 2026-01-26 | **PHASE3_4_PARALLEL_READY** (Stream A/B specs, parallel subagent execution ready) |
+| 39 | 2026-01-26 | **PHASE3_4_PARALLEL_COMPLETE** (Rust IntelClient + 3 TypeScript agents, 47 new tests) |
+| 40 | 2026-01-26 | **INTEL_SERVICE_E2E_VERIFIED** (Isolation test passed, error handling fix, observability gap identified) |
+| 41 | 2026-01-26 | **OBSERVABILITY_ARCHITECTURE_PLANNED** (3-skill analysis, Operation Logging Middleware approved) |
+| 42 | 2026-01-26 | **PRODUCTION_OBSERVABILITY_IMPLEMENTED** (TDD file logger, CLI intel commands, daemon wiring in progress) |
+| 43 | 2026-01-27 | **DATABASE_UNIFICATION_PLANNED** (API key fixed, two-DB anti-pattern diagnosed, ~100 line fix planned) |
+| 44 | 2026-01-27 | **DATABASE_UNIFICATION_COMPLETE** (query chains + names working, E2E test suite, ROOT CAUSE: naming needs session content) |
+| 45 | 2026-01-29 | **CHAIN_SUMMARY_PRACTICAL_TESTS_AND_DISTRIBUTION_STRATEGY** (238 tests, model 5/5 accurate, distribution deferred, 5 business models enumerated) |
+| 46 | 2026-01-30 | **DATABASE_WRITE_PATH_GAP_ANALYSIS** (CRITICAL BUG: Daemon parses but never persists - INSERT methods exist but uncalled, ~100 line fix needed)
+| 47 | 2026-02-02 | **DATABASE_WRITE_PATH_FIX_COMPLETE** (Fix applied: 978 sessions, 341 chains persisted. Holding release for database init UX fix) |
+| 48 | 2026-02-03 | **FRESH_INSTALL_TDD_AND_RELEASE** (3 TDD tests, install script fix, v0.1.0-alpha.11 deployed, 259 lib + 10 integration tests) |
 
 ## Key Findings
 
@@ -73,21 +90,43 @@ This chain documents investigating and fixing the chain linking bug:
 
 ## Current State
 
-**Latest package:** [[31_2026-01-23_DAEMON_AUTO_SETUP_COMPLETE]]
+**Latest package:** [[48_2026-02-03_FRESH_INSTALL_TDD_AND_RELEASE]]
 **Canonical specs:**
 - [[canonical/07_CLAUDE_CODE_DATA_MODEL.md]]
 - [[canonical/08_PYTHON_PORT_INVENTORY.md]]
 - [[canonical/09_RUST_PORT_TYPE_CONTRACTS.md]]
+**Parallel execution specs:**
+- [[STREAM_A_RUST_INTELCLIENT_SPEC]] - Rust HTTP client + SQLite cache
+- [[STREAM_B_TYPESCRIPT_AGENTS_SPEC]] - 3 remaining agents + endpoints
 **Plan file:** [[~/.claude/plans/synchronous-coalescing-harbor.md]]
 
-**Status:** RUST PORT COMPLETE ✅ - ALL 9 PHASES DONE + PARITY VERIFIED
+**Status:** RUST PORT COMPLETE ✅ + INTEL SERVICE PHASE 3+4 COMPLETE ✅
 - All phases (0-8) complete and verified with parity
 - Daemon runner: ~761 lines, 20 tests, CLI `daemon once/start/status` working
-- **169 Rust tests passing**, 495 Python tests passing, **27 parity tests passing**
+- **238 Rust tests passing** (core + intelligence + parity), 495 Python tests passing
 - Migration **100% complete** (9/9 phases)
-- Total Rust codebase: **~8,342 lines**
-- Total test suite: **691 tests** (169 Rust + 495 Python + 27 parity)
+- Total Rust codebase: **~8,800+ lines** (including intelligence module)
+- Total test suite: **~805 tests** (205 Rust + 495 Python + 27 parity + ~78 TypeScript intel)
 - **The port is functionally complete and formally verified at parity!**
+- **Intelligence module ready:** Rust IntelClient + SQLite cache + TypeScript agents
+
+### Intelligence Service
+- **Phase 1 Complete:** TypeScript + Bun + Elysia foundation
+- **Phase 2 Complete:** Chain Naming Agent with Claude Haiku
+- **Phase 3 Complete:** Rust IntelClient with reqwest + SQLite cache
+- **Phase 4 Complete:** 3 remaining TypeScript agents (commit-analysis, session-summary, insights)
+- **Location:** `apps/tastematter/intel/` (TypeScript), `core/src/intelligence/` (Rust)
+- **Tests:** ~78 TypeScript + 17 Rust intelligence tests
+- **Ports:** localhost:3001 (Rust core), localhost:3002 (TypeScript intel)
+- **Endpoints:**
+  - POST `/api/intel/name-chain` (Haiku)
+  - POST `/api/intel/analyze-commit` (Sonnet)
+  - POST `/api/intel/summarize-session` (Haiku)
+  - POST `/api/intel/generate-insights` (Sonnet)
+- **Pattern:** `tool_choice` for guaranteed structured JSON
+- **Next Steps:**
+  - **Phase 5:** Build Pipeline (Bun compile for cross-platform)
+  - **Phase 6:** Parity Tests (Rust JSON fixtures → TypeScript validation)
 
 ### Optional Phase 8.5 Enhancements
 - File watcher integration into daemon loop

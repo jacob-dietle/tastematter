@@ -4,9 +4,9 @@ Context packages documenting active Tastematter development.
 
 ## Overview
 
-**Date Range:** 2026-01-05 to 2026-01-12
-**Package Count:** 28
-**Theme:** Rust port, performance optimization, HTTP transport, bug fixes, migration
+**Date Range:** 2026-01-05 to 2026-01-29
+**Package Count:** 32
+**Theme:** Rust port, performance optimization, HTTP transport, bug fixes, migration, CLI distribution, GTM strategy
 
 ## Narrative
 
@@ -50,6 +50,16 @@ This chain documents the Rust migration and refinement:
 | 25 | 2026-01-12 | TIMELINE_BUCKETS_FIX |
 | 26 | 2026-01-12 | REPOSITORY_CONSOLIDATION_PLAN |
 | 27 | 2026-01-12 | MIGRATION_EXECUTION_GUIDE |
+| 28 | 2026-01-21 | CLI_DISTRIBUTION_GIT_CLEANUP |
+| 29 | 2026-01-23 | CLI_DISTRIBUTION_COMPLETE (4 platforms, binary renamed, ready for use) |
+| 30 | 2026-01-28 | **GTM_STRATEGY_ESTABLISHED** (cognitive effects moat, distribution strategy, beta plan) |
+| 31 | 2026-01-29 | **PUBLIC_REPO_AND_COPY_REWRITE** (tastesystems/tastematter, PAS copy, Calendly CTA) |
+| 32 | 2026-01-29 | **HIERARCHY_VISUAL_AND_MOBILE_FIXES** (HOW_IT_WORKS diagram, mobile overflow fixes) |
+
+## Current State
+
+**Latest:** [[32_2026-01-29_HIERARCHY_VISUAL_AND_MOBILE_FIXES]]
+**Status:** Website deployed with hierarchy visual. Mobile overflow fixed (removed calc hack). Next: test on device, beta recruitment.
 
 ## Related
 

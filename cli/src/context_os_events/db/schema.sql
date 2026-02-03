@@ -64,6 +64,10 @@ CREATE TABLE IF NOT EXISTS claude_sessions (
     -- Size metrics
     file_size_bytes INTEGER,              -- Size of JSONL file
 
+    -- Intent extraction (for chain naming)
+    first_user_message TEXT,              -- First user message (user's stated intent)
+    conversation_excerpt TEXT,            -- All user messages concatenated (truncated at ~8K chars)
+
     -- Metadata
     parsed_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
@@ -185,7 +189,17 @@ CREATE TABLE IF NOT EXISTS _metadata (
 );
 
 -- Insert schema version
-INSERT OR REPLACE INTO _metadata (key, value) VALUES ('schema_version', '2.0');
+INSERT OR REPLACE INTO _metadata (key, value) VALUES ('schema_version', '2.1');
+
+-- ============================================================================
+-- MIGRATIONS (for existing databases)
+-- ============================================================================
+-- Schema version 2.1: Add intent extraction columns to claude_sessions
+-- These ALTER TABLEs are safe to run multiple times (SQLite ignores if column exists)
+
+-- Add first_user_message if not exists
+-- Note: SQLite doesn't support IF NOT EXISTS for ALTER TABLE, so this may error on second run
+-- The application should handle this gracefully
 
 -- ============================================================================
 -- Layer 4: CONVERSATION INTELLIGENCE

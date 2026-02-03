@@ -2,8 +2,9 @@
 title: "Intelligence Layer Architecture"
 type: architecture-spec
 created: 2026-01-10
-last_updated: 2026-01-10
-status: draft
+last_updated: 2026-01-25
+status: approved
+runtime: typescript-bun
 foundation:
   - "[[canonical/03_CORE_ARCHITECTURE]]"
   - "[[canonical/00_VISION]]"
@@ -120,11 +121,11 @@ From [[01_PRINCIPLES]]:
 └────────────────────────────────────┬────────────────────────────────────┘
                                      │ HTTP (localhost:3002)
 ┌────────────────────────────────────▼────────────────────────────────────┐
-│                    INTELLIGENCE SERVICE (Python)                         │
+│                INTELLIGENCE SERVICE (TypeScript + Bun)                   │
 │                                                                          │
 │   ┌────────────────────────────────────────────────────────────────┐    │
 │   │                    Claude Agent SDK                             │    │
-│   │  from claude_agent_sdk import query, ClaudeAgentOptions         │    │
+│   │  import Anthropic from "@anthropic-ai/sdk";                     │    │
 │   └────────────────────────────────────────────────────────────────┘    │
 │                                                                          │
 │   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────┐   │
@@ -134,7 +135,7 @@ From [[01_PRINCIPLES]]:
 │   └──────────────┘  └──────────────┘  └──────────────┘  └──────────┘   │
 │                                                                          │
 │   ┌────────────────────────────────────────────────────────────────┐    │
-│   │                    FastAPI HTTP Server                          │    │
+│   │                    Elysia HTTP Server (Bun)                     │    │
 │   │  POST /api/intel/name-chain                                     │    │
 │   │  POST /api/intel/analyze-commit                                 │    │
 │   │  POST /api/intel/generate-insights                              │    │
@@ -147,68 +148,84 @@ From [[01_PRINCIPLES]]:
 ### File Structure
 
 ```
-apps/
-├── context-os/
-│   └── core/
-│       └── src/
-│           ├── lib.rs              # + pub mod intelligence
-│           ├── intelligence/       # NEW MODULE
-│           │   ├── mod.rs          # Module entry
-│           │   ├── client.rs       # HTTP client to intel service
-│           │   ├── metadata.rs     # SQLite metadata storage
-│           │   ├── cost.rs         # Cost tracking
-│           │   └── types.rs        # Intelligence types
-│           ├── query.rs            # Existing
-│           ├── storage.rs          # Extended with metadata tables
-│           └── types.rs            # Existing
+apps/tastematter/
+├── core/                           # Existing Rust CLI
+│   └── src/
+│       ├── lib.rs                  # + pub mod intelligence
+│       ├── intelligence/           # NEW MODULE
+│       │   ├── mod.rs              # Module entry
+│       │   ├── client.rs           # HTTP client to intel service
+│       │   ├── metadata.rs         # SQLite metadata storage
+│       │   ├── cost.rs             # Cost tracking
+│       │   └── types.rs            # Intelligence types
+│       ├── query.rs                # Existing
+│       ├── storage.rs              # Extended with metadata tables
+│       └── types.rs                # Existing
 │
-├── context-os-intel/               # NEW SERVICE
-│   ├── pyproject.toml
+├── intel/                          # NEW SERVICE (TypeScript + Bun)
+│   ├── package.json
+│   ├── tsconfig.json
 │   ├── src/
-│   │   └── context_os_intel/
-│   │       ├── __init__.py
-│   │       ├── server.py           # FastAPI server
-│   │       ├── agents/
-│   │       │   ├── __init__.py
-│   │       │   ├── chain_naming.py
-│   │       │   ├── commit_analysis.py
-│   │       │   ├── insights.py
-│   │       │   └── session_summary.py
-│   │       └── types.py            # Pydantic models
+│   │   ├── index.ts                # Entry + Elysia server
+│   │   ├── types/
+│   │   │   └── shared.ts           # Zod schemas (match Rust types)
+│   │   ├── agents/
+│   │   │   ├── chain-naming.ts     # haiku, ~$0.00025/call
+│   │   │   ├── commit-analysis.ts  # sonnet, ~$0.003/call
+│   │   │   ├── insights.ts         # sonnet, ~$0.003/call
+│   │   │   └── session-summary.ts  # haiku, ~$0.00025/call
+│   │   ├── client/
+│   │   │   └── anthropic.ts        # SDK wrapper + cost tracking
+│   │   └── middleware/
+│   │       ├── correlation.ts      # X-Correlation-ID propagation
+│   │       └── cost-guard.ts       # Budget enforcement
 │   └── tests/
-│       └── test_agents.py
+│       ├── unit/agents/            # Agent logic tests
+│       ├── contract/               # Type parity tests
+│       └── integration/            # HTTP endpoint tests
 │
-└── tastematter/
-    ├── src-tauri/
-    │   └── src/
-    │       └── commands.rs         # Extended with intel commands
-    └── src/
-        └── lib/
-            └── stores/
-                └── intelligence.svelte.ts  # NEW store
+├── frontend/                       # Existing Tauri + Svelte
+│   ├── src-tauri/
+│   │   └── src/
+│   │       └── commands.rs         # Extended with intel commands
+│   └── src/
+│       └── lib/
+│           └── stores/
+│               └── intelligence.svelte.ts  # NEW store
+│
+└── specs/                          # Existing specs
 ```
 
 ---
 
 ## Design Decisions
 
-### Decision 1: Separate Intelligence Service (Python)
+### Decision 1: Separate Intelligence Service (TypeScript + Bun)
 
-**Decision:** Run intelligence as a separate Python service, not embedded in Rust.
+**Decision:** Run intelligence as a separate TypeScript service using Bun runtime, not embedded in Rust.
 
 **Options Considered:**
 
 | Option | Pros | Cons |
 |--------|------|------|
-| A. Embed in Rust (PyO3) | Single binary | Complex FFI, async issues |
-| B. Separate service (HTTP) | Clean separation, easy to develop | Network latency (~50ms) |
-| C. Unix socket IPC | Lower latency | Platform complexity |
+| A. Embed in Rust (FFI) | Single binary | Complex FFI, async issues, no SDK |
+| B. Python + FastAPI | Good SDK support | Extra runtime dependency, slower startup |
+| C. TypeScript + Bun | Cross-compile to binary (~50MB), fast | Slightly larger binary |
+| D. Unix socket IPC | Lower latency | Platform complexity |
 
 **Rationale:**
-1. Claude Agent SDK is Python/TypeScript - FFI to Rust is complex
-2. HTTP latency (~50ms) is negligible vs API latency (~2000ms)
-3. Separate service can be developed/deployed independently
-4. Graceful degradation: core works without intel service
+1. **Bun cross-compile:** Single binary per platform, no runtime required (like Rust)
+2. **Agent SDK:** Full `@anthropic-ai/sdk` support with native TypeScript types
+3. **HTTP latency:** (~50ms) negligible vs API latency (~2000ms)
+4. **Distribution:** Bundle as single executable alongside Rust binary
+5. **Development velocity:** TypeScript iteration faster than Rust for AI experiments
+6. **Graceful degradation:** Core works without intel service
+
+**Runtime Comparison:**
+| Runtime | Startup | Binary Size | Distribution |
+|---------|---------|-------------|--------------|
+| Python | ~500ms | N/A (needs interpreter) | Complex |
+| Bun | ~50ms | ~50MB | Single binary |
 
 **Reference:** [[03_CORE_ARCHITECTURE]] Decision 4 (IPC patterns)
 
@@ -279,10 +296,10 @@ get_chain_metadata(chain_id):
 
 ## Type Contracts
 
-### Rust Types (context-os-core)
+### Rust Types (tastematter core)
 
 ```rust
-// apps/context-os/core/src/intelligence/types.rs
+// apps/tastematter/core/src/intelligence/types.rs
 
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
@@ -466,104 +483,181 @@ pub struct CostSummary {
 }
 ```
 
-### Python Types (Intelligence Service)
+### TypeScript Types (Intelligence Service - Zod)
 
-```python
-# apps/context-os-intel/src/context_os_intel/types.py
+```typescript
+// apps/tastematter/intel/src/types/shared.ts
 
-from dataclasses import dataclass
-from enum import Enum
-from typing import Optional, List
-from datetime import datetime
+import { z } from "zod";
 
-class ChainCategory(str, Enum):
-    BUG_FIX = "bug-fix"
-    FEATURE = "feature"
-    REFACTOR = "refactor"
-    RESEARCH = "research"
-    CLEANUP = "cleanup"
-    DOCUMENTATION = "documentation"
-    TESTING = "testing"
-    UNKNOWN = "unknown"
+// =============================================================================
+// ENUMS (match Rust serde(rename_all = "kebab-case"))
+// =============================================================================
 
-class RiskLevel(str, Enum):
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
+export const ChainCategorySchema = z.enum([
+  "bug-fix",
+  "feature",
+  "refactor",
+  "research",
+  "cleanup",
+  "documentation",
+  "testing",
+  "unknown",
+]);
+export type ChainCategory = z.infer<typeof ChainCategorySchema>;
 
-class InsightType(str, Enum):
-    FOCUS_SHIFT = "focus-shift"
-    CO_OCCURRENCE = "co-occurrence"
-    PENDING_REVIEW = "pending-review"
-    ANOMALY = "anomaly"
-    CONTINUITY = "continuity"
+export const RiskLevelSchema = z.enum(["low", "medium", "high"]);
+export type RiskLevel = z.infer<typeof RiskLevelSchema>;
 
-class ActionType(str, Enum):
-    NAVIGATE = "navigate"
-    FILTER = "filter"
-    EXTERNAL = "external"
+export const InsightTypeSchema = z.enum([
+  "focus-shift",
+  "co-occurrence",
+  "pending-review",
+  "anomaly",
+  "continuity",
+]);
+export type InsightType = z.infer<typeof InsightTypeSchema>;
 
-# Request/Response models (Pydantic for FastAPI)
-from pydantic import BaseModel
+export const ActionTypeSchema = z.enum(["navigate", "filter", "external"]);
+export type ActionType = z.infer<typeof ActionTypeSchema>;
 
-class ChainNamingRequest(BaseModel):
-    chain_id: str
-    files_touched: List[str]
-    session_count: int
-    recent_sessions: List[str]
+// =============================================================================
+// CHAIN NAMING
+// =============================================================================
 
-class ChainNamingResponse(BaseModel):
-    chain_id: str
-    generated_name: str
-    category: ChainCategory
-    confidence: float
-    model_used: str
+export const ChainNamingRequestSchema = z.object({
+  chain_id: z.string(),
+  files_touched: z.array(z.string()),
+  session_count: z.number().int().positive(),
+  recent_sessions: z.array(z.string()),
+});
+export type ChainNamingRequest = z.infer<typeof ChainNamingRequestSchema>;
 
-class CommitAnalysisRequest(BaseModel):
-    commit_hash: str
-    message: str
-    author: str
-    diff: str
-    files_changed: List[str]
+export const ChainNamingResponseSchema = z.object({
+  chain_id: z.string(),
+  generated_name: z.string(),
+  category: ChainCategorySchema,
+  confidence: z.number().min(0).max(1),
+  model_used: z.string(),
+});
+export type ChainNamingResponse = z.infer<typeof ChainNamingResponseSchema>;
 
-class CommitAnalysisResponse(BaseModel):
-    commit_hash: str
-    is_agent_commit: bool
-    summary: str
-    risk_level: RiskLevel
-    review_focus: str
-    related_files: List[str]
-    model_used: str
+// =============================================================================
+// COMMIT ANALYSIS
+// =============================================================================
 
-class InsightAction(BaseModel):
-    label: str
-    action_type: ActionType
-    payload: dict
+export const CommitAnalysisRequestSchema = z.object({
+  commit_hash: z.string(),
+  message: z.string(),
+  author: z.string(),
+  diff: z.string(),
+  files_changed: z.array(z.string()),
+});
+export type CommitAnalysisRequest = z.infer<typeof CommitAnalysisRequestSchema>;
 
-class Insight(BaseModel):
-    id: str
-    insight_type: InsightType
-    title: str
-    description: str
-    evidence: List[str]
-    action: Optional[InsightAction]
+export const CommitAnalysisResponseSchema = z.object({
+  commit_hash: z.string(),
+  is_agent_commit: z.boolean(),
+  summary: z.string(),
+  risk_level: RiskLevelSchema,
+  review_focus: z.string(),
+  related_files: z.array(z.string()),
+  model_used: z.string(),
+});
+export type CommitAnalysisResponse = z.infer<typeof CommitAnalysisResponseSchema>;
 
-class InsightsResponse(BaseModel):
-    insights: List[Insight]
-    model_used: str
+// =============================================================================
+// INSIGHTS
+// =============================================================================
 
-class SessionSummaryRequest(BaseModel):
-    session_id: str
-    files: List[str]
-    duration_seconds: Optional[int]
-    chain_id: Optional[str]
+export const InsightActionSchema = z.object({
+  label: z.string(),
+  action_type: ActionTypeSchema,
+  payload: z.record(z.unknown()),
+});
+export type InsightAction = z.infer<typeof InsightActionSchema>;
 
-class SessionSummaryResponse(BaseModel):
-    session_id: str
-    summary: str
-    key_files: List[str]
-    focus_area: Optional[str]
-    model_used: str
+export const InsightSchema = z.object({
+  id: z.string(),
+  insight_type: InsightTypeSchema,
+  title: z.string(),
+  description: z.string(),
+  evidence: z.array(z.string()),
+  action: InsightActionSchema.nullable(),
+});
+export type Insight = z.infer<typeof InsightSchema>;
+
+export const InsightsRequestSchema = z.object({
+  time_range: z.string(),
+  chain_data: z.array(z.object({
+    chain_id: z.string(),
+    name: z.string().nullable(),
+    session_count: z.number().int(),
+    file_count: z.number().int(),
+    recent_activity: z.string(), // ISO timestamp
+  })),
+  file_patterns: z.array(z.object({
+    file_path: z.string(),
+    access_count: z.number().int(),
+    co_accessed_with: z.array(z.string()),
+  })),
+});
+export type InsightsRequest = z.infer<typeof InsightsRequestSchema>;
+
+export const InsightsResponseSchema = z.object({
+  insights: z.array(InsightSchema),
+  model_used: z.string(),
+});
+export type InsightsResponse = z.infer<typeof InsightsResponseSchema>;
+
+// =============================================================================
+// SESSION SUMMARY
+// =============================================================================
+
+export const SessionSummaryRequestSchema = z.object({
+  session_id: z.string(),
+  files: z.array(z.string()),
+  duration_seconds: z.number().int().nullable(),
+  chain_id: z.string().nullable(),
+});
+export type SessionSummaryRequest = z.infer<typeof SessionSummaryRequestSchema>;
+
+export const SessionSummaryResponseSchema = z.object({
+  session_id: z.string(),
+  summary: z.string(),
+  key_files: z.array(z.string()),
+  focus_area: z.string().nullable(),
+  model_used: z.string(),
+});
+export type SessionSummaryResponse = z.infer<typeof SessionSummaryResponseSchema>;
+```
+
+### Type Parity Testing Strategy
+
+```typescript
+// apps/tastematter/intel/tests/contract/parity.test.ts
+
+import { describe, test, expect } from "bun:test";
+import { ChainNamingResponseSchema, CommitAnalysisResponseSchema } from "../../src/types/shared";
+
+// Load fixtures generated by Rust: cargo test --lib intelligence -- --nocapture
+// Fixtures written to: core/tests/fixtures/intel/
+
+describe("Type Parity: Rust ↔ TypeScript", () => {
+  test("ChainNamingResponse matches Rust serialization", async () => {
+    const rustJson = await Bun.file("../core/tests/fixtures/intel/chain_naming_response.json").json();
+    const result = ChainNamingResponseSchema.safeParse(rustJson);
+    expect(result.success).toBe(true);
+  });
+
+  test("CommitAnalysisResponse matches Rust serialization", async () => {
+    const rustJson = await Bun.file("../core/tests/fixtures/intel/commit_analysis_response.json").json();
+    const result = CommitAnalysisResponseSchema.safeParse(rustJson);
+    expect(result.success).toBe(true);
+  });
+
+  // ... similar tests for all types
+});
 ```
 
 ---
@@ -571,8 +665,8 @@ class SessionSummaryResponse(BaseModel):
 ## Database Schema Extensions
 
 ```sql
--- Add to existing context-os SQLite database
--- apps/context-os/core/migrations/002_intelligence_metadata.sql
+-- Add to existing tastematter SQLite database
+-- apps/tastematter/core/migrations/002_intelligence_metadata.sql
 
 -- Chain metadata (generated names, categories)
 CREATE TABLE IF NOT EXISTS chain_metadata (
@@ -711,14 +805,13 @@ TOTAL                              10000ms    100%
 
 ### Chain Naming Agent
 
-```python
-# apps/context-os-intel/src/context_os_intel/agents/chain_naming.py
+```typescript
+// apps/tastematter/intel/src/agents/chain-naming.ts
 
-from claude_agent_sdk import AgentDefinition
+import Anthropic from "@anthropic-ai/sdk";
+import type { ChainNamingRequest, ChainNamingResponse } from "../types/shared";
 
-CHAIN_NAMING_AGENT = AgentDefinition(
-    description="Analyzes Claude Code sessions and generates meaningful chain names",
-    prompt="""You are a session naming specialist. Given information about a conversation chain:
+const CHAIN_NAMING_PROMPT = `You are a session naming specialist. Given information about a conversation chain:
 
 INPUT:
 - chain_id: The unique identifier
@@ -745,23 +838,45 @@ NAMING RULES:
 EXAMPLES:
 - Files: [auth.py, login.py, tests/test_auth.py] → "Fixed authentication flow" (bug-fix, 0.9)
 - Files: [README.md, CHANGELOG.md] → "Updated documentation" (documentation, 0.95)
-- Files: [many disparate files] → "General codebase work" (unknown, 0.3)
-""",
-    tools=[],  # No tools needed - pure analysis
-    model="haiku"  # Fast and cheap
-)
+- Files: [many disparate files] → "General codebase work" (unknown, 0.3)`;
+
+export async function nameChain(
+  client: Anthropic,
+  request: ChainNamingRequest
+): Promise<ChainNamingResponse> {
+  const response = await client.messages.create({
+    model: "claude-3-5-haiku-latest", // Fast and cheap
+    max_tokens: 256,
+    messages: [
+      {
+        role: "user",
+        content: `${CHAIN_NAMING_PROMPT}\n\nINPUT:\n${JSON.stringify(request, null, 2)}`,
+      },
+    ],
+  });
+
+  const text = response.content[0].type === "text" ? response.content[0].text : "";
+  const parsed = JSON.parse(text);
+
+  return {
+    chain_id: request.chain_id,
+    generated_name: parsed.generated_name,
+    category: parsed.category,
+    confidence: parsed.confidence,
+    model_used: "claude-3-5-haiku-latest",
+  };
+}
 ```
 
 ### Commit Analysis Agent
 
-```python
-# apps/context-os-intel/src/context_os_intel/agents/commit_analysis.py
+```typescript
+// apps/tastematter/intel/src/agents/commit-analysis.ts
 
-from claude_agent_sdk import AgentDefinition
+import Anthropic from "@anthropic-ai/sdk";
+import type { CommitAnalysisRequest, CommitAnalysisResponse } from "../types/shared";
 
-COMMIT_ANALYSIS_AGENT = AgentDefinition(
-    description="Analyzes git commits for human-readable summaries and risk assessment",
-    prompt="""You are a code review assistant. Analyze git commits for humans.
+const COMMIT_ANALYSIS_PROMPT = `You are a code review assistant. Analyze git commits for humans.
 
 INPUT:
 - commit_hash: The commit SHA
@@ -797,23 +912,47 @@ REVIEW FOCUS:
 RELATED FILES:
 - If modifying X.py, often need to update test_X.py
 - If changing API, often need to update docs
-- If changing schema, often need migration
-""",
-    tools=["Read"],  # Can read files for context
-    model="sonnet"  # Better code understanding
-)
+- If changing schema, often need migration`;
+
+export async function analyzeCommit(
+  client: Anthropic,
+  request: CommitAnalysisRequest
+): Promise<CommitAnalysisResponse> {
+  const response = await client.messages.create({
+    model: "claude-sonnet-4-20250514", // Better code understanding
+    max_tokens: 1024,
+    messages: [
+      {
+        role: "user",
+        content: `${COMMIT_ANALYSIS_PROMPT}\n\nINPUT:\n${JSON.stringify(request, null, 2)}`,
+      },
+    ],
+  });
+
+  const text = response.content[0].type === "text" ? response.content[0].text : "";
+  const parsed = JSON.parse(text);
+
+  return {
+    commit_hash: request.commit_hash,
+    is_agent_commit: parsed.is_agent_commit,
+    summary: parsed.summary,
+    risk_level: parsed.risk_level,
+    review_focus: parsed.review_focus,
+    related_files: parsed.related_files,
+    model_used: "claude-sonnet-4-20250514",
+  };
+}
 ```
 
 ### Insights Agent
 
-```python
-# apps/context-os-intel/src/context_os_intel/agents/insights.py
+```typescript
+// apps/tastematter/intel/src/agents/insights.ts
 
-from claude_agent_sdk import AgentDefinition
+import Anthropic from "@anthropic-ai/sdk";
+import type { InsightsRequest, InsightsResponse } from "../types/shared";
 
-INSIGHTS_AGENT = AgentDefinition(
-    description="Analyzes context data for patterns and actionable insights",
-    prompt="""You are a work pattern analyst. Surface surprising and actionable insights.
+const INSIGHTS_PROMPT = `You are a work pattern analyst. Surface surprising and actionable insights.
 
 INPUT:
 - time_range: Period being analyzed (e.g., "7d")
@@ -868,23 +1007,42 @@ QUALITY RULES:
 - Max 5 insights (quality over quantity)
 - Only report patterns with strong evidence
 - Include specific numbers, not vague claims
-- Every insight should be actionable
-""",
-    tools=["Read", "Bash"],  # Can read files and run queries
-    model="sonnet"
-)
+- Every insight should be actionable`;
+
+export async function generateInsights(
+  client: Anthropic,
+  request: InsightsRequest
+): Promise<InsightsResponse> {
+  const response = await client.messages.create({
+    model: "claude-sonnet-4-20250514",
+    max_tokens: 2048,
+    messages: [
+      {
+        role: "user",
+        content: `${INSIGHTS_PROMPT}\n\nINPUT:\n${JSON.stringify(request, null, 2)}`,
+      },
+    ],
+  });
+
+  const text = response.content[0].type === "text" ? response.content[0].text : "";
+  const parsed = JSON.parse(text);
+
+  return {
+    insights: parsed.insights,
+    model_used: "claude-sonnet-4-20250514",
+  };
+}
 ```
 
 ### Session Summary Agent
 
-```python
-# apps/context-os-intel/src/context_os_intel/agents/session_summary.py
+```typescript
+// apps/tastematter/intel/src/agents/session-summary.ts
 
-from claude_agent_sdk import AgentDefinition
+import Anthropic from "@anthropic-ai/sdk";
+import type { SessionSummaryRequest, SessionSummaryResponse } from "../types/shared";
 
-SESSION_SUMMARY_AGENT = AgentDefinition(
-    description="Summarizes what happened in a Claude Code session",
-    prompt="""You are a session summarizer. Create brief, useful summaries.
+const SESSION_SUMMARY_PROMPT = `You are a session summarizer. Create brief, useful summaries.
 
 INPUT:
 - session_id: Session identifier
@@ -913,135 +1071,292 @@ SUMMARIZATION RULES:
 EXAMPLES:
 - Files: [auth.py, login.vue, tests/test_auth.py] → "Updated authentication flow"
 - Files: [README.md] → "Documentation update"
-- Files: [50+ files] → "Large-scale refactoring"
-""",
-    tools=[],  # No tools needed
-    model="haiku"  # Fast for simple summarization
-)
+- Files: [50+ files] → "Large-scale refactoring"`;
+
+export async function summarizeSession(
+  client: Anthropic,
+  request: SessionSummaryRequest
+): Promise<SessionSummaryResponse> {
+  const response = await client.messages.create({
+    model: "claude-3-5-haiku-latest", // Fast for simple summarization
+    max_tokens: 256,
+    messages: [
+      {
+        role: "user",
+        content: `${SESSION_SUMMARY_PROMPT}\n\nINPUT:\n${JSON.stringify(request, null, 2)}`,
+      },
+    ],
+  });
+
+  const text = response.content[0].type === "text" ? response.content[0].text : "";
+  const parsed = JSON.parse(text);
+
+  return {
+    session_id: request.session_id,
+    summary: parsed.summary,
+    key_files: parsed.key_files,
+    focus_area: parsed.focus_area,
+    model_used: "claude-3-5-haiku-latest",
+  };
+}
 ```
 
 ---
 
 ## API Endpoints
 
-### Intelligence Service API
+### Intelligence Service API (Elysia + Bun)
 
-```python
-# apps/context-os-intel/src/context_os_intel/server.py
+```typescript
+// apps/tastematter/intel/src/index.ts
 
-from fastapi import FastAPI, HTTPException
-from .types import *
-from .agents import (
-    chain_naming,
-    commit_analysis,
-    insights,
-    session_summary
-)
+import { Elysia, t } from "elysia";
+import Anthropic from "@anthropic-ai/sdk";
+import { nameChain } from "./agents/chain-naming";
+import { analyzeCommit } from "./agents/commit-analysis";
+import { generateInsights } from "./agents/insights";
+import { summarizeSession } from "./agents/session-summary";
+import {
+  ChainNamingRequestSchema,
+  CommitAnalysisRequestSchema,
+  InsightsRequestSchema,
+  SessionSummaryRequestSchema,
+} from "./types/shared";
+import { correlationMiddleware } from "./middleware/correlation";
+import { costGuardMiddleware } from "./middleware/cost-guard";
 
-app = FastAPI(title="Context OS Intelligence Service")
+const client = new Anthropic();
 
-@app.get("/api/intel/health")
-async def health():
-    return {"status": "ok", "version": "0.1.0"}
+const app = new Elysia()
+  .use(correlationMiddleware)
+  .use(costGuardMiddleware)
+  .get("/api/intel/health", () => ({
+    status: "ok",
+    version: "0.1.0",
+  }))
+  .post(
+    "/api/intel/name-chain",
+    async ({ body }) => {
+      const request = ChainNamingRequestSchema.parse(body);
+      return await nameChain(client, request);
+    },
+    {
+      body: t.Object({
+        chain_id: t.String(),
+        files_touched: t.Array(t.String()),
+        session_count: t.Number(),
+        recent_sessions: t.Array(t.String()),
+      }),
+    }
+  )
+  .post(
+    "/api/intel/analyze-commit",
+    async ({ body }) => {
+      const request = CommitAnalysisRequestSchema.parse(body);
+      return await analyzeCommit(client, request);
+    },
+    {
+      body: t.Object({
+        commit_hash: t.String(),
+        message: t.String(),
+        author: t.String(),
+        diff: t.String(),
+        files_changed: t.Array(t.String()),
+      }),
+    }
+  )
+  .post(
+    "/api/intel/generate-insights",
+    async ({ body }) => {
+      const request = InsightsRequestSchema.parse(body);
+      return await generateInsights(client, request);
+    },
+    {
+      body: t.Object({
+        time_range: t.String(),
+        chain_data: t.Array(t.Any()),
+        file_patterns: t.Array(t.Any()),
+      }),
+    }
+  )
+  .post(
+    "/api/intel/summarize-session",
+    async ({ body }) => {
+      const request = SessionSummaryRequestSchema.parse(body);
+      return await summarizeSession(client, request);
+    },
+    {
+      body: t.Object({
+        session_id: t.String(),
+        files: t.Array(t.String()),
+        duration_seconds: t.Nullable(t.Number()),
+        chain_id: t.Nullable(t.String()),
+      }),
+    }
+  )
+  .listen(3002);
 
-@app.post("/api/intel/name-chain", response_model=ChainNamingResponse)
-async def name_chain(request: ChainNamingRequest):
-    """Generate a meaningful name for a conversation chain."""
-    result = await chain_naming.analyze(request)
-    return result
+console.log(`🔮 Intelligence service running on http://localhost:${app.server?.port}`);
 
-@app.post("/api/intel/analyze-commit", response_model=CommitAnalysisResponse)
-async def analyze_commit(request: CommitAnalysisRequest):
-    """Analyze a git commit for summary and risk assessment."""
-    result = await commit_analysis.analyze(request)
-    return result
+export type App = typeof app;
+```
 
-@app.post("/api/intel/generate-insights", response_model=InsightsResponse)
-async def generate_insights(request: InsightsRequest):
-    """Generate proactive insights from context data."""
-    result = await insights.analyze(request)
-    return result
+### Middleware: Correlation ID
 
-@app.post("/api/intel/summarize-session", response_model=SessionSummaryResponse)
-async def summarize_session(request: SessionSummaryRequest):
-    """Generate a summary of a session."""
-    result = await session_summary.analyze(request)
-    return result
+```typescript
+// apps/tastematter/intel/src/middleware/correlation.ts
+
+import { Elysia } from "elysia";
+import { randomUUID } from "crypto";
+
+export const correlationMiddleware = new Elysia({ name: "correlation" })
+  .derive(({ request }) => {
+    const correlationId = request.headers.get("x-correlation-id") ?? randomUUID();
+    return { correlationId };
+  })
+  .onAfterHandle(({ correlationId, set }) => {
+    set.headers["x-correlation-id"] = correlationId;
+  });
+```
+
+### Middleware: Cost Guard
+
+```typescript
+// apps/tastematter/intel/src/middleware/cost-guard.ts
+
+import { Elysia } from "elysia";
+
+// Simple in-memory cost tracking (persisted via Rust SQLite in production)
+let todayCostUsd = 0;
+const DAILY_BUDGET_USD = 1.0;
+
+export const costGuardMiddleware = new Elysia({ name: "cost-guard" })
+  .derive(() => {
+    const remainingBudget = DAILY_BUDGET_USD - todayCostUsd;
+    return { remainingBudget };
+  })
+  .onBeforeHandle(({ remainingBudget, set, path }) => {
+    // Skip health endpoint
+    if (path === "/api/intel/health") return;
+
+    if (remainingBudget <= 0) {
+      set.status = 429;
+      return { error: "Daily budget exceeded", remaining_usd: 0 };
+    }
+  });
+
+export function recordCost(costUsd: number) {
+  todayCostUsd += costUsd;
+}
+
+export function resetDailyCost() {
+  todayCostUsd = 0;
+}
 ```
 
 ---
 
 ## Implementation Phases
 
-### Phase 1: Foundation (4-6 hours)
+### Phase 1: TypeScript Foundation (4-6 hours)
 
 **Deliverables:**
-1. `intelligence/` module structure in context-os-core
-2. SQLite schema extensions (metadata tables)
-3. Basic types and traits
-4. Graceful degradation (works without intel service)
+1. `apps/tastematter/intel/` package structure
+2. Elysia server with health endpoint
+3. Zod schemas matching Rust types
+4. Correlation ID middleware
+5. Contract tests with fixtures
+
+**Success Criteria:**
+- `bun install && bun run src/index.ts` starts server on :3002
+- `/api/intel/health` returns OK
+- Contract tests pass against Rust fixtures
+- TypeScript types compile cleanly
+
+**Commands:**
+```bash
+cd apps/tastematter/intel
+bun install
+bun run src/index.ts  # Dev mode
+bun test              # Run tests
+```
+
+### Phase 2: Chain Naming Agent (3-4 hours)
+
+**Deliverables:**
+1. Chain naming agent with Anthropic SDK
+2. Cost tracking wrapper
+3. Unit tests for agent logic
+4. Integration tests for endpoint
+
+**Success Criteria:**
+- `/api/intel/name-chain` generates names
+- Costs tracked per operation
+- Unit tests pass
+- Integration tests pass
+
+### Phase 3: Rust IntelClient (4-6 hours)
+
+**Deliverables:**
+1. `intelligence/` module in core
+2. `IntelClient` with reqwest
+3. SQLite schema migration (5 tables)
+4. `MetadataStore` cache layer
+5. Graceful degradation
 
 **Success Criteria:**
 - `cargo build` succeeds with new module
-- Schema migration runs on startup
-- Existing functionality unaffected
-- Tests pass
-
-### Phase 2: Intelligence Service (6-8 hours)
-
-**Deliverables:**
-1. `context-os-intel/` Python project
-2. FastAPI server with health endpoint
-3. Chain Naming Agent implementation
-4. Session Summary Agent implementation
-
-**Success Criteria:**
-- `uvicorn context_os_intel.server:app --port 3002` starts
-- `/api/intel/health` returns OK
-- `/api/intel/name-chain` generates names
-- Unit tests for agents pass
-
-### Phase 3: Rust Integration (4-6 hours)
-
-**Deliverables:**
-1. HTTP client in Rust (reqwest)
-2. Metadata storage layer
-3. Cost tracking
-4. Integration with query_chains
-
-**Success Criteria:**
 - `get_chain_metadata(chain_id)` works end-to-end
 - Names cached in SQLite
-- Cost tracked per operation
-- CLI: `context-os intel name-chain <id>` works
+- CLI: `tastematter intel name-chain <id>` works
+- Works without intel service (graceful degradation)
 
-### Phase 4: Commit Analysis (4-6 hours)
-
-**Deliverables:**
-1. Commit Analysis Agent
-2. Git integration (git2 crate in Rust)
-3. Agent commit detection
-4. CLI and Tauri commands
-
-**Success Criteria:**
-- `/api/intel/analyze-commit` works
-- Agent commits detected correctly
-- Risk levels assigned appropriately
-- Cache works correctly
-
-### Phase 5: Insights & Frontend (6-8 hours)
+### Phase 4: Remaining Agents (4-6 hours)
 
 **Deliverables:**
-1. Insights Agent
-2. Frontend intelligence store
-3. Sidebar with chain names
-4. Insights panel component
+1. Commit Analysis Agent (sonnet)
+2. Insights Agent (sonnet)
+3. Session Summary Agent (haiku)
+4. Integration tests for all endpoints
 
 **Success Criteria:**
-- Insights generated on demand
-- Sidebar shows chain names (not IDs)
-- Insights panel displays patterns
-- Full end-to-end flow working
+- All 4 endpoints return valid responses
+- Cost tracking works for all operations
+- Agent commit detection working
+- Risk levels assigned correctly
+
+### Phase 5: Build Pipeline (2-3 hours)
+
+**Deliverables:**
+1. Bun compile configuration for all platforms
+2. GitHub Actions for 4-platform builds
+3. Combined installer scripts
+4. Release workflow
+
+**Success Criteria:**
+- Cross-platform binaries build:
+  ```bash
+  bun build src/index.ts --compile --target=bun-darwin-x64 --outfile=dist/tastematter-intel-darwin-x64
+  bun build src/index.ts --compile --target=bun-darwin-arm64 --outfile=dist/tastematter-intel-darwin-arm64
+  bun build src/index.ts --compile --target=bun-linux-x64 --outfile=dist/tastematter-intel-linux-x64
+  bun build src/index.ts --compile --target=bun-windows-x64 --outfile=dist/tastematter-intel-win32-x64.exe
+  ```
+- Combined release package includes both Rust + TypeScript binaries
+- Install scripts work on all platforms
+
+### Phase 6: Parity & E2E Tests (2-3 hours)
+
+**Deliverables:**
+1. Rust JSON fixtures generated in CI
+2. Contract tests validate TypeScript against Rust
+3. E2E tests with mocked Claude calls
+
+**Success Criteria:**
+- All contract tests pass (Zod validates Rust JSON)
+- E2E test suite covers all workflows
+- CI runs all test suites
+
+**Total Estimated: 19-28 hours**
 
 ---
 
@@ -1093,11 +1408,20 @@ async def summarize_session(request: SessionSummaryRequest):
 - [[01_PRINCIPLES]] - STIGMERGIC principle
 - [[technical-architecture-engineering]] - Latency budgets, Five-Minute Rule
 - [[specification-driven-development]] - Spec-first methodology
-- Claude Agent SDK docs - https://platform.claude.com/docs/en/agent-sdk/overview
+- Anthropic SDK docs - https://docs.anthropic.com/en/api/client-sdks
+- Bun compile docs - https://bun.sh/docs/bundler/executables
+- Elysia docs - https://elysiajs.com/
+- Zod docs - https://zod.dev/
 
 ---
 
-**Specification Status:** DRAFT
+**Specification Status:** APPROVED
+**Runtime:** TypeScript + Bun + Elysia
 **Created:** 2026-01-10
+**Last Updated:** 2026-01-25
 **Author:** Architecture planning session
-**Next Action:** Review with user, then begin Phase 1 implementation
+**Decision Record:**
+- 2026-01-25: Approved TypeScript + Bun over Python (cross-compile, ~50MB binary)
+- 2026-01-25: Approved Anthropic SDK (`@anthropic-ai/sdk`) for agent capabilities
+- 2026-01-25: Approved Rust spawns TypeScript service (coordinated daemon lifecycle)
+**Next Action:** Begin Phase 1 - TypeScript Foundation
