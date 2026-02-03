@@ -1,0 +1,12 @@
+[install]
+# Use exact versions
+exact = true
+
+[test]
+# Test configuration
+coverage = false
+timeout = 30000
+
+# Path aliases (matches tsconfig.json)
+[resolve]
+"@/*" = ["./src/*"]

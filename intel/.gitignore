@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/
+
+# Environment (contains secrets)
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+intel.log
+
+# Build output
+dist/
+.turbo/
+
+# IDE
+.idea/
+.vscode/
