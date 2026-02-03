@@ -82,7 +82,22 @@ fi
 # Make executable
 chmod +x "$INSTALL_DIR/$BINARY_NAME"
 
-# Verify
+# Verify binary exists and is not truncated (should be at least 10 MB)
+FILE_SIZE=$(stat -f%z "$INSTALL_DIR/$BINARY_NAME" 2>/dev/null || stat -c%s "$INSTALL_DIR/$BINARY_NAME" 2>/dev/null || echo "0")
+FILE_SIZE_MB=$((FILE_SIZE / 1048576))
+MIN_SIZE=$((10 * 1048576))
+
+if [ "$FILE_SIZE" -lt "$MIN_SIZE" ]; then
+    echo -e "${RED}[tastematter] Error: Download appears truncated (${FILE_SIZE_MB} MB < 10 MB minimum)${NC}"
+    echo -e "${YELLOW}  This usually means the download was interrupted.${NC}"
+    echo -e "${YELLOW}  Please try running the install script again.${NC}"
+    rm -f "$INSTALL_DIR/$BINARY_NAME"
+    exit 1
+fi
+
+echo -e "${CYAN}[tastematter]${NC} Downloaded ${FILE_SIZE_MB} MB"
+
+# Verify executable
 if [ ! -x "$INSTALL_DIR/$BINARY_NAME" ]; then
     echo -e "${RED}[tastematter] Error: Binary not executable${NC}"
     exit 1

@@ -204,6 +204,16 @@ impl Database {
             );
             CREATE INDEX IF NOT EXISTS idx_chain_graph_chain ON chain_graph(chain_id);
 
+            -- Layer 6: Chain Metadata (Intel-generated names and summaries)
+            CREATE TABLE IF NOT EXISTS chain_metadata (
+                chain_id TEXT PRIMARY KEY,
+                generated_name TEXT,
+                summary TEXT,
+                key_topics TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+
             -- Metadata
             CREATE TABLE IF NOT EXISTS _metadata (
                 key TEXT PRIMARY KEY,

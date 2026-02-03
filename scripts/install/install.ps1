@@ -70,8 +70,19 @@ if (-not (Test-Path $binaryPath)) {
     exit 1
 }
 
-$fileSize = (Get-Item $binaryPath).Length / 1MB
-Write-Host "[tastematter] Downloaded $([math]::Round($fileSize, 1)) MB"
+$fileSize = (Get-Item $binaryPath).Length
+$fileSizeMB = $fileSize / 1MB
+Write-Host "[tastematter] Downloaded $([math]::Round($fileSizeMB, 1)) MB"
+
+# Verify download is not truncated (binary should be at least 10 MB)
+$minSize = 10 * 1MB
+if ($fileSize -lt $minSize) {
+    Write-Host "[tastematter] Error: Download appears truncated ($([math]::Round($fileSizeMB, 1)) MB < 10 MB minimum)" -ForegroundColor Red
+    Write-Host "  This usually means the download was interrupted." -ForegroundColor Yellow
+    Write-Host "  Please try running the install script again." -ForegroundColor Yellow
+    Remove-Item $binaryPath -Force
+    exit 1
+}
 
 # Add to PATH if needed
 $currentPath = [Environment]::GetEnvironmentVariable("PATH", "User")
