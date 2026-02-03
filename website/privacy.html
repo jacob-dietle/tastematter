@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy - Tastematter</title>
+  <link rel="icon" href="./assets/orange_icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <!-- Header -->
+  <header class="header">
+    <div class="container header-inner">
+      <a href="/" class="logo">
+        <img src="./assets/orange_icon.svg" alt="" class="logo-icon">
+        <span>TASTEMATTER</span>
+      </a>
+      <nav class="nav">
+        <a href="https://github.com/taste-systems/tastematter" class="nav-link" target="_blank">GitHub</a>
+        <a href="./terms.html" class="nav-link">Terms</a>
+        <a href="./privacy.html" class="nav-link">Privacy</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Content -->
+  <main class="section">
+    <div class="container" style="max-width: 800px;">
+      <h1 class="mb-8">PRIVACY_POLICY</h1>
+
+      <p class="text-muted mb-4">Last updated: January 2026</p>
+
+      <h2 style="font-size: 1.25rem; margin-top: 2rem; margin-bottom: 1rem;">SUMMARY</h2>
+      <div class="card mb-8">
+        <ul style="color: var(--muted); padding-left: 1.5rem; margin: 0;">
+          <li>Your Claude Code session data stays on your machine</li>
+          <li>We collect anonymous usage telemetry (command names + timing only)</li>
+          <li>No file paths, session content, or personal data is collected</li>
+          <li>You can opt out of telemetry at any time</li>
+        </ul>
+      </div>
+
+      <h2 style="font-size: 1.25rem; margin-top: 2rem; margin-bottom: 1rem;">1. DATA_THAT_STAYS_LOCAL</h2>
+      <p style="margin-bottom: 1rem; color: var(--muted);">
+        Tastematter processes your Claude Code session files to build a local database. This data never leaves your computer:
+      </p>
+      <ul style="margin-bottom: 1rem; color: var(--muted); padding-left: 1.5rem;">
+        <li>Session JSONL files from Claude Code</li>
+        <li>Parsed conversation content</li>
+        <li>File paths you worked on</li>
+        <li>Tool usage details</li>
+        <li>Your local SQLite database</li>
+      </ul>
+
+      <h2 style="font-size: 1.25rem; margin-top: 2rem; margin-bottom: 1rem;">2. TELEMETRY_WE_COLLECT</h2>
+      <p style="margin-bottom: 1rem; color: var(--muted);">
+        To improve Tastematter, we collect anonymous usage data. Here's exactly what we collect:
+      </p>
+
+      <div class="code-block" style="margin-bottom: 1rem;">
+        <pre><span class="comment"># Example telemetry event</span>
+{
+  "event": "query_executed",
+  "anonymous_id": "uuid-generated-on-first-run",
+  "properties": {
+    "command": "query flex",
+    "time_range": "7d",
+    "result_count": 42,
+    "duration_ms": 156
+  }
+}</pre>
+      </div>
+
+      <p style="margin-bottom: 1rem; color: var(--muted);">
+        <strong>What we collect:</strong>
+      </p>
+      <ul style="margin-bottom: 1rem; color: var(--muted); padding-left: 1.5rem;">
+        <li>Command names (e.g., "query flex", "daemon start")</li>
+        <li>Timing information (duration, time ranges)</li>
+        <li>Aggregate counts (number of results, sessions parsed)</li>
+        <li>Platform (Windows, macOS, Linux)</li>
+        <li>Anonymous installation ID (random UUID)</li>
+      </ul>
+
+      <p style="margin-bottom: 1rem; color: var(--muted);">
+        <strong>What we NEVER collect:</strong>
+      </p>
+      <ul style="margin-bottom: 1rem; color: var(--muted); padding-left: 1.5rem;">
+        <li>File paths or directory names</li>
+        <li>Session content or conversations</li>
+        <li>Your name, email, or any personal information</li>
+        <li>Query results or actual data</li>
+        <li>IP addresses (anonymized by our analytics provider)</li>
+      </ul>
+
+      <h2 style="font-size: 1.25rem; margin-top: 2rem; margin-bottom: 1rem;">3. HOW_TO_OPT_OUT</h2>
+      <p style="margin-bottom: 1rem; color: var(--muted);">
+        You can disable telemetry at any time using either method:
+      </p>
+
+      <div class="code-block" style="margin-bottom: 1rem;">
+        <pre><span class="comment"># Option 1: Environment variable</span>
+<span class="command">export TASTEMATTER_NO_TELEMETRY=1</span>
+
+<span class="comment"># Option 2: Config file (~/.context-os/telemetry.yaml)</span>
+telemetry:
+  enabled: false</pre>
+      </div>
+
+      <h2 style="font-size: 1.25rem; margin-top: 2rem; margin-bottom: 1rem;">4. ANALYTICS_PROVIDER</h2>
+      <p style="margin-bottom: 1rem; color: var(--muted);">
+        We use <a href="https://posthog.com" style="color: var(--primary);">PostHog</a> for analytics. PostHog is privacy-focused and compliant with GDPR and CCPA. See their <a href="https://posthog.com/privacy" style="color: var(--primary);">privacy policy</a>.
+      </p>
+
+      <h2 style="font-size: 1.25rem; margin-top: 2rem; margin-bottom: 1rem;">5. DATA_RETENTION</h2>
+      <p style="margin-bottom: 1rem; color: var(--muted);">
+        Anonymous telemetry data is retained for 12 months to analyze usage trends, then automatically deleted.
+      </p>
+
+      <h2 style="font-size: 1.25rem; margin-top: 2rem; margin-bottom: 1rem;">6. CHANGES</h2>
+      <p style="margin-bottom: 1rem; color: var(--muted);">
+        We'll update this policy if our data practices change. Check back periodically.
+      </p>
+
+      <h2 style="font-size: 1.25rem; margin-top: 2rem; margin-bottom: 1rem;">7. CONTACT</h2>
+      <p style="margin-bottom: 1rem; color: var(--muted);">
+        Questions about privacy? Open an issue on <a href="https://github.com/taste-systems/tastematter" style="color: var(--primary);">GitHub</a>.
+      </p>
+
+      <div class="mt-8">
+        <a href="/" class="btn btn-outline">Back to Home</a>
+      </div>
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div class="footer-links">
+        <a href="https://github.com/taste-systems/tastematter" class="footer-link" target="_blank">GitHub</a>
+        <a href="./terms.html" class="footer-link">Terms</a>
+        <a href="./privacy.html" class="footer-link">Privacy</a>
+      </div>
+      <p class="footer-copy">
+        Built by <a href="https://taste.systems" class="footer-link" target="_blank">Taste Systems</a>
+      </p>
+    </div>
+  </footer>
+</body>
+</html>
