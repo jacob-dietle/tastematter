@@ -63,6 +63,14 @@ DOWNLOAD_URL="$BASE_URL/releases/$VERSION/$BINARY_NAME-$PLATFORM"
 # Create install directory
 mkdir -p "$INSTALL_DIR"
 
+# Stop any running tastematter processes (ensures clean update)
+if pgrep -x "$BINARY_NAME" > /dev/null 2>&1; then
+    echo -e "${YELLOW}[tastematter] Stopping running processes for update...${NC}"
+    pkill -x "$BINARY_NAME" 2>/dev/null || true
+    sleep 1  # Brief pause to ensure file handles are released
+    echo -e "${CYAN}[tastematter]${NC} Stopped existing processes"
+fi
+
 # Download binary
 echo -e "${CYAN}[tastematter]${NC} Downloading from $DOWNLOAD_URL"
 if ! curl -fsSL "$DOWNLOAD_URL" -o "$INSTALL_DIR/$BINARY_NAME"; then

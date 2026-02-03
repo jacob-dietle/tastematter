@@ -45,6 +45,15 @@ if (-not (Test-Path $InstallDir)) {
     New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
 }
 
+# Stop any running tastematter processes (required for Windows to overwrite binary)
+$runningProcesses = Get-Process -Name "tastematter" -ErrorAction SilentlyContinue
+if ($runningProcesses) {
+    Write-Host "[tastematter] Stopping running processes for update..." -ForegroundColor Yellow
+    $runningProcesses | Stop-Process -Force
+    Start-Sleep -Seconds 1  # Brief pause to ensure file handles are released
+    Write-Host "[tastematter] Stopped existing processes"
+}
+
 # Download binary
 Write-Host "[tastematter] Downloading from $downloadUrl"
 try {
