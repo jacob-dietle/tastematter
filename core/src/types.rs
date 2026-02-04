@@ -474,7 +474,7 @@ pub struct GitCommitInput {
 }
 
 /// Input for inserting a Claude session
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SessionInput {
     /// Session ID (UUID from JSONL filename)
     pub session_id: String,
@@ -531,26 +531,6 @@ impl From<crate::capture::jsonl_parser::SessionSummary> for SessionInput {
             tools_used: Some(serde_json::to_string(&s.tools_used).unwrap_or_default()),
             first_user_message: s.first_user_message,
             conversation_excerpt: s.conversation_excerpt,
-        }
-    }
-}
-
-impl Default for SessionInput {
-    fn default() -> Self {
-        SessionInput {
-            session_id: String::new(),
-            project_path: None,
-            started_at: None,
-            ended_at: None,
-            duration_seconds: None,
-            user_message_count: None,
-            assistant_message_count: None,
-            total_messages: None,
-            files_read: None,
-            files_written: None,
-            tools_used: None,
-            first_user_message: None,
-            conversation_excerpt: None,
         }
     }
 }

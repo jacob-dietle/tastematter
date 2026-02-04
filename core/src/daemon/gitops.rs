@@ -113,8 +113,8 @@ pub fn load_user_rules() -> Vec<String> {
 
         if in_rules_section {
             // Check if this is a list item
-            if trimmed.starts_with("- ") {
-                let rule = trimmed[2..].trim();
+            if let Some(item) = trimmed.strip_prefix("- ") {
+                let rule = item.trim();
                 // Remove surrounding quotes if present
                 let rule = rule.trim_matches('"').trim_matches('\'');
                 if !rule.is_empty() {

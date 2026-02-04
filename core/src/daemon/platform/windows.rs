@@ -64,6 +64,7 @@ WshShell.Run """{}"" daemon start --interval {}", 0, False
     }
 
     /// Build the command line for the daemon (used for status display).
+    #[allow(dead_code)]
     fn build_daemon_command(config: &InstallConfig) -> String {
         let binary = config.binary_path.display();
         format!(
@@ -222,6 +223,7 @@ impl DaemonPlatform for WindowsPlatform {
 
 /// Parsed task information from schtasks output.
 #[derive(Debug, Default)]
+#[allow(dead_code)]
 struct TaskInfo {
     status: String,
     last_run: String,

@@ -43,7 +43,7 @@ pub struct SyncResult {
 /// 1. Git sync
 /// 2. Session parsing (WITH DATABASE PERSISTENCE)
 /// 3. Chain building (WITH DATABASE PERSISTENCE)
-/// 3.5 Intelligence enrichment (optional - graceful degradation)
+///    3.5. Intelligence enrichment (optional - graceful degradation)
 /// 4. Index update
 ///
 /// **CRITICAL FIX:** This function now persists parsed sessions and chains
@@ -170,7 +170,7 @@ async fn sync_sessions_phase(
                                 summary
                                     .project_path
                                     .split(['/', '\\'])
-                                    .last()
+                                    .next_back()
                                     .unwrap_or("?"),
                                 e
                             ));

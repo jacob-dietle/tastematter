@@ -12,7 +12,7 @@ use std::path::Path;
 use crate::error::CoreError;
 use crate::intelligence::types::{
     ChainCategory, ChainMetadata, ChainNamingResponse, ChainSummaryResponse, WorkStatus,
-    WorkstreamTag, WorkstreamTagSource,
+    WorkstreamTag,
 };
 
 /// SQLite-based cache for intelligence metadata
@@ -466,6 +466,7 @@ CREATE TABLE IF NOT EXISTS chain_summaries (
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::intelligence::types::WorkstreamTagSource;
     use tempfile::TempDir;
 
     async fn create_test_store() -> (MetadataStore, TempDir) {
