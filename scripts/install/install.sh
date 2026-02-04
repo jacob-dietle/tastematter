@@ -7,6 +7,7 @@ BASE_URL="https://install.tastematter.dev"
 BINARY_NAME="tastematter"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 VERSION="${VERSION:-latest}"
+CHANNEL="${TASTEMATTER_CHANNEL:-production}"
 
 # Colors
 RED='\033[0;31m'
@@ -46,19 +47,24 @@ detect_platform() {
 
 PLATFORM=$(detect_platform)
 
-# Get version
-if [ "$VERSION" = "latest" ]; then
-    VERSION=$(curl -fsSL "$BASE_URL/latest.txt" 2>/dev/null || echo "")
-    if [ -z "$VERSION" ]; then
-        echo -e "${RED}[tastematter] Error: Could not fetch latest version${NC}"
-        echo -e "${YELLOW}  Check your internet connection or set VERSION env var${NC}"
-        exit 1
+# Handle staging vs production channel
+if [ "$CHANNEL" = "staging" ]; then
+    echo -e "${YELLOW}[tastematter] Channel: staging${NC}"
+    DOWNLOAD_URL="$BASE_URL/staging/latest/$BINARY_NAME-$PLATFORM"
+    VERSION="staging"
+else
+    # Get version for production channel
+    if [ "$VERSION" = "latest" ]; then
+        VERSION=$(curl -fsSL "$BASE_URL/latest.txt" 2>/dev/null || echo "")
+        if [ -z "$VERSION" ]; then
+            echo -e "${RED}[tastematter] Error: Could not fetch latest version${NC}"
+            echo -e "${YELLOW}  Check your internet connection or set VERSION env var${NC}"
+            exit 1
+        fi
     fi
+    DOWNLOAD_URL="$BASE_URL/releases/$VERSION/$BINARY_NAME-$PLATFORM"
 fi
 echo -e "${CYAN}[tastematter]${NC} Version: $VERSION, Platform: $PLATFORM"
-
-# Download URL
-DOWNLOAD_URL="$BASE_URL/releases/$VERSION/$BINARY_NAME-$PLATFORM"
 
 # Create install directory
 mkdir -p "$INSTALL_DIR"

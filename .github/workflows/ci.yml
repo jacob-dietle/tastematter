@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+    tags-ignore: ['v*']
+  pull_request:
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core -> target
+
+      - name: Check formatting
+        run: cargo fmt --manifest-path core/Cargo.toml --check
+
+      - name: Run clippy
+        run: cargo clippy --manifest-path core/Cargo.toml -- -D warnings
+
+      - name: Run tests
+        run: cargo test --manifest-path core/Cargo.toml

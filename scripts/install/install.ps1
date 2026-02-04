@@ -21,22 +21,30 @@ $ErrorActionPreference = "Stop"
 $BaseUrl = "https://install.tastematter.dev"
 $BinaryName = "tastematter"
 
+# Channel support: "production" (default) or "staging"
+$Channel = if ($env:TASTEMATTER_CHANNEL) { $env:TASTEMATTER_CHANNEL } else { "production" }
+
 Write-Host "[tastematter] Installing..." -ForegroundColor Cyan
 
-# Get version
-if ($Version -eq "latest") {
-    try {
-        $Version = (Invoke-RestMethod "$BaseUrl/latest.txt" -UseBasicParsing).Trim()
-    } catch {
-        Write-Host "[tastematter] Error: Could not fetch latest version" -ForegroundColor Red
-        Write-Host "  Check your internet connection or try specifying -Version" -ForegroundColor Yellow
-        exit 1
+# Handle staging channel
+if ($Channel -eq "staging") {
+    Write-Host "[tastematter] Channel: staging" -ForegroundColor Yellow
+    $downloadUrl = "$BaseUrl/staging/latest/$BinaryName-windows-x86_64.exe"
+    $Version = "staging"
+} else {
+    # Get version for production channel
+    if ($Version -eq "latest") {
+        try {
+            $Version = (Invoke-RestMethod "$BaseUrl/latest.txt" -UseBasicParsing).Trim()
+        } catch {
+            Write-Host "[tastematter] Error: Could not fetch latest version" -ForegroundColor Red
+            Write-Host "  Check your internet connection or try specifying -Version" -ForegroundColor Yellow
+            exit 1
+        }
     }
+    Write-Host "[tastematter] Version: $Version"
+    $downloadUrl = "$BaseUrl/releases/$Version/$BinaryName-windows-x86_64.exe"
 }
-Write-Host "[tastematter] Version: $Version"
-
-# Download URL
-$downloadUrl = "$BaseUrl/releases/$Version/$BinaryName-windows-x86_64.exe"
 $binaryPath = Join-Path $InstallDir "$BinaryName.exe"
 
 # Create install directory

@@ -1,0 +1,171 @@
+name: Staging
+
+on:
+  push:
+    branches: [master]
+
+env:
+  R2_BUCKET: tastematter-releases
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: tastematter-windows-x86_64.exe
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: tastematter-linux-x86_64
+          - os: macos-13  # Intel runner for x86_64
+            target: x86_64-apple-darwin
+            artifact: tastematter-darwin-x86_64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: tastematter-darwin-aarch64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core -> target
+          key: ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --manifest-path core/Cargo.toml --release --target ${{ matrix.target }}
+
+      - name: Rename binary (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          cp core/target/${{ matrix.target }}/release/tastematter ${{ matrix.artifact }}
+          chmod +x ${{ matrix.artifact }}
+
+      - name: Rename binary (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Copy-Item "core\target\${{ matrix.target }}\release\tastematter.exe" "${{ matrix.artifact }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+          retention-days: 7
+
+  upload-staging:
+    name: Upload to Staging
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Install rclone
+        run: curl https://rclone.org/install.sh | sudo bash
+
+      - name: Configure rclone for R2
+        run: |
+          mkdir -p ~/.config/rclone
+          cat > ~/.config/rclone/rclone.conf <<EOF
+          [r2]
+          type = s3
+          provider = Cloudflare
+          access_key_id = ${{ secrets.R2_ACCESS_KEY_ID }}
+          secret_access_key = ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          endpoint = ${{ secrets.R2_ENDPOINT }}
+          region = auto
+          no_check_bucket = true
+          EOF
+          sed -i 's/^[[:space:]]*//' ~/.config/rclone/rclone.conf
+
+      - name: Upload binaries to staging
+        run: |
+          COMMIT_SHA="${{ github.sha }}"
+          echo "Uploading staging build: $COMMIT_SHA"
+
+          # Clear and upload to staging/latest/
+          rclone delete "r2:$R2_BUCKET/staging/latest/" --rmdirs || true
+
+          for artifact_dir in artifacts/*/; do
+            artifact_name=$(basename "$artifact_dir")
+            echo "Uploading $artifact_name..."
+            rclone copy "artifacts/$artifact_name/$artifact_name" "r2:$R2_BUCKET/staging/latest/"
+          done
+
+          # Update staging-latest.txt with commit SHA
+          echo "$COMMIT_SHA" > staging-latest.txt
+          rclone copy staging-latest.txt "r2:$R2_BUCKET/"
+          echo "Updated staging-latest.txt to $COMMIT_SHA"
+
+      - name: Upload install scripts to staging
+        run: |
+          echo "Uploading install scripts..."
+          rclone copy scripts/install/install.ps1 "r2:$R2_BUCKET/"
+          rclone copy scripts/install/install.sh "r2:$R2_BUCKET/"
+          echo "Install scripts uploaded"
+
+  smoke-test:
+    name: Smoke Test ${{ matrix.os }}
+    needs: upload-staging
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            shell: pwsh
+          - os: ubuntu-latest
+            shell: bash
+          - os: macos-latest
+            shell: bash
+    steps:
+      - name: Install from staging (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        env:
+          TASTEMATTER_CHANNEL: staging
+        run: |
+          Write-Host "Installing from staging channel..."
+          $env:TASTEMATTER_CHANNEL = "staging"
+          Invoke-RestMethod https://install.tastematter.dev/install.ps1 | Invoke-Expression
+
+      - name: Install from staging (Unix)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        env:
+          TASTEMATTER_CHANNEL: staging
+        run: |
+          echo "Installing from staging channel..."
+          curl -fsSL https://install.tastematter.dev/install.sh | bash
+
+      - name: Verify binary works (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $env:Path = "$env:USERPROFILE\.local\bin;$env:Path"
+          tastematter --version
+          tastematter --help
+
+      - name: Verify binary works (Unix)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          tastematter --version
+          tastematter --help

@@ -8,71 +8,14 @@ env:
   R2_BUCKET: tastematter-releases
 
 jobs:
-  build:
-    name: Build ${{ matrix.target }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            artifact: tastematter-windows-x86_64.exe
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            artifact: tastematter-linux-x86_64
-          - os: macos-15-intel  # Intel runner for x86_64
-            target: x86_64-apple-darwin
-            artifact: tastematter-darwin-x86_64
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            artifact: tastematter-darwin-aarch64
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - name: Build release binary
-        run: cargo build --manifest-path core/Cargo.toml --release --target ${{ matrix.target }}
-
-      - name: Rename binary (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          cp core/target/${{ matrix.target }}/release/tastematter ${{ matrix.artifact }}
-          chmod +x ${{ matrix.artifact }}
-
-      - name: Rename binary (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          Copy-Item "core\target\${{ matrix.target }}\release\tastematter.exe" "${{ matrix.artifact }}"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact }}
-          path: ${{ matrix.artifact }}
-          retention-days: 1
-
-  upload-to-r2:
-    name: Upload to Cloudflare R2
-    needs: build
+  promote-to-production:
+    name: Promote Staging to Production
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
       - name: Install rclone
-        run: |
-          curl https://rclone.org/install.sh | sudo bash
+        run: curl https://rclone.org/install.sh | sudo bash
 
       - name: Configure rclone for R2
         run: |
@@ -87,31 +30,37 @@ jobs:
           region = auto
           no_check_bucket = true
           EOF
-          # Strip leading whitespace from config
           sed -i 's/^[[:space:]]*//' ~/.config/rclone/rclone.conf
-          echo "=== rclone config ==="
-          cat ~/.config/rclone/rclone.conf | head -10
-          echo "=== testing rclone ==="
-          rclone lsd r2: || echo "lsd failed"
 
-      - name: Upload binaries to R2
+      - name: Verify staging artifacts exist
+        run: |
+          echo "Checking staging artifacts..."
+          STAGING_FILES=$(rclone ls "r2:$R2_BUCKET/staging/latest/" 2>/dev/null | wc -l)
+          if [ "$STAGING_FILES" -lt 4 ]; then
+            echo "ERROR: Staging artifacts not found or incomplete"
+            echo "Expected 4 binaries, found: $STAGING_FILES"
+            echo ""
+            echo "Did you push to master before tagging?"
+            echo "Workflow: push to master → staging builds → verify → tag for release"
+            exit 1
+          fi
+          echo "Found $STAGING_FILES staging artifacts"
+          rclone ls "r2:$R2_BUCKET/staging/latest/"
+
+      - name: Promote staging to production
         run: |
           VERSION=${{ github.ref_name }}
-          echo "Uploading version: $VERSION"
+          echo "Promoting staging to production: $VERSION"
 
-          # Upload each binary
-          for artifact_dir in artifacts/*/; do
-            artifact_name=$(basename "$artifact_dir")
-            echo "Uploading $artifact_name..."
-            rclone copy "artifacts/$artifact_name/$artifact_name" "r2:$R2_BUCKET/releases/$VERSION/"
-          done
+          # Copy from staging/latest/ to releases/v*/
+          rclone copy "r2:$R2_BUCKET/staging/latest/" "r2:$R2_BUCKET/releases/$VERSION/"
 
           # Update latest.txt
           echo "$VERSION" > latest.txt
           rclone copy latest.txt "r2:$R2_BUCKET/"
           echo "Updated latest.txt to $VERSION"
 
-      - name: Upload install scripts to R2
+      - name: Upload install scripts
         run: |
           echo "Uploading install scripts..."
           rclone copy scripts/install/install.ps1 "r2:$R2_BUCKET/"
@@ -120,23 +69,80 @@ jobs:
           rclone copy scripts/install/homebrew/ "r2:$R2_BUCKET/brew/"
           echo "Install scripts uploaded"
 
+      - name: Download artifacts for GitHub release
+        run: |
+          VERSION=${{ github.ref_name }}
+          mkdir -p release-files
+          rclone copy "r2:$R2_BUCKET/releases/$VERSION/" release-files/
+          ls -la release-files/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-binaries
+          path: release-files/*
+          retention-days: 1
+
+  smoke-test-production:
+    name: Smoke Test Production ${{ matrix.os }}
+    needs: promote-to-production
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            shell: pwsh
+          - os: ubuntu-latest
+            shell: bash
+          - os: macos-latest
+            shell: bash
+    steps:
+      - name: Install from production (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          Write-Host "Installing from production..."
+          Invoke-RestMethod https://install.tastematter.dev/install.ps1 | Invoke-Expression
+
+      - name: Install from production (Unix)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          echo "Installing from production..."
+          curl -fsSL https://install.tastematter.dev/install.sh | bash
+
+      - name: Verify binary works (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $env:Path = "$env:USERPROFILE\.local\bin;$env:Path"
+          tastematter --version
+          tastematter --help
+
+      - name: Verify binary works (Unix)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          tastematter --version
+          tastematter --help
+
   create-github-release:
     name: Create GitHub Release
-    needs: upload-to-r2
+    needs: smoke-test-production
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Download all artifacts
+      - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
+          name: release-binaries
+          path: release-files
 
-      - name: Flatten artifacts for release
-        run: |
-          mkdir -p release-files
-          find artifacts -type f -exec cp {} release-files/ \;
-          ls -la release-files/
+      - name: List release files
+        run: ls -la release-files/
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
