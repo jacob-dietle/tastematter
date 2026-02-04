@@ -289,7 +289,9 @@ mod tests {
             first_user_intent: Some("Port Python indexer to Rust".to_string()),
             commit_messages: Some(vec!["feat: Add query engine".to_string()]),
             first_user_message: Some("Help me port the Python indexer".to_string()),
-            conversation_excerpt: Some("Help me port...\nOk let's start...\nNow let's fix...".to_string()),
+            conversation_excerpt: Some(
+                "Help me port...\nOk let's start...\nNow let's fix...".to_string(),
+            ),
         };
 
         let json = serde_json::to_string(&request).unwrap();
@@ -444,8 +446,14 @@ mod tests {
         assert_eq!(response.accomplishments.len(), 3);
         assert_eq!(response.workstream_tags.len(), 2);
         assert_eq!(response.workstream_tags[0].tag, "pixee");
-        assert_eq!(response.workstream_tags[0].source, WorkstreamTagSource::Existing);
-        assert_eq!(response.workstream_tags[1].source, WorkstreamTagSource::Generated);
+        assert_eq!(
+            response.workstream_tags[0].source,
+            WorkstreamTagSource::Existing
+        );
+        assert_eq!(
+            response.workstream_tags[1].source,
+            WorkstreamTagSource::Generated
+        );
     }
 
     // =========================================================================
@@ -454,11 +462,26 @@ mod tests {
 
     #[test]
     fn gitops_action_serializes_snake_case() {
-        assert_eq!(serde_json::to_string(&GitOpsAction::Commit).unwrap(), "\"commit\"");
-        assert_eq!(serde_json::to_string(&GitOpsAction::Push).unwrap(), "\"push\"");
-        assert_eq!(serde_json::to_string(&GitOpsAction::Notify).unwrap(), "\"notify\"");
-        assert_eq!(serde_json::to_string(&GitOpsAction::Wait).unwrap(), "\"wait\"");
-        assert_eq!(serde_json::to_string(&GitOpsAction::Ask).unwrap(), "\"ask\"");
+        assert_eq!(
+            serde_json::to_string(&GitOpsAction::Commit).unwrap(),
+            "\"commit\""
+        );
+        assert_eq!(
+            serde_json::to_string(&GitOpsAction::Push).unwrap(),
+            "\"push\""
+        );
+        assert_eq!(
+            serde_json::to_string(&GitOpsAction::Notify).unwrap(),
+            "\"notify\""
+        );
+        assert_eq!(
+            serde_json::to_string(&GitOpsAction::Wait).unwrap(),
+            "\"wait\""
+        );
+        assert_eq!(
+            serde_json::to_string(&GitOpsAction::Ask).unwrap(),
+            "\"ask\""
+        );
     }
 
     #[test]
@@ -469,9 +492,18 @@ mod tests {
 
     #[test]
     fn gitops_urgency_serializes_snake_case() {
-        assert_eq!(serde_json::to_string(&GitOpsUrgency::Low).unwrap(), "\"low\"");
-        assert_eq!(serde_json::to_string(&GitOpsUrgency::Medium).unwrap(), "\"medium\"");
-        assert_eq!(serde_json::to_string(&GitOpsUrgency::High).unwrap(), "\"high\"");
+        assert_eq!(
+            serde_json::to_string(&GitOpsUrgency::Low).unwrap(),
+            "\"low\""
+        );
+        assert_eq!(
+            serde_json::to_string(&GitOpsUrgency::Medium).unwrap(),
+            "\"medium\""
+        );
+        assert_eq!(
+            serde_json::to_string(&GitOpsUrgency::High).unwrap(),
+            "\"high\""
+        );
     }
 
     #[test]
@@ -520,7 +552,10 @@ mod tests {
         assert_eq!(decision.action, GitOpsAction::Commit);
         assert_eq!(decision.urgency, GitOpsUrgency::Medium);
         assert!(decision.suggested_commit_message.is_some());
-        assert_eq!(decision.suggested_commit_message.unwrap(), "feat(auth): Add JWT validation");
+        assert_eq!(
+            decision.suggested_commit_message.unwrap(),
+            "feat(auth): Add JWT validation"
+        );
         assert_eq!(decision.files_to_stage.unwrap().len(), 2);
     }
 

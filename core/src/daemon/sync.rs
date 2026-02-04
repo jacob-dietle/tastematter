@@ -60,7 +60,9 @@ pub async fn run_sync(config: &DaemonConfig) -> Result<SyncResult, String> {
 
     // Ensure directory exists (required for fresh installs)
     if let Err(e) = fs::create_dir_all(&db_dir) {
-        result.errors.push(format!("Could not create database directory: {}", e));
+        result
+            .errors
+            .push(format!("Could not create database directory: {}", e));
     }
 
     let engine = match Database::open_rw(&db_path).await {
@@ -72,7 +74,10 @@ pub async fn run_sync(config: &DaemonConfig) -> Result<SyncResult, String> {
             Some(QueryEngine::new(db))
         }
         Err(e) => {
-            result.errors.push(format!("DB open error (continuing without persistence): {}", e));
+            result.errors.push(format!(
+                "DB open error (continuing without persistence): {}",
+                e
+            ));
             None
         }
     };
@@ -162,7 +167,11 @@ async fn sync_sessions_phase(
                             result.errors.push(format!(
                                 "Insert session {} ({}): {}",
                                 &summary.session_id[..8.min(summary.session_id.len())],
-                                summary.project_path.split(['/', '\\']).last().unwrap_or("?"),
+                                summary
+                                    .project_path
+                                    .split(['/', '\\'])
+                                    .last()
+                                    .unwrap_or("?"),
                                 e
                             ));
                         }
@@ -240,7 +249,7 @@ fn build_index_phase(
 fn should_summarize_chain(chain: &Chain) -> bool {
     chain.sessions.len() >= 2                    // Multi-session
         || chain.total_duration_seconds > 1800   // >30 min
-        || chain.files_list.len() > 10           // Many files
+        || chain.files_list.len() > 10 // Many files
 }
 
 /// Run intelligence enrichment phase (optional - graceful degradation).
@@ -285,9 +294,7 @@ async fn enrich_chains_phase(chains: &HashMap<String, Chain>, result: &mut SyncR
     let cache = match MetadataStore::new(&cache_path).await {
         Ok(c) => c,
         Err(e) => {
-            result
-                .errors
-                .push(format!("Intel: Cache error - {}", e));
+            result.errors.push(format!("Intel: Cache error - {}", e));
             return 0;
         }
     };
@@ -481,7 +488,9 @@ pub async fn aggregate_chain_excerpts(pool: &SqlitePool, sessions: &[String]) ->
     let sessions_to_query: Vec<&String> = sessions.iter().take(MAX_SESSIONS_TO_AGGREGATE).collect();
 
     // Build placeholders for IN clause
-    let placeholders: Vec<String> = (0..sessions_to_query.len()).map(|_| "?".to_string()).collect();
+    let placeholders: Vec<String> = (0..sessions_to_query.len())
+        .map(|_| "?".to_string())
+        .collect();
     let query = format!(
         r#"
         SELECT session_id, conversation_excerpt
@@ -646,7 +655,10 @@ mod tests {
             files_bloom: None,
             files_list: vec!["file.rs".to_string()], // < 10 files
         };
-        assert!(should_summarize_chain(&chain), "Multi-session chains should be summarized");
+        assert!(
+            should_summarize_chain(&chain),
+            "Multi-session chains should be summarized"
+        );
     }
 
     #[test]
@@ -661,7 +673,10 @@ mod tests {
             files_bloom: None,
             files_list: vec!["file.rs".to_string()], // < 10 files
         };
-        assert!(should_summarize_chain(&chain), "Long duration chains should be summarized");
+        assert!(
+            should_summarize_chain(&chain),
+            "Long duration chains should be summarized"
+        );
     }
 
     #[test]
@@ -676,7 +691,10 @@ mod tests {
             files_bloom: None,
             files_list: (0..15).map(|i| format!("file{}.rs", i)).collect(), // 15 files > 10
         };
-        assert!(should_summarize_chain(&chain), "Chains with many files should be summarized");
+        assert!(
+            should_summarize_chain(&chain),
+            "Chains with many files should be summarized"
+        );
     }
 
     #[test]
@@ -691,7 +709,10 @@ mod tests {
             files_bloom: None,
             files_list: vec!["file.rs".to_string()], // < 10 files
         };
-        assert!(!should_summarize_chain(&chain), "Simple chains should NOT be summarized");
+        assert!(
+            !should_summarize_chain(&chain),
+            "Simple chains should NOT be summarized"
+        );
     }
 
     // ========================================================================
@@ -888,7 +909,7 @@ mod tests {
 
         // Create table
         sqlx::query(
-            "CREATE TABLE claude_sessions (session_id TEXT PRIMARY KEY, conversation_excerpt TEXT)"
+            "CREATE TABLE claude_sessions (session_id TEXT PRIMARY KEY, conversation_excerpt TEXT)",
         )
         .execute(&pool)
         .await
@@ -911,7 +932,7 @@ mod tests {
 
         // Create table and insert test data
         sqlx::query(
-            "CREATE TABLE claude_sessions (session_id TEXT PRIMARY KEY, conversation_excerpt TEXT)"
+            "CREATE TABLE claude_sessions (session_id TEXT PRIMARY KEY, conversation_excerpt TEXT)",
         )
         .execute(&pool)
         .await
@@ -948,7 +969,7 @@ mod tests {
             .unwrap();
 
         sqlx::query(
-            "CREATE TABLE claude_sessions (session_id TEXT PRIMARY KEY, conversation_excerpt TEXT)"
+            "CREATE TABLE claude_sessions (session_id TEXT PRIMARY KEY, conversation_excerpt TEXT)",
         )
         .execute(&pool)
         .await
@@ -987,7 +1008,7 @@ mod tests {
             .unwrap();
 
         sqlx::query(
-            "CREATE TABLE claude_sessions (session_id TEXT PRIMARY KEY, conversation_excerpt TEXT)"
+            "CREATE TABLE claude_sessions (session_id TEXT PRIMARY KEY, conversation_excerpt TEXT)",
         )
         .execute(&pool)
         .await
@@ -1085,10 +1106,11 @@ mod tests {
         }
 
         // 7. Verify schema version was set
-        let version: (String,) = sqlx::query_as("SELECT value FROM _metadata WHERE key = 'schema_version'")
-            .fetch_one(db.pool())
-            .await
-            .expect("Schema version should exist");
+        let version: (String,) =
+            sqlx::query_as("SELECT value FROM _metadata WHERE key = 'schema_version'")
+                .fetch_one(db.pool())
+                .await
+                .expect("Schema version should exist");
         assert_eq!(version.0, "2.1", "Schema version should be 2.1");
     }
 
@@ -1124,17 +1146,24 @@ mod tests {
         let mut result = SyncResult::default();
         let config = DaemonConfig::default();
 
-        let session_ids = sync_sessions_phase(&claude_dir, &config, &mut result, Some(&engine)).await;
+        let session_ids =
+            sync_sessions_phase(&claude_dir, &config, &mut result, Some(&engine)).await;
 
         // 3. Assert graceful handling of zero sessions
-        assert_eq!(result.sessions_parsed, 0, "Should parse 0 sessions from empty directory");
+        assert_eq!(
+            result.sessions_parsed, 0,
+            "Should parse 0 sessions from empty directory"
+        );
         assert!(session_ids.is_empty(), "Session IDs should be empty");
 
         // 4. Run chain building phase with empty sessions
         let chains = build_chains_phase(&claude_dir, &mut result, Some(&engine)).await;
 
         // 5. Assert graceful handling of zero chains
-        assert_eq!(result.chains_built, 0, "Should build 0 chains from empty sessions");
+        assert_eq!(
+            result.chains_built, 0,
+            "Should build 0 chains from empty sessions"
+        );
 
         // Chains may be Some(empty HashMap) or None depending on implementation
         if let Some(chains) = chains {
@@ -1142,7 +1171,9 @@ mod tests {
         }
 
         // 6. Verify no critical errors (Intel unavailable is expected)
-        let critical_errors: Vec<_> = result.errors.iter()
+        let critical_errors: Vec<_> = result
+            .errors
+            .iter()
             .filter(|e| !e.contains("Intel") && !e.contains("Service unavailable"))
             .collect();
         assert!(

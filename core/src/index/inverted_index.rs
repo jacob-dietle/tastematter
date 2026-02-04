@@ -177,10 +177,7 @@ pub fn extract_file_accesses(filepath: &Path, session_id: &str) -> Vec<FileAcces
             Err(_) => continue,
         };
 
-        let record_type = record
-            .get("type")
-            .and_then(|t| t.as_str())
-            .unwrap_or("");
+        let record_type = record.get("type").and_then(|t| t.as_str()).unwrap_or("");
         let timestamp = parse_timestamp(&record);
 
         match record_type {
@@ -526,7 +523,9 @@ mod tests {
         let path = create_jsonl_file(
             dir.path(),
             "session.jsonl",
-            &[r#"{"type":"assistant","timestamp":"2026-01-18T10:00:00Z","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/src/main.rs"}}]}}"#],
+            &[
+                r#"{"type":"assistant","timestamp":"2026-01-18T10:00:00Z","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/src/main.rs"}}]}}"#,
+            ],
         );
 
         let accesses = extract_file_accesses(&path, "session-id");
@@ -542,7 +541,9 @@ mod tests {
         let path = create_jsonl_file(
             dir.path(),
             "session.jsonl",
-            &[r#"{"type":"user","timestamp":"2026-01-18T10:00:00Z","toolUseResult":{"filePath":"/confirmed.rs","type":"text"}}"#],
+            &[
+                r#"{"type":"user","timestamp":"2026-01-18T10:00:00Z","toolUseResult":{"filePath":"/confirmed.rs","type":"text"}}"#,
+            ],
         );
 
         let accesses = extract_file_accesses(&path, "session-id");
@@ -557,7 +558,9 @@ mod tests {
         let path = create_jsonl_file(
             dir.path(),
             "session.jsonl",
-            &[r#"{"type":"file-history-snapshot","timestamp":"2026-01-18T10:00:00Z","snapshot":{"trackedFileBackups":{"/tracked.rs":{}}}}"#],
+            &[
+                r#"{"type":"file-history-snapshot","timestamp":"2026-01-18T10:00:00Z","snapshot":{"trackedFileBackups":{"/tracked.rs":{}}}}"#,
+            ],
         );
 
         let accesses = extract_file_accesses(&path, "session-id");
@@ -589,7 +592,9 @@ mod tests {
         let path = create_jsonl_file(
             dir.path(),
             "session.jsonl",
-            &[r#"{"type":"assistant","timestamp":"2026-01-18T10:00:00Z","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/file.rs"}}]}}"#],
+            &[
+                r#"{"type":"assistant","timestamp":"2026-01-18T10:00:00Z","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/file.rs"}}]}}"#,
+            ],
         );
 
         let accesses = extract_file_accesses(&path, "custom-session-id");
@@ -622,7 +627,9 @@ mod tests {
         create_jsonl_file(
             dir.path(),
             "session1.jsonl",
-            &[r#"{"type":"assistant","timestamp":"2026-01-18T10:00:00Z","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/file.rs"}}]}}"#],
+            &[
+                r#"{"type":"assistant","timestamp":"2026-01-18T10:00:00Z","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/file.rs"}}]}}"#,
+            ],
         );
 
         let index = build_inverted_index(dir.path(), None);
@@ -639,12 +646,16 @@ mod tests {
         create_jsonl_file(
             dir.path(),
             "session1.jsonl",
-            &[r#"{"type":"assistant","timestamp":"2026-01-18T10:00:00Z","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/shared.rs"}}]}}"#],
+            &[
+                r#"{"type":"assistant","timestamp":"2026-01-18T10:00:00Z","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/shared.rs"}}]}}"#,
+            ],
         );
         create_jsonl_file(
             dir.path(),
             "session2.jsonl",
-            &[r#"{"type":"assistant","timestamp":"2026-01-18T11:00:00Z","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/shared.rs"}}]}}"#],
+            &[
+                r#"{"type":"assistant","timestamp":"2026-01-18T11:00:00Z","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/shared.rs"}}]}}"#,
+            ],
         );
 
         let index = build_inverted_index(dir.path(), None);
@@ -660,7 +671,9 @@ mod tests {
         create_jsonl_file(
             dir.path(),
             "session1.jsonl",
-            &[r#"{"type":"assistant","timestamp":"2026-01-18T10:00:00Z","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/target.rs"}}]}}"#],
+            &[
+                r#"{"type":"assistant","timestamp":"2026-01-18T10:00:00Z","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/target.rs"}}]}}"#,
+            ],
         );
 
         let index = build_inverted_index(dir.path(), None);
@@ -752,12 +765,16 @@ mod tests {
         create_jsonl_file(
             dir.path(),
             "session1.jsonl",
-            &[r#"{"type":"assistant","timestamp":"2026-01-18T10:00:00Z","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/query/target.rs"}}]}}"#],
+            &[
+                r#"{"type":"assistant","timestamp":"2026-01-18T10:00:00Z","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/query/target.rs"}}]}}"#,
+            ],
         );
         create_jsonl_file(
             dir.path(),
             "session2.jsonl",
-            &[r#"{"type":"assistant","timestamp":"2026-01-18T11:00:00Z","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/query/target.rs"}}]}}"#],
+            &[
+                r#"{"type":"assistant","timestamp":"2026-01-18T11:00:00Z","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/query/target.rs"}}]}}"#,
+            ],
         );
 
         let index = build_inverted_index(dir.path(), None);

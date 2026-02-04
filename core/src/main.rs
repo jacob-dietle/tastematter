@@ -19,26 +19,22 @@
 //! ```
 
 use clap::{Parser, Subcommand};
+use std::collections::HashMap;
+use std::path::PathBuf;
 use tastematter::{
     capture::file_watcher::{
-        create_event_from_path, event_types, EventDebouncer, EventFilter,
-        WatcherStats,
+        create_event_from_path, event_types, EventDebouncer, EventFilter, WatcherStats,
     },
     capture::git_sync::{sync_commits, SyncOptions, SyncResult},
     capture::jsonl_parser::{sync_sessions, ParseOptions, ParseResult, SessionSummary},
-    daemon::{
-        get_platform, load_config, run_sync,
-        DaemonPlatform, InstallConfig,
-    },
+    daemon::{get_platform, load_config, run_sync, DaemonPlatform, InstallConfig},
     index::chain_graph::{build_chain_graph, ChainBuildResult},
     index::inverted_index::{build_inverted_index, get_sessions_for_file, IndexBuildResult},
-    intelligence::{IntelClient, ChainNamingRequest},
+    intelligence::{ChainNamingRequest, IntelClient},
     CommandExecutedEvent, Database, QueryChainsInput, QueryCoAccessInput, QueryEngine,
     QueryFileInput, QueryFlexInput, QueryReceiptsInput, QuerySearchInput, QuerySessionsInput,
     QueryTimelineInput, QueryVerifyInput, TimeRangeBucket,
 };
-use std::collections::HashMap;
-use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "tastematter")]
@@ -442,7 +438,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(p) = project {
                     config.project.path = Some(p.clone());
                 }
-                let result = run_sync(&config).await.map_err(|e| format!("Sync error: {}", e))?;
+                let result = run_sync(&config)
+                    .await
+                    .map_err(|e| format!("Sync error: {}", e))?;
                 println!("{}", serde_json::to_string_pretty(&result)?);
                 if !result.errors.is_empty() {
                     eprintln!("\nWarnings/Errors:");
@@ -482,7 +480,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 result.duration_ms
                             );
                         }
-                        Err(e) => eprintln!("[{}] Sync error: {}", chrono::Local::now().format("%H:%M:%S"), e),
+                        Err(e) => eprintln!(
+                            "[{}] Sync error: {}",
+                            chrono::Local::now().format("%H:%M:%S"),
+                            e
+                        ),
                     }
                     let elapsed = start.elapsed();
                     if elapsed < interval_duration {
@@ -686,18 +688,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 output(&query_result, &format)?;
             }
             QueryCommands::Receipts { limit, format } => {
-                let input = QueryReceiptsInput {
-                    limit: Some(limit),
-                };
+                let input = QueryReceiptsInput { limit: Some(limit) };
                 let query_result = engine.query_receipts(input).await?;
                 result_count = Some(query_result.receipts.len() as u32);
                 output(&query_result, &format)?;
             }
         },
         Commands::Serve { port, host, cors } => {
-            use tastematter::http::{create_router, AppState};
             use std::sync::Arc;
             use std::time::Instant;
+            use tastematter::http::{create_router, AppState};
 
             let state = Arc::new(AppState {
                 engine,
@@ -890,19 +890,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Ok(chains) => {
                     // Calculate statistics
                     let chains_built = chains.len() as u32;
-                    let sessions_linked: u32 = chains
-                        .values()
-                        .map(|c| c.sessions.len() as u32)
-                        .sum();
-                    let largest_chain = chains
-                        .values()
-                        .map(|c| c.sessions.len())
-                        .max()
-                        .unwrap_or(0);
-                    let orphan_sessions = chains
-                        .values()
-                        .filter(|c| c.sessions.len() == 1)
-                        .count() as u32;
+                    let sessions_linked: u32 =
+                        chains.values().map(|c| c.sessions.len() as u32).sum();
+                    let largest_chain =
+                        chains.values().map(|c| c.sessions.len()).max().unwrap_or(0);
+                    let orphan_sessions =
+                        chains.values().filter(|c| c.sessions.len() == 1).count() as u32;
 
                     eprintln!(
                         "Built {} chains with {} sessions (largest: {} sessions)",
@@ -927,7 +920,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             struct ChainOutput {
                                 result: ChainBuildResult,
                                 largest_chain: usize,
-                                chains: std::collections::HashMap<String, tastematter::index::chain_graph::Chain>,
+                                chains: std::collections::HashMap<
+                                    String,
+                                    tastematter::index::chain_graph::Chain,
+                                >,
                             }
                             let output_data = ChainOutput {
                                 result,
@@ -941,7 +937,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             struct ChainOutput {
                                 result: ChainBuildResult,
                                 largest_chain: usize,
-                                chains: std::collections::HashMap<String, tastematter::index::chain_graph::Chain>,
+                                chains: std::collections::HashMap<
+                                    String,
+                                    tastematter::index::chain_graph::Chain,
+                                >,
                             }
                             let output_data = ChainOutput {
                                 result,
@@ -1021,7 +1020,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     for access in accesses {
                         println!(
                             "  {} ({}) - {} [count: {}]",
-                            access.session_id, access.access_type, access.timestamp, access.access_count
+                            access.session_id,
+                            access.access_type,
+                            access.timestamp,
+                            access.access_count
                         );
                     }
                 }
@@ -1040,8 +1042,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         println!("{}", serde_json::to_string(&result)?);
                     }
                     _ => {
-                        println!("Indexed {} accesses across {} files from {} sessions",
-                            result.accesses_indexed, result.unique_files, result.unique_sessions);
+                        println!(
+                            "Indexed {} accesses across {} files from {} sessions",
+                            result.accesses_indexed, result.unique_files, result.unique_sessions
+                        );
                     }
                 }
             }
@@ -1058,7 +1062,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             use std::time::{Duration, Instant};
 
             // Resolve path
-            let watch_path = PathBuf::from(&path).canonicalize().unwrap_or_else(|_| PathBuf::from(&path));
+            let watch_path = PathBuf::from(&path)
+                .canonicalize()
+                .unwrap_or_else(|_| PathBuf::from(&path));
             eprintln!("Watching {} for file changes...", watch_path.display());
             eprintln!("Debounce: {}ms, Recursive: {}", debounce_ms, recursive);
             if let Some(dur) = duration {
@@ -1080,7 +1086,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 },
                 Config::default(),
-            ).map_err(|e| format!("Failed to create watcher: {}", e))?;
+            )
+            .map_err(|e| format!("Failed to create watcher: {}", e))?;
 
             // Start watching
             let mode = if recursive {
@@ -1088,7 +1095,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 RecursiveMode::NonRecursive
             };
-            watcher.watch(&watch_path, mode)
+            watcher
+                .watch(&watch_path, mode)
                 .map_err(|e| format!("Failed to watch path: {}", e))?;
 
             // Main event loop
@@ -1144,7 +1152,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     file_event.timestamp.format("%H:%M:%S"),
                                     event_type.to_uppercase(),
                                     file_event.path,
-                                    file_event.size_bytes.map_or("dir".to_string(), |s| format!("{}b", s))
+                                    file_event
+                                        .size_bytes
+                                        .map_or("dir".to_string(), |s| format!("{}b", s))
                                 );
                             }
                         }
@@ -1220,7 +1230,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         Ok(None) => {
                             eprintln!("Intel service unavailable or returned error.");
-                            eprintln!("Start the service with: cd apps/tastematter/intel && bun run dev");
+                            eprintln!(
+                                "Start the service with: cd apps/tastematter/intel && bun run dev"
+                            );
                             std::process::exit(1);
                         }
                         Err(e) => {

@@ -24,11 +24,11 @@ pub use config::{
     load_config, validate_config, DaemonConfig, LoggingConfig, ProjectConfig, SyncConfig,
     WatchConfig,
 };
+pub use gitops::{collect_gitops_signals, load_user_rules, GitOpsError};
 pub use platform::{
     get_platform, get_platform_name, DaemonPlatform, InstallConfig, InstallResult, PlatformError,
     PlatformStatus,
 };
-pub use gitops::{collect_gitops_signals, load_user_rules, GitOpsError};
 pub use state::DaemonState;
 pub use sync::{run_sync, SyncResult};
 

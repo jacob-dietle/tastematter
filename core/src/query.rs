@@ -4,9 +4,9 @@
 //! Target: <100ms latency for all queries.
 
 use sqlx::Row;
-use std::time::Instant;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::time::Instant;
 
 use crate::error::CoreError;
 use crate::storage::Database;
@@ -15,7 +15,10 @@ use crate::types::*;
 /// Generate a receipt ID in Python format: q_XXXXXX
 fn generate_receipt_id() -> String {
     let mut hasher = DefaultHasher::new();
-    chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0).hash(&mut hasher);
+    chrono::Utc::now()
+        .timestamp_nanos_opt()
+        .unwrap_or(0)
+        .hash(&mut hasher);
     let hash = hasher.finish();
     format!("q_{:06x}", hash & 0xFFFFFF) // 6 hex chars
 }
@@ -61,7 +64,7 @@ impl QueryEngine {
                 COUNT(DISTINCT s.session_id) as session_count
              FROM claude_sessions s, json_each(s.files_read)
              LEFT JOIN chain_graph cg ON s.session_id = cg.session_id
-             WHERE s.files_read IS NOT NULL AND s.files_read != '[]'"
+             WHERE s.files_read IS NOT NULL AND s.files_read != '[]'",
         );
 
         let mut bindings: Vec<String> = Vec::new();
@@ -119,15 +122,13 @@ impl QueryEngine {
         // Transform rows to FileResult
         let results: Vec<FileResult> = rows
             .iter()
-            .map(|row| {
-                FileResult {
-                    file_path: row.get("file_path"),
-                    access_count: row.get::<i64, _>("total_access_count") as u32,
-                    last_access: row.get::<Option<String>, _>("last_access"),
-                    session_count: Some(row.get::<i64, _>("session_count") as u32),
-                    sessions: None,
-                    chains: None,
-                }
+            .map(|row| FileResult {
+                file_path: row.get("file_path"),
+                access_count: row.get::<i64, _>("total_access_count") as u32,
+                last_access: row.get::<Option<String>, _>("last_access"),
+                session_count: Some(row.get::<i64, _>("session_count") as u32),
+                sessions: None,
+                chains: None,
             })
             .collect();
 
@@ -149,7 +150,10 @@ impl QueryEngine {
     /// Query chain metadata
     ///
     /// Returns chains sorted by session count (most active first).
-    pub async fn query_chains(&self, input: QueryChainsInput) -> Result<ChainQueryResult, CoreError> {
+    pub async fn query_chains(
+        &self,
+        input: QueryChainsInput,
+    ) -> Result<ChainQueryResult, CoreError> {
         let start = Instant::now();
         let limit = input.limit.unwrap_or(20);
 
@@ -172,9 +176,7 @@ impl QueryEngine {
             limit
         );
 
-        let rows = sqlx::query(&sql)
-            .fetch_all(self.db.pool())
-            .await?;
+        let rows = sqlx::query(&sql).fetch_all(self.db.pool()).await?;
 
         let chains: Vec<ChainData> = rows
             .iter()
@@ -194,13 +196,19 @@ impl QueryEngine {
         let elapsed = start.elapsed();
         log::info!("query_chains completed in {:?}", elapsed);
 
-        Ok(ChainQueryResult { chains, total_chains })
+        Ok(ChainQueryResult {
+            chains,
+            total_chains,
+        })
     }
 
     /// Query timeline data for visualization
     ///
     /// Returns access counts bucketed by day for the specified time range.
-    pub async fn query_timeline(&self, input: QueryTimelineInput) -> Result<TimelineData, CoreError> {
+    pub async fn query_timeline(
+        &self,
+        input: QueryTimelineInput,
+    ) -> Result<TimelineData, CoreError> {
         let start = Instant::now();
         let days = parse_time_range(&input.time)?;
         let limit = input.limit.unwrap_or(30);
@@ -327,8 +335,10 @@ impl QueryEngine {
         let bucket_rows = bucket_query.fetch_all(self.db.pool()).await?;
 
         // Build HashMap: file_path -> (date -> count)
-        let mut per_file_buckets: std::collections::HashMap<String, std::collections::HashMap<String, u32>> =
-            std::collections::HashMap::new();
+        let mut per_file_buckets: std::collections::HashMap<
+            String,
+            std::collections::HashMap<String, u32>,
+        > = std::collections::HashMap::new();
 
         for row in &bucket_rows {
             let file_path: String = row.get("file_path");
@@ -354,8 +364,12 @@ impl QueryEngine {
                     file_path,
                     total_accesses: row.get::<i64, _>("total_accesses") as u32,
                     buckets,
-                    first_access: row.get::<Option<String>, _>("first_access").unwrap_or_default(),
-                    last_access: row.get::<Option<String>, _>("last_access").unwrap_or_default(),
+                    first_access: row
+                        .get::<Option<String>, _>("first_access")
+                        .unwrap_or_default(),
+                    last_access: row
+                        .get::<Option<String>, _>("last_access")
+                        .unwrap_or_default(),
                 }
             })
             .collect();
@@ -398,7 +412,10 @@ impl QueryEngine {
     /// Query session-grouped data
     ///
     /// Returns file accesses grouped by session.
-    pub async fn query_sessions(&self, input: QuerySessionsInput) -> Result<SessionQueryResult, CoreError> {
+    pub async fn query_sessions(
+        &self,
+        input: QuerySessionsInput,
+    ) -> Result<SessionQueryResult, CoreError> {
         let start = Instant::now();
         let days = parse_time_range(&input.time)?;
         let limit = input.limit.unwrap_or(50);
@@ -446,13 +463,17 @@ impl QueryEngine {
         let mut sessions: Vec<SessionData> = Vec::new();
         for row in &session_rows {
             let session_id: String = row.get("session_id");
-            let started_at: String = row.get::<Option<String>, _>("started_at").unwrap_or_default();
+            let started_at: String = row
+                .get::<Option<String>, _>("started_at")
+                .unwrap_or_default();
             let ended_at: Option<String> = row.get("ended_at");
 
             // Calculate duration if we have both timestamps
             let duration_seconds = if let (Ok(start), Some(Ok(end))) = (
                 chrono::DateTime::parse_from_rfc3339(&started_at),
-                ended_at.as_ref().map(|e| chrono::DateTime::parse_from_rfc3339(e))
+                ended_at
+                    .as_ref()
+                    .map(|e| chrono::DateTime::parse_from_rfc3339(e)),
             ) {
                 Some((end - start).num_seconds() as u32)
             } else {
@@ -479,7 +500,9 @@ impl QueryEngine {
                     file_path: r.get("file_path"),
                     access_count: r.get::<i64, _>("access_count") as u32,
                     access_types: vec![], // TODO: Get from actual data if available
-                    last_access: r.get::<Option<String>, _>("first_accessed_at").unwrap_or_default(),
+                    last_access: r
+                        .get::<Option<String>, _>("first_accessed_at")
+                        .unwrap_or_default(),
                 })
                 .collect();
 
@@ -513,9 +536,7 @@ impl QueryEngine {
             days
         );
 
-        let chain_rows = sqlx::query(&chain_sql)
-            .fetch_all(self.db.pool())
-            .await?;
+        let chain_rows = sqlx::query(&chain_sql).fetch_all(self.db.pool()).await?;
 
         let chains: Vec<ChainSummary> = chain_rows
             .iter()
@@ -523,7 +544,9 @@ impl QueryEngine {
                 chain_id: row.get("chain_id"),
                 session_count: row.get::<i64, _>("session_count") as u32,
                 file_count: row.get::<i64, _>("file_count") as u32,
-                last_active: row.get::<Option<String>, _>("last_active").unwrap_or_default(),
+                last_active: row
+                    .get::<Option<String>, _>("last_active")
+                    .unwrap_or_default(),
             })
             .collect();
 
@@ -599,7 +622,11 @@ impl QueryEngine {
         let total_matches = results.len();
 
         let elapsed = start.elapsed();
-        log::info!("query_search '{}' completed in {:?}", input.pattern, elapsed);
+        log::info!(
+            "query_search '{}' completed in {:?}",
+            input.pattern,
+            elapsed
+        );
 
         Ok(SearchResult {
             receipt_id: generate_receipt_id(),
@@ -709,7 +736,12 @@ impl QueryEngine {
 
         let found = !sessions.is_empty();
         let elapsed = start.elapsed();
-        log::info!("query_file '{}' completed in {:?} (found: {})", file_path, elapsed, found);
+        log::info!(
+            "query_file '{}' completed in {:?} (found: {})",
+            file_path,
+            elapsed,
+            found
+        );
 
         Ok(FileQueryResult {
             receipt_id: generate_receipt_id(),
@@ -725,7 +757,10 @@ impl QueryEngine {
     ///
     /// Finds files frequently accessed together with the anchor file.
     /// Matches Python CLI: cli.py:1539-1589
-    pub async fn query_co_access(&self, input: QueryCoAccessInput) -> Result<CoAccessResult, CoreError> {
+    pub async fn query_co_access(
+        &self,
+        input: QueryCoAccessInput,
+    ) -> Result<CoAccessResult, CoreError> {
         let start = Instant::now();
         let limit = input.limit.unwrap_or(10) as i64;
         let file_path = &input.file_path;
@@ -816,7 +851,10 @@ impl QueryEngine {
         let home = dirs::home_dir().ok_or_else(|| CoreError::Query {
             message: "Could not determine home directory".to_string(),
         })?;
-        let ledger_path = home.join(".context-os").join("query_ledger").join(format!("{}.json", &receipt_id));
+        let ledger_path = home
+            .join(".context-os")
+            .join("query_ledger")
+            .join(format!("{}.json", &receipt_id));
 
         let elapsed = start.elapsed();
         log::info!("query_verify '{}' completed in {:?}", &receipt_id, elapsed);
@@ -832,15 +870,18 @@ impl QueryEngine {
         }
 
         // Read receipt from ledger
-        let receipt_content = std::fs::read_to_string(&ledger_path).map_err(|e| CoreError::Query {
-            message: format!("Failed to read receipt: {}", e),
-        })?;
+        let receipt_content =
+            std::fs::read_to_string(&ledger_path).map_err(|e| CoreError::Query {
+                message: format!("Failed to read receipt: {}", e),
+            })?;
 
-        let receipt_json: serde_json::Value = serde_json::from_str(&receipt_content).map_err(|e| CoreError::Query {
-            message: format!("Failed to parse receipt: {}", e),
-        })?;
+        let receipt_json: serde_json::Value =
+            serde_json::from_str(&receipt_content).map_err(|e| CoreError::Query {
+                message: format!("Failed to parse receipt: {}", e),
+            })?;
 
-        let original_timestamp = receipt_json.get("timestamp")
+        let original_timestamp = receipt_json
+            .get("timestamp")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
@@ -858,7 +899,10 @@ impl QueryEngine {
     /// List recent query receipts from the ledger
     ///
     /// Returns receipts from ~/.context-os/query_ledger/ directory.
-    pub async fn query_receipts(&self, input: QueryReceiptsInput) -> Result<ReceiptsResult, CoreError> {
+    pub async fn query_receipts(
+        &self,
+        input: QueryReceiptsInput,
+    ) -> Result<ReceiptsResult, CoreError> {
         let start = Instant::now();
         let limit = input.limit.unwrap_or(20) as usize;
 
@@ -887,21 +931,25 @@ impl QueryEngine {
                 if path.extension().map_or(false, |e| e == "json") {
                     if let Ok(content) = std::fs::read_to_string(&path) {
                         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                            let receipt_id = json.get("receipt_id")
+                            let receipt_id = json
+                                .get("receipt_id")
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("")
                                 .to_string();
-                            let timestamp = json.get("timestamp")
+                            let timestamp = json
+                                .get("timestamp")
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("")
                                 .to_string();
-                            let query_type = json.get("query_type")
+                            let query_type = json
+                                .get("query_type")
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("flex")
                                 .to_string();
-                            let result_count = json.get("result_count")
-                                .and_then(|v| v.as_u64())
-                                .unwrap_or(0) as usize;
+                            let result_count =
+                                json.get("result_count")
+                                    .and_then(|v| v.as_u64())
+                                    .unwrap_or(0) as usize;
 
                             receipts.push(ReceiptItem {
                                 receipt_id,
@@ -922,7 +970,11 @@ impl QueryEngine {
         receipts.truncate(limit);
 
         let elapsed = start.elapsed();
-        log::info!("query_receipts completed in {:?}, found {} receipts", elapsed, total_count);
+        log::info!(
+            "query_receipts completed in {:?}, found {} receipts",
+            elapsed,
+            total_count
+        );
 
         Ok(ReceiptsResult {
             receipts,
@@ -980,7 +1032,10 @@ impl QueryEngine {
     ///
     /// # Returns
     /// * `Result<WriteResult, CoreError>` - Total rows affected or error
-    pub async fn insert_commits_batch(&self, commits: &[GitCommitInput]) -> Result<WriteResult, CoreError> {
+    pub async fn insert_commits_batch(
+        &self,
+        commits: &[GitCommitInput],
+    ) -> Result<WriteResult, CoreError> {
         let sql = r#"
             INSERT INTO git_commits (
                 hash, short_hash, timestamp, message, author_name, author_email,
@@ -1062,7 +1117,10 @@ impl QueryEngine {
     ///
     /// # Returns
     /// * `Result<WriteResult, CoreError>` - Number of rows affected or error
-    pub async fn insert_file_event(&self, event: &crate::capture::file_watcher::FileEvent) -> Result<WriteResult, CoreError> {
+    pub async fn insert_file_event(
+        &self,
+        event: &crate::capture::file_watcher::FileEvent,
+    ) -> Result<WriteResult, CoreError> {
         let sql = r#"
             INSERT INTO file_events (
                 timestamp, path, event_type, size_bytes,
@@ -1094,7 +1152,10 @@ impl QueryEngine {
     ///
     /// # Returns
     /// * `Result<WriteResult, CoreError>` - Total rows affected or error
-    pub async fn insert_file_events(&self, events: &[crate::capture::file_watcher::FileEvent]) -> Result<WriteResult, CoreError> {
+    pub async fn insert_file_events(
+        &self,
+        events: &[crate::capture::file_watcher::FileEvent],
+    ) -> Result<WriteResult, CoreError> {
         let sql = r#"
             INSERT INTO file_events (
                 timestamp, path, event_type, size_bytes,
@@ -1210,7 +1271,7 @@ impl QueryEngine {
                 session_count INTEGER,
                 files_count INTEGER,
                 updated_at TEXT
-            )"
+            )",
         )
         .execute(self.db.pool())
         .await
@@ -1223,7 +1284,7 @@ impl QueryEngine {
                 parent_session_id TEXT,
                 is_root BOOLEAN,
                 indexed_at TEXT
-            )"
+            )",
         )
         .execute(self.db.pool())
         .await
@@ -1234,7 +1295,7 @@ impl QueryEngine {
             sqlx::query(
                 "INSERT OR REPLACE INTO chains (
                     chain_id, root_session_id, session_count, files_count, updated_at
-                ) VALUES (?, ?, ?, ?, datetime('now'))"
+                ) VALUES (?, ?, ?, ?, datetime('now'))",
             )
             .bind(&chain.chain_id)
             .bind(&chain.root_session)
@@ -1248,14 +1309,16 @@ impl QueryEngine {
             // Insert session memberships
             for session_id in &chain.sessions {
                 let is_root = *session_id == chain.root_session;
-                let parent = chain.branches.iter()
+                let parent = chain
+                    .branches
+                    .iter()
                     .find(|(_, children)| children.contains(session_id))
                     .map(|(p, _)| p.clone());
 
                 sqlx::query(
                     "INSERT OR REPLACE INTO chain_graph (
                         session_id, chain_id, parent_session_id, is_root, indexed_at
-                    ) VALUES (?, ?, ?, ?, datetime('now'))"
+                    ) VALUES (?, ?, ?, ?, datetime('now'))",
                 )
                 .bind(session_id)
                 .bind(&chain.chain_id)
@@ -1268,7 +1331,9 @@ impl QueryEngine {
             }
         }
 
-        Ok(WriteResult { rows_affected: rows })
+        Ok(WriteResult {
+            rows_affected: rows,
+        })
     }
 }
 

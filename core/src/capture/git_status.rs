@@ -150,12 +150,10 @@ fn get_unpushed_count(repo_path: &Path) -> i32 {
         .output();
 
     match output {
-        Ok(out) if out.status.success() => {
-            String::from_utf8_lossy(&out.stdout)
-                .trim()
-                .parse()
-                .unwrap_or(0)
-        }
+        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout)
+            .trim()
+            .parse()
+            .unwrap_or(0),
         _ => {
             // No upstream tracking branch or error - try alternative
             // Count commits not on any remote
@@ -224,7 +222,11 @@ mod tests {
         // Test against the current repository
         let result = query_repo_status(Path::new("."));
 
-        assert!(result.is_ok(), "Should work in git repo: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Should work in git repo: {:?}",
+            result.err()
+        );
 
         let status = result.unwrap();
         assert!(!status.branch.is_empty(), "Should have a branch name");

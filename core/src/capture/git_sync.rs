@@ -287,7 +287,9 @@ pub fn split_commit_blocks(raw_output: &str) -> Vec<String> {
     for line in raw_output.lines() {
         // Detect start of new commit (40-char hash followed by §)
         let parts: Vec<&str> = line.split('§').collect();
-        let is_new_commit = parts.len() > 1 && parts[0].len() == 40 && parts[0].chars().all(|c| c.is_ascii_hexdigit());
+        let is_new_commit = parts.len() > 1
+            && parts[0].len() == 40
+            && parts[0].chars().all(|c| c.is_ascii_hexdigit());
 
         if is_new_commit {
             // Save previous block
@@ -468,8 +470,12 @@ mod tests {
     #[test]
     fn test_detect_agent_commit_case_insensitive() {
         // Should be case-insensitive
-        assert!(detect_agent_commit("feat: add\n\nGENERATED WITH CLAUDE CODE"));
-        assert!(detect_agent_commit("feat: add\n\nGenerated With Claude Code"));
+        assert!(detect_agent_commit(
+            "feat: add\n\nGENERATED WITH CLAUDE CODE"
+        ));
+        assert!(detect_agent_commit(
+            "feat: add\n\nGenerated With Claude Code"
+        ));
     }
 
     #[test]
@@ -617,8 +623,14 @@ M	file2.rs"#;
         // Verify commit structure (if any commits)
         for commit in &commits {
             assert_eq!(commit.hash.len(), 40, "Hash should be 40 chars");
-            assert!(commit.short_hash.len() >= 7, "Short hash should be >= 7 chars");
-            assert!(!commit.author_name.is_empty(), "Author name should not be empty");
+            assert!(
+                commit.short_hash.len() >= 7,
+                "Short hash should be >= 7 chars"
+            );
+            assert!(
+                !commit.author_name.is_empty(),
+                "Author name should not be empty"
+            );
         }
 
         println!(
