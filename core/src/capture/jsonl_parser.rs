@@ -396,11 +396,20 @@ pub fn extract_from_snapshot(data: &Value, timestamp: DateTime<Utc>) -> Vec<Tool
 
 /// Parse timestamp from a JSONL record.
 /// Handles ISO8601 with Z suffix (replaces with +00:00).
+///
+/// Timestamp locations by record type:
+/// - user, assistant, system, tool_result: `.timestamp` (root)
+/// - file-history-snapshot: `.snapshot.timestamp` (nested)
+/// - summary: no timestamp (returns Utc::now() as fallback)
 fn parse_timestamp(data: &Value) -> DateTime<Utc> {
-    // Try common timestamp field locations
+    // Try timestamp field locations in priority order:
+    // 1. Root level (most record types)
+    // 2. message.timestamp (legacy/nested)
+    // 3. snapshot.timestamp (file-history-snapshot records)
     let ts_str = data
         .get("timestamp")
         .or_else(|| data.get("message").and_then(|m| m.get("timestamp")))
+        .or_else(|| data.get("snapshot").and_then(|s| s.get("timestamp")))
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
@@ -1272,6 +1281,34 @@ mod tests {
         // Verify the timestamp was parsed correctly
         assert_eq!(msg.timestamp.format("%Y-%m-%d").to_string(), "2026-01-17");
         assert_eq!(msg.timestamp.format("%H:%M:%S").to_string(), "14:30:45");
+    }
+
+    #[test]
+    fn test_parse_timestamp_from_snapshot_nested() {
+        // file-history-snapshot records have timestamp at .snapshot.timestamp, NOT root
+        // This was a bug: parser only checked root .timestamp, causing all timestamps
+        // to fall back to Utc::now() (ingestion time) for these records.
+        let line = r#"{"type":"file-history-snapshot","messageId":"test-123","snapshot":{"messageId":"test-123","trackedFileBackups":{"/path/to/file.rs":{"backupFileName":"abc@v1","version":1}},"timestamp":"2026-01-15T15:18:45.931Z"},"isSnapshotUpdate":false}"#;
+        let msg = parse_jsonl_line(line).unwrap();
+
+        // Verify timestamp was parsed from .snapshot.timestamp (not fallback to now)
+        assert_eq!(msg.timestamp.format("%Y-%m-%d").to_string(), "2026-01-15");
+        assert_eq!(msg.timestamp.format("%H:%M:%S").to_string(), "15:18:45");
+
+        // Also verify tool uses were extracted from the snapshot
+        assert_eq!(msg.tool_uses.len(), 1);
+        assert_eq!(msg.tool_uses[0].file_path, Some("/path/to/file.rs".to_string()));
+    }
+
+    #[test]
+    fn test_parse_timestamp_prefers_root_over_nested() {
+        // If a record has BOTH root timestamp AND nested snapshot.timestamp,
+        // root should take precedence (per priority order in parse_timestamp)
+        let line = r#"{"type":"file-history-snapshot","timestamp":"2026-02-01T10:00:00Z","snapshot":{"timestamp":"2026-01-15T15:18:45Z"}}"#;
+        let msg = parse_jsonl_line(line).unwrap();
+
+        // Should use root timestamp (2026-02-01), not snapshot timestamp (2026-01-15)
+        assert_eq!(msg.timestamp.format("%Y-%m-%d").to_string(), "2026-02-01");
     }
 
     // =========================================================================
