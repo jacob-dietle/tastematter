@@ -118,7 +118,7 @@ fn get_uncommitted_files(repo_path: &Path) -> Result<Vec<UncommittedFile>, GitSt
         let path = line[3..].trim().to_string();
 
         // Determine status from XY codes
-        let status = match status_chars.chars().nth(0) {
+        let status = match status_chars.chars().next() {
             Some('M') | Some('m') => "modified",
             Some('A') | Some('a') => "added",
             Some('D') | Some('d') => "deleted",

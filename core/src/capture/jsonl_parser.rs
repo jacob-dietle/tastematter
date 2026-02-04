@@ -151,17 +151,10 @@ pub fn encode_project_path(path: &Path) -> String {
 
     if path_str.contains(':') {
         // Windows: C:\Users\foo → C--Users-foo
-        path_str
-            .replace(":\\", "--")
-            .replace('\\', "-")
-            .replace(' ', "-")
-            .replace('_', "-")
+        path_str.replace(":\\", "--").replace(['\\', ' ', '_'], "-")
     } else {
         // Unix: /home/user → -home-user
-        path_str
-            .replace('/', "-")
-            .replace(' ', "-")
-            .replace('_', "-")
+        path_str.replace(['/', ' ', '_'], "-")
     }
 }
 
@@ -414,8 +407,8 @@ fn parse_timestamp(data: &Value) -> DateTime<Utc> {
         .unwrap_or("");
 
     // Replace Z suffix with +00:00 for chrono compatibility
-    let normalized = if ts_str.ends_with('Z') {
-        format!("{}+00:00", &ts_str[..ts_str.len() - 1])
+    let normalized = if let Some(stripped) = ts_str.strip_suffix('Z') {
+        format!("{}+00:00", stripped)
     } else {
         ts_str.to_string()
     };
@@ -573,8 +566,8 @@ pub fn aggregate_session(
 
             // Extract grep patterns
             if let Some(ref path) = tool_use.file_path {
-                if path.starts_with("GREP:") {
-                    grep_patterns.push(path[5..].to_string());
+                if let Some(pattern) = path.strip_prefix("GREP:") {
+                    grep_patterns.push(pattern.to_string());
                 }
             }
 
@@ -790,7 +783,7 @@ pub fn sync_sessions(
     existing_sessions: &HashMap<String, i64>,
 ) -> Result<(Vec<SessionSummary>, ParseResult), String> {
     // If project_filter is provided, use exact directory lookup (parity with Python)
-    let project_path = options.project_filter.as_ref().map(|p| Path::new(p));
+    let project_path = options.project_filter.as_ref().map(Path::new);
     let files = find_session_files(claude_dir, project_path)?;
 
     let mut summaries = Vec::new();

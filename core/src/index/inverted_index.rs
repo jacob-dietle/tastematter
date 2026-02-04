@@ -167,7 +167,7 @@ pub fn extract_file_accesses(filepath: &Path, session_id: &str) -> Vec<FileAcces
     };
     let reader = BufReader::new(file);
 
-    for line in reader.lines().filter_map(Result::ok) {
+    for line in reader.lines().map_while(Result::ok) {
         if line.is_empty() {
             continue;
         }

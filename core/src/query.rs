@@ -347,7 +347,7 @@ impl QueryEngine {
 
             per_file_buckets
                 .entry(file_path)
-                .or_insert_with(std::collections::HashMap::new)
+                .or_default()
                 .insert(date, count as u32);
         }
 
@@ -925,39 +925,37 @@ impl QueryEngine {
             message: format!("Failed to read ledger directory: {}", e),
         })?;
 
-        for entry in entries {
-            if let Ok(entry) = entry {
-                let path = entry.path();
-                if path.extension().map_or(false, |e| e == "json") {
-                    if let Ok(content) = std::fs::read_to_string(&path) {
-                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
-                            let receipt_id = json
-                                .get("receipt_id")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string();
-                            let timestamp = json
-                                .get("timestamp")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string();
-                            let query_type = json
-                                .get("query_type")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("flex")
-                                .to_string();
-                            let result_count =
-                                json.get("result_count")
-                                    .and_then(|v| v.as_u64())
-                                    .unwrap_or(0) as usize;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().is_some_and(|e| e == "json") {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                        let receipt_id = json
+                            .get("receipt_id")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let timestamp = json
+                            .get("timestamp")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let query_type = json
+                            .get("query_type")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("flex")
+                            .to_string();
+                        let result_count = json
+                            .get("result_count")
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0) as usize;
 
-                            receipts.push(ReceiptItem {
-                                receipt_id,
-                                timestamp,
-                                query_type,
-                                result_count,
-                            });
-                        }
+                        receipts.push(ReceiptItem {
+                            receipt_id,
+                            timestamp,
+                            query_type,
+                            result_count,
+                        });
                     }
                 }
             }

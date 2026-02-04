@@ -566,7 +566,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         telemetry.capture_command(event);
 
-        return daemon_result.map_err(|e| e.into());
+        return daemon_result;
     }
 
     // For non-daemon commands, open database (requires existing DB)
