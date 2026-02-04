@@ -57,7 +57,10 @@ WantedBy=default.target
         let mut cmd_args = vec!["--user"];
         cmd_args.extend(args);
 
-        Command::new("systemctl").args(&cmd_args).output().map_err(|e| e.into())
+        Command::new("systemctl")
+            .args(&cmd_args)
+            .output()
+            .map_err(|e| e.into())
     }
 }
 
@@ -165,8 +168,11 @@ impl DaemonPlatform for LinuxPlatform {
         // Get more detailed status if needed
         if status.running {
             // Try to get PID and runtime
-            let show_output =
-                Self::systemctl(&["show", &format!("{}.service", SERVICE_NAME), "--property=MainPID,ActiveEnterTimestamp"])?;
+            let show_output = Self::systemctl(&[
+                "show",
+                &format!("{}.service", SERVICE_NAME),
+                "--property=MainPID,ActiveEnterTimestamp",
+            ])?;
             let show_stdout = String::from_utf8_lossy(&show_output.stdout);
 
             for line in show_stdout.lines() {

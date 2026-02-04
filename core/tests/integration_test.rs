@@ -4,11 +4,10 @@
 //! 1. Queries work correctly
 //! 2. Latency is <100ms
 
-use tastematter::{
-    Database, QueryEngine, QueryFlexInput, QueryChainsInput,
-    QueryTimelineInput, QuerySessionsInput,
-};
 use std::time::Instant;
+use tastematter::{
+    Database, QueryChainsInput, QueryEngine, QueryFlexInput, QuerySessionsInput, QueryTimelineInput,
+};
 
 /// Get the path to the test database (canonical location)
 fn get_test_db_path() -> String {
@@ -27,7 +26,11 @@ async fn test_database_opens() {
     println!("Testing database at: {}", db_path);
 
     let result = Database::open(&db_path).await;
-    assert!(result.is_ok(), "Failed to open database: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Failed to open database: {:?}",
+        result.err()
+    );
 
     let db = result.unwrap();
     println!("Database opened successfully at: {:?}", db.path());
@@ -36,7 +39,9 @@ async fn test_database_opens() {
 #[tokio::test]
 async fn test_query_flex_basic() {
     let db_path = get_test_db_path();
-    let db = Database::open(&db_path).await.expect("Failed to open database");
+    let db = Database::open(&db_path)
+        .await
+        .expect("Failed to open database");
     let engine = QueryEngine::new(db);
 
     let start = Instant::now();
@@ -44,7 +49,11 @@ async fn test_query_flex_basic() {
     let elapsed = start.elapsed();
 
     println!("query_flex took: {:?}", elapsed);
-    assert!(elapsed.as_millis() < 100, "Query took too long: {:?}", elapsed);
+    assert!(
+        elapsed.as_millis() < 100,
+        "Query took too long: {:?}",
+        elapsed
+    );
 
     assert!(result.is_ok(), "Query failed: {:?}", result.err());
     let result = result.unwrap();
@@ -54,13 +63,18 @@ async fn test_query_flex_basic() {
 
     // Note: file_conversation_index may be empty - query should still succeed
     // The important thing is the query executed without error
-    assert!(!result.receipt_id.is_empty(), "Receipt ID should be generated");
+    assert!(
+        !result.receipt_id.is_empty(),
+        "Receipt ID should be generated"
+    );
 }
 
 #[tokio::test]
 async fn test_query_flex_with_time_filter() {
     let db_path = get_test_db_path();
-    let db = Database::open(&db_path).await.expect("Failed to open database");
+    let db = Database::open(&db_path)
+        .await
+        .expect("Failed to open database");
     let engine = QueryEngine::new(db);
 
     let input = QueryFlexInput {
@@ -74,7 +88,11 @@ async fn test_query_flex_with_time_filter() {
     let elapsed = start.elapsed();
 
     println!("query_flex with time filter took: {:?}", elapsed);
-    assert!(elapsed.as_millis() < 100, "Query took too long: {:?}", elapsed);
+    assert!(
+        elapsed.as_millis() < 100,
+        "Query took too long: {:?}",
+        elapsed
+    );
 
     assert!(result.is_ok(), "Query failed: {:?}", result.err());
     let result = result.unwrap();
@@ -84,7 +102,9 @@ async fn test_query_flex_with_time_filter() {
 #[tokio::test]
 async fn test_query_flex_with_aggregations() {
     let db_path = get_test_db_path();
-    let db = Database::open(&db_path).await.expect("Failed to open database");
+    let db = Database::open(&db_path)
+        .await
+        .expect("Failed to open database");
     let engine = QueryEngine::new(db);
 
     let input = QueryFlexInput {
@@ -98,19 +118,31 @@ async fn test_query_flex_with_aggregations() {
     let elapsed = start.elapsed();
 
     println!("query_flex with aggregations took: {:?}", elapsed);
-    assert!(elapsed.as_millis() < 100, "Query took too long: {:?}", elapsed);
+    assert!(
+        elapsed.as_millis() < 100,
+        "Query took too long: {:?}",
+        elapsed
+    );
 
     let result = result.expect("Query failed");
-    assert!(result.aggregations.count.is_some(), "Count aggregation should be present");
+    assert!(
+        result.aggregations.count.is_some(),
+        "Count aggregation should be present"
+    );
 
     let count = result.aggregations.count.unwrap();
-    println!("Total files: {}, Total accesses: {}", count.total_files, count.total_accesses);
+    println!(
+        "Total files: {}, Total accesses: {}",
+        count.total_files, count.total_accesses
+    );
 }
 
 #[tokio::test]
 async fn test_query_chains() {
     let db_path = get_test_db_path();
-    let db = Database::open(&db_path).await.expect("Failed to open database");
+    let db = Database::open(&db_path)
+        .await
+        .expect("Failed to open database");
     let engine = QueryEngine::new(db);
 
     let start = Instant::now();
@@ -118,15 +150,21 @@ async fn test_query_chains() {
     let elapsed = start.elapsed();
 
     println!("query_chains took: {:?}", elapsed);
-    assert!(elapsed.as_millis() < 100, "Query took too long: {:?}", elapsed);
+    assert!(
+        elapsed.as_millis() < 100,
+        "Query took too long: {:?}",
+        elapsed
+    );
 
     assert!(result.is_ok(), "Query failed: {:?}", result.err());
     let result = result.unwrap();
 
     println!("Total chains: {}", result.total_chains);
     for chain in &result.chains {
-        println!("  Chain {}: {} sessions, {} files",
-            chain.chain_id, chain.session_count, chain.file_count);
+        println!(
+            "  Chain {}: {} sessions, {} files",
+            chain.chain_id, chain.session_count, chain.file_count
+        );
     }
 }
 
@@ -140,7 +178,9 @@ async fn test_query_chains() {
 #[tokio::test]
 async fn test_query_chains_file_count_not_zero() {
     let db_path = get_test_db_path();
-    let db = Database::open(&db_path).await.expect("Failed to open database");
+    let db = Database::open(&db_path)
+        .await
+        .expect("Failed to open database");
     let engine = QueryEngine::new(db);
 
     let result = engine.query_chains(QueryChainsInput::default()).await;
@@ -148,7 +188,9 @@ async fn test_query_chains_file_count_not_zero() {
     let result = result.unwrap();
 
     // Find chains that have sessions
-    let chains_with_sessions: Vec<_> = result.chains.iter()
+    let chains_with_sessions: Vec<_> = result
+        .chains
+        .iter()
         .filter(|c| c.session_count > 0)
         .collect();
 
@@ -157,7 +199,8 @@ async fn test_query_chains_file_count_not_zero() {
     // If we have chains with sessions, at least some should have files
     // (sessions access files, so chains with sessions should have file_count > 0)
     if !chains_with_sessions.is_empty() {
-        let chains_with_files: Vec<_> = chains_with_sessions.iter()
+        let chains_with_files: Vec<_> = chains_with_sessions
+            .iter()
             .filter(|c| c.file_count > 0)
             .collect();
 
@@ -178,7 +221,9 @@ async fn test_query_chains_file_count_not_zero() {
 #[tokio::test]
 async fn test_query_timeline() {
     let db_path = get_test_db_path();
-    let db = Database::open(&db_path).await.expect("Failed to open database");
+    let db = Database::open(&db_path)
+        .await
+        .expect("Failed to open database");
     let engine = QueryEngine::new(db);
 
     let input = QueryTimelineInput {
@@ -193,21 +238,33 @@ async fn test_query_timeline() {
     let elapsed = start.elapsed();
 
     println!("query_timeline took: {:?}", elapsed);
-    assert!(elapsed.as_millis() < 100, "Query took too long: {:?}", elapsed);
+    assert!(
+        elapsed.as_millis() < 100,
+        "Query took too long: {:?}",
+        elapsed
+    );
 
     assert!(result.is_ok(), "Query failed: {:?}", result.err());
     let result = result.unwrap();
 
     println!("Timeline: {} -> {}", result.start_date, result.end_date);
-    println!("Buckets: {}, Files: {}", result.buckets.len(), result.files.len());
-    println!("Summary: {} accesses, peak {} on {}",
-        result.summary.total_accesses, result.summary.peak_count, result.summary.peak_day);
+    println!(
+        "Buckets: {}, Files: {}",
+        result.buckets.len(),
+        result.files.len()
+    );
+    println!(
+        "Summary: {} accesses, peak {} on {}",
+        result.summary.total_accesses, result.summary.peak_count, result.summary.peak_day
+    );
 }
 
 #[tokio::test]
 async fn test_query_sessions() {
     let db_path = get_test_db_path();
-    let db = Database::open(&db_path).await.expect("Failed to open database");
+    let db = Database::open(&db_path)
+        .await
+        .expect("Failed to open database");
     let engine = QueryEngine::new(db);
 
     let input = QuerySessionsInput {
@@ -221,20 +278,32 @@ async fn test_query_sessions() {
     let elapsed = start.elapsed();
 
     println!("query_sessions took: {:?}", elapsed);
-    assert!(elapsed.as_millis() < 200, "Query took too long: {:?}", elapsed);
+    assert!(
+        elapsed.as_millis() < 200,
+        "Query took too long: {:?}",
+        elapsed
+    );
 
     assert!(result.is_ok(), "Query failed: {:?}", result.err());
     let result = result.unwrap();
 
-    println!("Sessions: {}, Chains: {}", result.sessions.len(), result.chains.len());
-    println!("Summary: {} sessions, {} files, {} chains",
-        result.summary.total_sessions, result.summary.total_files, result.summary.active_chains);
+    println!(
+        "Sessions: {}, Chains: {}",
+        result.sessions.len(),
+        result.chains.len()
+    );
+    println!(
+        "Summary: {} sessions, {} files, {} chains",
+        result.summary.total_sessions, result.summary.total_files, result.summary.active_chains
+    );
 }
 
 #[tokio::test]
 async fn test_latency_benchmark() {
     let db_path = get_test_db_path();
-    let db = Database::open(&db_path).await.expect("Failed to open database");
+    let db = Database::open(&db_path)
+        .await
+        .expect("Failed to open database");
     let engine = QueryEngine::new(db);
 
     // Run multiple queries and measure average latency
@@ -242,12 +311,14 @@ async fn test_latency_benchmark() {
 
     for _ in 0..10 {
         let start = Instant::now();
-        let _ = engine.query_flex(QueryFlexInput {
-            time: Some("30d".to_string()),
-            limit: Some(50),
-            agg: vec!["count".to_string()],
-            ..Default::default()
-        }).await;
+        let _ = engine
+            .query_flex(QueryFlexInput {
+                time: Some("30d".to_string()),
+                limit: Some(50),
+                agg: vec!["count".to_string()],
+                ..Default::default()
+            })
+            .await;
         times.push(start.elapsed());
     }
 
@@ -300,11 +371,13 @@ async fn test_query_succeeds_after_fresh_daemon_sync() {
     let engine = QueryEngine::new(db);
 
     // 4. Execute query - should succeed with empty results
-    let result = engine.query_flex(QueryFlexInput {
-        time: Some("1d".to_string()),
-        limit: Some(3),
-        ..Default::default()
-    }).await;
+    let result = engine
+        .query_flex(QueryFlexInput {
+            time: Some("1d".to_string()),
+            limit: Some(3),
+            ..Default::default()
+        })
+        .await;
 
     // 5. Assert: Query succeeds (returns Ok, not Err)
     assert!(

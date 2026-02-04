@@ -676,12 +676,18 @@ pub fn session_needs_update(
 ///
 /// If `project_path` is provided, only looks in that specific encoded directory
 /// (exact match, like Python). Otherwise scans all projects.
-pub fn find_session_files(claude_dir: &Path, project_path: Option<&Path>) -> Result<Vec<PathBuf>, String> {
+pub fn find_session_files(
+    claude_dir: &Path,
+    project_path: Option<&Path>,
+) -> Result<Vec<PathBuf>, String> {
     let pattern = match project_path {
         Some(path) => {
             // Exact directory lookup: encode path and look only there
             let encoded = encode_project_path(path);
-            claude_dir.join("projects").join(&encoded).join("**/*.jsonl")
+            claude_dir
+                .join("projects")
+                .join(&encoded)
+                .join("**/*.jsonl")
         }
         None => {
             // Scan all projects
@@ -742,9 +748,12 @@ pub fn extract_project_path_from_file(path: &Path) -> Option<String> {
 ///
 /// Returns all parsed messages and the file size.
 pub fn parse_session_file(path: &Path) -> Result<(Vec<ParsedMessage>, i64), String> {
-    let file = fs::File::open(path).map_err(|e| format!("Failed to open {}: {}", path.display(), e))?;
+    let file =
+        fs::File::open(path).map_err(|e| format!("Failed to open {}: {}", path.display(), e))?;
 
-    let metadata = file.metadata().map_err(|e| format!("Failed to get metadata: {}", e))?;
+    let metadata = file
+        .metadata()
+        .map_err(|e| format!("Failed to get metadata: {}", e))?;
     let file_size = metadata.len() as i64;
 
     let reader = BufReader::new(file);
@@ -754,7 +763,12 @@ pub fn parse_session_file(path: &Path) -> Result<(Vec<ParsedMessage>, i64), Stri
         let line = match line_result {
             Ok(l) => l,
             Err(e) => {
-                eprintln!("Warning: Error reading line {} in {}: {}", line_num, path.display(), e);
+                eprintln!(
+                    "Warning: Error reading line {} in {}: {}",
+                    line_num,
+                    path.display(),
+                    e
+                );
                 continue;
             }
         };
@@ -788,7 +802,10 @@ pub fn sync_sessions(
         let session_id = match extract_session_id(&path) {
             Some(id) => id,
             None => {
-                result.errors.push(format!("Could not extract session ID from: {}", path.display()));
+                result.errors.push(format!(
+                    "Could not extract session ID from: {}",
+                    path.display()
+                ));
                 continue;
             }
         };
@@ -797,7 +814,11 @@ pub fn sync_sessions(
         let file_size = match fs::metadata(&path) {
             Ok(m) => m.len() as i64,
             Err(e) => {
-                result.errors.push(format!("Could not read metadata for {}: {}", path.display(), e));
+                result.errors.push(format!(
+                    "Could not read metadata for {}: {}",
+                    path.display(),
+                    e
+                ));
                 continue;
             }
         };
@@ -809,7 +830,8 @@ pub fn sync_sessions(
         }
 
         // Extract project path (for output - filtering is done at file discovery)
-        let project_path = extract_project_path_from_file(&path).unwrap_or_else(|| "unknown".to_string());
+        let project_path =
+            extract_project_path_from_file(&path).unwrap_or_else(|| "unknown".to_string());
 
         // Parse the session file
         let (messages, _) = match parse_session_file(&path) {
@@ -1297,7 +1319,10 @@ mod tests {
 
         // Also verify tool uses were extracted from the snapshot
         assert_eq!(msg.tool_uses.len(), 1);
-        assert_eq!(msg.tool_uses[0].file_path, Some("/path/to/file.rs".to_string()));
+        assert_eq!(
+            msg.tool_uses[0].file_path,
+            Some("/path/to/file.rs".to_string())
+        );
     }
 
     #[test]
@@ -1398,7 +1423,14 @@ mod tests {
         let ts = test_timestamp();
         let messages = vec![
             make_message_with_tool("assistant", "Grep", Some("GREP:fn main"), true, false, ts),
-            make_message_with_tool("assistant", "Grep", Some("GREP:impl Trait"), true, false, ts),
+            make_message_with_tool(
+                "assistant",
+                "Grep",
+                Some("GREP:impl Trait"),
+                true,
+                false,
+                ts,
+            ),
         ];
 
         let summary = aggregate_session("test-id", "/project", &messages, 1000);

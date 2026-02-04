@@ -48,7 +48,11 @@ impl WindowsPlatform {
 
     /// Generate VBS script content that runs the daemon hidden (no console window).
     fn generate_startup_script(config: &InstallConfig) -> String {
-        let binary = config.binary_path.display().to_string().replace("\\", "\\\\");
+        let binary = config
+            .binary_path
+            .display()
+            .to_string()
+            .replace("\\", "\\\\");
         format!(
             r#"' Tastematter daemon startup script
 ' Runs the daemon hidden (no console window)

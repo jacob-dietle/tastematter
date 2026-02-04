@@ -214,16 +214,19 @@ impl MetadataStore {
     // =========================================================================
 
     /// Cache a chain summary response
-    pub async fn cache_chain_summary(&self, response: &ChainSummaryResponse) -> Result<(), CoreError> {
+    pub async fn cache_chain_summary(
+        &self,
+        response: &ChainSummaryResponse,
+    ) -> Result<(), CoreError> {
         let now = Utc::now().to_rfc3339();
 
         // Serialize arrays to JSON for SQLite TEXT columns
-        let accomplishments_json = serde_json::to_string(&response.accomplishments)
-            .unwrap_or_else(|_| "[]".to_string());
-        let key_files_json = serde_json::to_string(&response.key_files)
-            .unwrap_or_else(|_| "[]".to_string());
-        let workstream_tags_json = serde_json::to_string(&response.workstream_tags)
-            .unwrap_or_else(|_| "[]".to_string());
+        let accomplishments_json =
+            serde_json::to_string(&response.accomplishments).unwrap_or_else(|_| "[]".to_string());
+        let key_files_json =
+            serde_json::to_string(&response.key_files).unwrap_or_else(|_| "[]".to_string());
+        let workstream_tags_json =
+            serde_json::to_string(&response.workstream_tags).unwrap_or_else(|_| "[]".to_string());
         let status_str = serde_json::to_string(&response.status)
             .unwrap_or_else(|_| "\"in_progress\"".to_string())
             .trim_matches('"')
@@ -259,7 +262,10 @@ impl MetadataStore {
     }
 
     /// Get cached chain summary by chain ID
-    pub async fn get_chain_summary(&self, chain_id: &str) -> Result<Option<ChainSummaryResponse>, CoreError> {
+    pub async fn get_chain_summary(
+        &self,
+        chain_id: &str,
+    ) -> Result<Option<ChainSummaryResponse>, CoreError> {
         let row = sqlx::query_as::<
             _,
             (
@@ -356,34 +362,36 @@ impl MetadataStore {
 
         let summaries: Vec<ChainSummaryResponse> = rows
             .into_iter()
-            .map(|(chain_id, summary, acc_json, status_str, files_json, tags_json, model)| {
-                let accomplishments: Vec<String> = acc_json
-                    .as_ref()
-                    .and_then(|s| serde_json::from_str(s).ok())
-                    .unwrap_or_default();
-                let key_files: Vec<String> = files_json
-                    .as_ref()
-                    .and_then(|s| serde_json::from_str(s).ok())
-                    .unwrap_or_default();
-                let workstream_tags: Vec<WorkstreamTag> = tags_json
-                    .as_ref()
-                    .and_then(|s| serde_json::from_str(s).ok())
-                    .unwrap_or_default();
-                let status: WorkStatus = status_str
-                    .as_ref()
-                    .and_then(|s| serde_json::from_str(&format!("\"{}\"", s)).ok())
-                    .unwrap_or(WorkStatus::InProgress);
+            .map(
+                |(chain_id, summary, acc_json, status_str, files_json, tags_json, model)| {
+                    let accomplishments: Vec<String> = acc_json
+                        .as_ref()
+                        .and_then(|s| serde_json::from_str(s).ok())
+                        .unwrap_or_default();
+                    let key_files: Vec<String> = files_json
+                        .as_ref()
+                        .and_then(|s| serde_json::from_str(s).ok())
+                        .unwrap_or_default();
+                    let workstream_tags: Vec<WorkstreamTag> = tags_json
+                        .as_ref()
+                        .and_then(|s| serde_json::from_str(s).ok())
+                        .unwrap_or_default();
+                    let status: WorkStatus = status_str
+                        .as_ref()
+                        .and_then(|s| serde_json::from_str(&format!("\"{}\"", s)).ok())
+                        .unwrap_or(WorkStatus::InProgress);
 
-                ChainSummaryResponse {
-                    chain_id,
-                    summary: summary.unwrap_or_default(),
-                    accomplishments,
-                    status,
-                    key_files,
-                    workstream_tags,
-                    model_used: model.unwrap_or_default(),
-                }
-            })
+                    ChainSummaryResponse {
+                        chain_id,
+                        summary: summary.unwrap_or_default(),
+                        accomplishments,
+                        status,
+                        key_files,
+                        workstream_tags,
+                        model_used: model.unwrap_or_default(),
+                    }
+                },
+            )
             .collect();
 
         Ok(summaries)
@@ -627,7 +635,10 @@ mod tests {
         assert_eq!(cached.key_files.len(), 2);
         assert_eq!(cached.workstream_tags.len(), 2);
         assert_eq!(cached.workstream_tags[0].tag, "pixee");
-        assert_eq!(cached.workstream_tags[0].source, WorkstreamTagSource::Existing);
+        assert_eq!(
+            cached.workstream_tags[0].source,
+            WorkstreamTagSource::Existing
+        );
     }
 
     #[tokio::test]
@@ -663,7 +674,11 @@ mod tests {
         };
         store.cache_chain_summary(&response2).await.unwrap();
 
-        let cached = store.get_chain_summary("update-test").await.unwrap().unwrap();
+        let cached = store
+            .get_chain_summary("update-test")
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(cached.summary, "Updated summary");
         assert_eq!(cached.status, WorkStatus::Complete);
         assert_eq!(cached.accomplishments.len(), 2);
@@ -713,7 +728,11 @@ mod tests {
             };
             store.cache_chain_summary(&response).await.unwrap();
 
-            let cached = store.get_chain_summary(&format!("status-test-{}", i)).await.unwrap().unwrap();
+            let cached = store
+                .get_chain_summary(&format!("status-test-{}", i))
+                .await
+                .unwrap()
+                .unwrap();
             assert_eq!(cached.status, *status);
         }
     }
@@ -736,13 +755,18 @@ mod tests {
 
         println!("Opening database at: {:?}", db_path);
 
-        let store = MetadataStore::new(&db_path).await.expect("Failed to open store");
+        let store = MetadataStore::new(&db_path)
+            .await
+            .expect("Failed to open store");
 
         // 2. Check current state
         let existing_summaries = store.get_all_chain_summaries().await.unwrap();
         println!("Existing chain summaries: {}", existing_summaries.len());
         for summary in &existing_summaries {
-            println!("  - {}: {} ({:?})", summary.chain_id, summary.summary, summary.status);
+            println!(
+                "  - {}: {} ({:?})",
+                summary.chain_id, summary.summary, summary.status
+            );
         }
 
         // 3. Check Intel service
@@ -767,7 +791,10 @@ mod tests {
         };
 
         println!("Calling summarize_chain for: {}", test_chain_id);
-        let response = client.summarize_chain(&request).await.expect("Request failed");
+        let response = client
+            .summarize_chain(&request)
+            .await
+            .expect("Request failed");
 
         match response {
             Some(summary) => {
@@ -781,7 +808,10 @@ mod tests {
                 println!("   Model: {}", summary.model_used);
 
                 // 5. Cache it
-                store.cache_chain_summary(&summary).await.expect("Cache failed");
+                store
+                    .cache_chain_summary(&summary)
+                    .await
+                    .expect("Cache failed");
                 println!("✅ Summary cached");
 
                 // 6. Verify cache

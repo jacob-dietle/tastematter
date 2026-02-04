@@ -60,9 +60,8 @@ impl Database {
         }
 
         // Verify non-empty
-        let metadata = std::fs::metadata(&path).map_err(|e| {
-            CoreError::Config(format!("Cannot read database: {}", e))
-        })?;
+        let metadata = std::fs::metadata(&path)
+            .map_err(|e| CoreError::Config(format!("Cannot read database: {}", e)))?;
         if metadata.len() == 0 {
             return Err(CoreError::Config(format!(
                 "Database file is empty: {}",
@@ -252,9 +251,7 @@ impl Database {
     pub fn canonical_path() -> Result<PathBuf, CoreError> {
         dirs::home_dir()
             .map(|h| h.join(DB_DIR).join(DB_FILENAME))
-            .ok_or_else(|| CoreError::Config(
-                "Cannot determine home directory".to_string()
-            ))
+            .ok_or_else(|| CoreError::Config("Cannot determine home directory".to_string()))
     }
 
     /// Find database: explicit path OR canonical location
@@ -363,7 +360,8 @@ mod tests {
 
         // Create empty database with a test table
         let conn = rusqlite::Connection::open(&db_path).unwrap();
-        conn.execute("CREATE TABLE test (id INTEGER PRIMARY KEY)", []).unwrap();
+        conn.execute("CREATE TABLE test (id INTEGER PRIMARY KEY)", [])
+            .unwrap();
         drop(conn);
 
         // Open with our new read-write method
@@ -406,7 +404,8 @@ mod tests {
                 is_agent_commit BOOLEAN
             )",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         drop(conn);
 
         // Open database with QueryEngine
@@ -465,7 +464,8 @@ mod tests {
                 conversation_excerpt TEXT
             )",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         drop(conn);
 
         // Open database with QueryEngine
@@ -526,7 +526,8 @@ mod tests {
                 is_agent_commit BOOLEAN
             )",
             [],
-        ).unwrap();
+        )
+        .unwrap();
         drop(conn);
 
         // Open database with QueryEngine
@@ -585,7 +586,9 @@ mod tests {
         let db = Database::open_rw(&db_path).await.unwrap();
 
         // Run ensure_schema
-        db.ensure_schema().await.expect("ensure_schema should succeed");
+        db.ensure_schema()
+            .await
+            .expect("ensure_schema should succeed");
 
         // Verify core tables exist by querying them
         let tables = vec![
@@ -601,7 +604,11 @@ mod tests {
             let result = sqlx::query(&format!("SELECT COUNT(*) FROM {}", table))
                 .fetch_one(db.pool())
                 .await;
-            assert!(result.is_ok(), "Table '{}' should exist after ensure_schema", table);
+            assert!(
+                result.is_ok(),
+                "Table '{}' should exist after ensure_schema",
+                table
+            );
         }
     }
 
@@ -615,7 +622,9 @@ mod tests {
 
         // Call ensure_schema multiple times - should not error
         db.ensure_schema().await.expect("First call should succeed");
-        db.ensure_schema().await.expect("Second call should succeed");
+        db.ensure_schema()
+            .await
+            .expect("Second call should succeed");
         db.ensure_schema().await.expect("Third call should succeed");
 
         // Verify tables still work
@@ -645,10 +654,12 @@ mod tests {
         db.ensure_schema().await.expect("Should not destroy data");
 
         // Verify data still exists
-        let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM claude_sessions WHERE session_id = 'test-session-123'")
-            .fetch_one(db.pool())
-            .await
-            .unwrap();
+        let row: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM claude_sessions WHERE session_id = 'test-session-123'",
+        )
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
 
         assert_eq!(row.0, 1, "Existing data should be preserved");
     }

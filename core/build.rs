@@ -54,7 +54,8 @@ fn main() {
         git_describe
     } else {
         // Not on tag: show dev version with commit (e.g., "0.1.0-dev+abc1234")
-        let cargo_version = std::env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.1.0".to_string());
+        let cargo_version =
+            std::env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.1.0".to_string());
         format!("{}-dev+{}", cargo_version, git_hash)
     };
 

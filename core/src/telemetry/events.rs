@@ -281,7 +281,14 @@ mod tests {
         let props = cmd.to_properties();
 
         // Ensure no path-like keys exist
-        let keys: Vec<&str> = props.as_object().unwrap().keys().map(|s| s.as_str()).collect();
-        assert!(!keys.iter().any(|k| k.contains("path") || k.contains("file") || k.contains("dir")));
+        let keys: Vec<&str> = props
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(|s| s.as_str())
+            .collect();
+        assert!(!keys
+            .iter()
+            .any(|k| k.contains("path") || k.contains("file") || k.contains("dir")));
     }
 }

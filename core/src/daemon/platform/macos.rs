@@ -169,9 +169,7 @@ impl DaemonPlatform for MacOsPlatform {
         status.installed = true;
 
         // Check if service is loaded/running
-        let output = Command::new("launchctl")
-            .args(["list"])
-            .output()?;
+        let output = Command::new("launchctl").args(["list"]).output()?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
         if stdout.contains(SERVICE_LABEL) {

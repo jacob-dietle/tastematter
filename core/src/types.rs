@@ -660,7 +660,10 @@ mod tests {
             generated_name: Some("Authentication refactor".to_string()),
         };
 
-        assert_eq!(chain.generated_name, Some("Authentication refactor".to_string()));
+        assert_eq!(
+            chain.generated_name,
+            Some("Authentication refactor".to_string())
+        );
     }
 
     #[test]

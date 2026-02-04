@@ -151,7 +151,10 @@ impl EventFilter {
     /// Create a new filter with custom ignore patterns.
     pub fn with_patterns(watch_path: &str, patterns: Option<Vec<String>>) -> Self {
         let patterns = patterns.unwrap_or_else(|| {
-            DEFAULT_IGNORE_PATTERNS.iter().map(|s| s.to_string()).collect()
+            DEFAULT_IGNORE_PATTERNS
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
         });
 
         // Resolve to absolute path (handle non-existent paths gracefully)
@@ -394,9 +397,7 @@ pub fn create_event_from_path(
         p.metadata().ok().map(|m| m.len() as i64)
     };
 
-    let extension = p
-        .extension()
-        .map(|e| format!(".{}", e.to_string_lossy()));
+    let extension = p.extension().map(|e| format!(".{}", e.to_string_lossy()));
 
     let relative_old_path = old_path.map(|op| filter.get_relative_path(op));
 

@@ -133,10 +133,7 @@ pub fn extract_last_leaf_uuid(filepath: &Path) -> Result<Option<String>, String>
 /// in their first record that points to the parent session's ID.
 pub fn extract_agent_parent(filepath: &Path) -> Result<Option<String>, String> {
     // Only process agent sessions
-    let stem = filepath
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("");
+    let stem = filepath.file_stem().and_then(|s| s.to_str()).unwrap_or("");
 
     if !stem.starts_with("agent-") {
         return Ok(None);
@@ -191,7 +188,10 @@ pub fn extract_message_uuids(filepath: &Path) -> Result<Vec<String>, String> {
 
         // Only extract uuid from message records (not summary records)
         let record_type = record.get("type").and_then(|t| t.as_str());
-        if matches!(record_type, Some("user") | Some("assistant") | Some("tool_result")) {
+        if matches!(
+            record_type,
+            Some("user") | Some("assistant") | Some("tool_result")
+        ) {
             if let Some(uuid) = record.get("uuid").and_then(|u| u.as_str()) {
                 uuids.push(uuid.to_string());
             }
@@ -249,7 +249,11 @@ pub fn build_chain_graph(jsonl_dir: &Path) -> Result<HashMap<String, Chain>, Str
 
     let all_session_ids: HashSet<String> = jsonl_files
         .iter()
-        .filter_map(|f| f.file_stem().and_then(|s| s.to_str()).map(|s| s.to_string()))
+        .filter_map(|f| {
+            f.file_stem()
+                .and_then(|s| s.to_str())
+                .map(|s| s.to_string())
+        })
         .collect();
 
     // Pass 1: Collect leafUuid references from regular sessions
@@ -507,8 +511,8 @@ mod tests {
             dir.path(),
             "session.jsonl",
             &[
-                r#"{"type":"summary","leafUuid":"root-uuid"}"#,      // First = root ancestor
-                r#"{"type":"summary","leafUuid":"parent-uuid"}"#,   // Last = immediate parent
+                r#"{"type":"summary","leafUuid":"root-uuid"}"#, // First = root ancestor
+                r#"{"type":"summary","leafUuid":"parent-uuid"}"#, // Last = immediate parent
                 r#"{"type":"user","uuid":"uuid-001","content":"hello"}"#,
             ],
         );
@@ -541,7 +545,7 @@ mod tests {
             dir.path(),
             "session.jsonl",
             &[
-                r#"{"type":"summary","other_field":"value"}"#,  // Summary without leafUuid
+                r#"{"type":"summary","other_field":"value"}"#, // Summary without leafUuid
                 r#"{"type":"user","uuid":"uuid-001"}"#,
             ],
         );
@@ -558,7 +562,7 @@ mod tests {
             "session.jsonl",
             &[
                 r#"{"type":"summary","leafUuid":"should-find"}"#,
-                r#"{"type":"user","uuid":"uuid-001"}"#,           // Non-summary stops scan
+                r#"{"type":"user","uuid":"uuid-001"}"#, // Non-summary stops scan
                 r#"{"type":"summary","leafUuid":"should-ignore"}"#, // After non-summary
             ],
         );
@@ -620,7 +624,7 @@ mod tests {
             "agent-xyz.jsonl",
             &[
                 r#"{"sessionId":"first-parent","type":"agent_init"}"#,
-                r#"{"sessionId":"second-parent","type":"user"}"#,  // Should be ignored
+                r#"{"sessionId":"second-parent","type":"user"}"#, // Should be ignored
             ],
         );
 
@@ -635,7 +639,7 @@ mod tests {
             dir.path(),
             "agent-missing.jsonl",
             &[
-                r#"{"type":"agent_init","other":"field"}"#,  // No sessionId
+                r#"{"type":"agent_init","other":"field"}"#, // No sessionId
             ],
         );
 
@@ -653,9 +657,7 @@ mod tests {
         let path = create_jsonl_file(
             dir.path(),
             "session.jsonl",
-            &[
-                r#"{"type":"user","uuid":"user-uuid-001","content":"hello"}"#,
-            ],
+            &[r#"{"type":"user","uuid":"user-uuid-001","content":"hello"}"#],
         );
 
         let result = extract_message_uuids(&path).unwrap();
@@ -668,9 +670,7 @@ mod tests {
         let path = create_jsonl_file(
             dir.path(),
             "session.jsonl",
-            &[
-                r#"{"type":"assistant","uuid":"assistant-uuid-001","content":"hi"}"#,
-            ],
+            &[r#"{"type":"assistant","uuid":"assistant-uuid-001","content":"hi"}"#],
         );
 
         let result = extract_message_uuids(&path).unwrap();
@@ -821,7 +821,7 @@ mod tests {
             "self-ref.jsonl",
             &[
                 r#"{"type":"summary","leafUuid":"self-uuid"}"#,
-                r#"{"type":"user","uuid":"self-uuid"}"#,  // Same UUID
+                r#"{"type":"user","uuid":"self-uuid"}"#, // Same UUID
             ],
         );
 

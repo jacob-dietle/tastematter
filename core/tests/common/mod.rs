@@ -1,8 +1,11 @@
 //! Common test utilities for HTTP integration tests
 
-use tastematter::{http::{create_router, AppState}, Database, QueryEngine};
 use std::sync::Arc;
 use std::time::Instant;
+use tastematter::{
+    http::{create_router, AppState},
+    Database, QueryEngine,
+};
 
 /// Create a test router with real database connection
 pub async fn create_test_router() -> axum::Router {

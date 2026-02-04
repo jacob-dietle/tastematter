@@ -12,9 +12,7 @@ use std::path::Path;
 use chrono::Utc;
 
 use crate::capture::git_status::query_repo_status;
-use crate::intelligence::{
-    ActiveChainContext, GitOpsSignals, RecentSessionContext,
-};
+use crate::intelligence::{ActiveChainContext, GitOpsSignals, RecentSessionContext};
 
 /// Error collecting GitOps signals.
 #[derive(Debug, Clone)]
@@ -146,7 +144,11 @@ mod tests {
         // Test against current repository
         let signals = collect_gitops_signals(Path::new("."), None, None, vec![]);
 
-        assert!(signals.is_ok(), "Should collect signals: {:?}", signals.err());
+        assert!(
+            signals.is_ok(),
+            "Should collect signals: {:?}",
+            signals.err()
+        );
 
         let signals = signals.unwrap();
         assert!(!signals.current_branch.is_empty());
