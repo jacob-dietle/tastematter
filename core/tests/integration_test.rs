@@ -409,11 +409,13 @@ async fn test_query_heat_empty_on_fresh_db() {
 
     let engine = QueryEngine::new(db);
 
-    let result = engine
-        .query_heat(QueryHeatInput::default())
-        .await;
+    let result = engine.query_heat(QueryHeatInput::default()).await;
 
-    assert!(result.is_ok(), "Heat query should succeed on empty DB: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Heat query should succeed on empty DB: {:?}",
+        result.err()
+    );
     let result = result.unwrap();
     assert_eq!(result.results.len(), 0);
     assert_eq!(result.summary.total_files, 0);

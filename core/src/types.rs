@@ -694,11 +694,12 @@ fn compute_days_active(first_access: &str, last_access: &str) -> i64 {
         chrono::DateTime::parse_from_rfc3339(s)
             .map(|dt| dt.naive_utc())
             .ok()
-            .or_else(|| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
-                .map(|d| d.and_hms_opt(0, 0, 0).unwrap())
-                .ok())
-            .or_else(|| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")
-                .ok())
+            .or_else(|| {
+                chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
+                    .map(|d| d.and_hms_opt(0, 0, 0).unwrap())
+                    .ok()
+            })
+            .or_else(|| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S").ok())
     };
 
     match (parse(first_access), parse(last_access)) {
@@ -722,12 +723,16 @@ fn compute_recency_bonus(last_access: &str) -> f64 {
     let parsed = chrono::DateTime::parse_from_rfc3339(last_access)
         .map(|dt| dt.with_timezone(&chrono::Utc))
         .ok()
-        .or_else(|| chrono::NaiveDate::parse_from_str(last_access, "%Y-%m-%d")
-            .map(|d| d.and_hms_opt(0, 0, 0).unwrap().and_utc())
-            .ok())
-        .or_else(|| chrono::NaiveDateTime::parse_from_str(last_access, "%Y-%m-%d %H:%M:%S")
-            .map(|dt| dt.and_utc())
-            .ok());
+        .or_else(|| {
+            chrono::NaiveDate::parse_from_str(last_access, "%Y-%m-%d")
+                .map(|d| d.and_hms_opt(0, 0, 0).unwrap().and_utc())
+                .ok()
+        })
+        .or_else(|| {
+            chrono::NaiveDateTime::parse_from_str(last_access, "%Y-%m-%d %H:%M:%S")
+                .map(|dt| dt.and_utc())
+                .ok()
+        });
 
     match parsed {
         Some(ts) => {
@@ -986,21 +991,33 @@ mod tests {
     fn test_recency_bonus_within_24h() {
         let now = chrono::Utc::now().to_rfc3339();
         let bonus = compute_recency_bonus(&now);
-        assert!((bonus - 1.0).abs() < f64::EPSILON, "Expected 1.0, got {}", bonus);
+        assert!(
+            (bonus - 1.0).abs() < f64::EPSILON,
+            "Expected 1.0, got {}",
+            bonus
+        );
     }
 
     #[test]
     fn test_recency_bonus_within_7d() {
         let three_days_ago = (chrono::Utc::now() - chrono::Duration::days(3)).to_rfc3339();
         let bonus = compute_recency_bonus(&three_days_ago);
-        assert!((bonus - 0.5).abs() < f64::EPSILON, "Expected 0.5, got {}", bonus);
+        assert!(
+            (bonus - 0.5).abs() < f64::EPSILON,
+            "Expected 0.5, got {}",
+            bonus
+        );
     }
 
     #[test]
     fn test_recency_bonus_old() {
         let thirty_days_ago = (chrono::Utc::now() - chrono::Duration::days(30)).to_rfc3339();
         let bonus = compute_recency_bonus(&thirty_days_ago);
-        assert!((bonus - 0.0).abs() < f64::EPSILON, "Expected 0.0, got {}", bonus);
+        assert!(
+            (bonus - 0.0).abs() < f64::EPSILON,
+            "Expected 0.0, got {}",
+            bonus
+        );
     }
 
     #[test]
@@ -1035,22 +1052,10 @@ mod tests {
 
     #[test]
     fn test_heat_level_serialization() {
-        assert_eq!(
-            serde_json::to_string(&HeatLevel::Hot).unwrap(),
-            "\"HOT\""
-        );
-        assert_eq!(
-            serde_json::to_string(&HeatLevel::Warm).unwrap(),
-            "\"WARM\""
-        );
-        assert_eq!(
-            serde_json::to_string(&HeatLevel::Cool).unwrap(),
-            "\"COOL\""
-        );
-        assert_eq!(
-            serde_json::to_string(&HeatLevel::Cold).unwrap(),
-            "\"COLD\""
-        );
+        assert_eq!(serde_json::to_string(&HeatLevel::Hot).unwrap(), "\"HOT\"");
+        assert_eq!(serde_json::to_string(&HeatLevel::Warm).unwrap(), "\"WARM\"");
+        assert_eq!(serde_json::to_string(&HeatLevel::Cool).unwrap(), "\"COOL\"");
+        assert_eq!(serde_json::to_string(&HeatLevel::Cold).unwrap(), "\"COLD\"");
     }
 
     #[test]

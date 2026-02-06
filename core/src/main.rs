@@ -1377,7 +1377,9 @@ fn output_heat_table(result: &tastematter::HeatResult) {
 
 /// Output heat results as CSV
 fn output_heat_csv(result: &tastematter::HeatResult) {
-    println!("file_path,count_7d,count_long,rcr,velocity,heat_score,heat_level,first_access,last_access");
+    println!(
+        "file_path,count_7d,count_long,rcr,velocity,heat_score,heat_level,first_access,last_access"
+    );
     for item in &result.results {
         println!(
             "{},{},{},{:.4},{:.4},{:.4},{},{},{}",
