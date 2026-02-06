@@ -5,6 +5,7 @@
 
 use sqlx::Row;
 use std::collections::hash_map::DefaultHasher;
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::time::Instant;
 
@@ -839,6 +840,142 @@ impl QueryEngine {
         })
     }
 
+    // =========================================================================
+    // HEAT QUERY (Phase: Heat Metrics)
+    // =========================================================================
+
+    /// Query file heat metrics with composite scoring
+    ///
+    /// Uses a single CTE query to fetch 7-day and long-window access counts,
+    /// then computes RCR, velocity, and composite heat score in Rust.
+    ///
+    /// Target: <100ms latency
+    pub async fn query_heat(&self, input: QueryHeatInput) -> Result<HeatResult, CoreError> {
+        let start = Instant::now();
+
+        let time_str = input.time.as_deref().unwrap_or("30d");
+        let days = parse_time_range(time_str)?;
+        let limit = input.limit.unwrap_or(50);
+
+        // Build file filter clause
+        let file_filter = if input.files.is_some() {
+            " AND json_each.value LIKE ?"
+        } else {
+            ""
+        };
+
+        // Single-scan approach: compute both 7d and long-window counts in one pass
+        // using conditional SUM for the short window (avoids double table scan)
+        let sql = format!(
+            "SELECT json_each.value as file_path,
+                    SUM(CASE WHEN s.started_at >= datetime('now', '-7 days') THEN 1 ELSE 0 END) as count_7d,
+                    COUNT(*) as count_long,
+                    MIN(s.started_at) as first_access,
+                    MAX(s.started_at) as last_access
+             FROM claude_sessions s, json_each(s.files_read)
+             WHERE s.started_at >= datetime('now', '-{days} days')
+               AND s.files_read IS NOT NULL AND s.files_read != '[]'
+               {file_filter}
+             GROUP BY json_each.value
+             LIMIT {limit}",
+            file_filter = file_filter,
+            days = days,
+            limit = limit,
+        );
+
+        // Bind file filter pattern (once)
+        let mut query = sqlx::query(&sql);
+        if let Some(ref files) = input.files {
+            let pattern = files.replace('*', "%").replace('?', "_");
+            query = query.bind(pattern);
+        }
+
+        let rows = query.fetch_all(self.db.pool()).await?;
+
+        // Compute metrics in Rust (more testable than SQL)
+        let mut items: Vec<HeatItem> = rows
+            .iter()
+            .map(|row| {
+                let file_path: String = row.get("file_path");
+                let count_7d = row.get::<i64, _>("count_7d") as u32;
+                let count_long = row.get::<i64, _>("count_long") as u32;
+                let first_access: String = row
+                    .get::<Option<String>, _>("first_access")
+                    .unwrap_or_default();
+                let last_access: String = row
+                    .get::<Option<String>, _>("last_access")
+                    .unwrap_or_default();
+
+                // RCR = count_7d / count_long (safe division)
+                let rcr = if count_long > 0 {
+                    count_7d as f64 / count_long as f64
+                } else {
+                    0.0
+                };
+
+                let velocity = compute_velocity(count_long, &first_access, &last_access);
+                let heat_score = compute_heat_score(velocity, rcr, &last_access);
+                let heat_level = classify_heat(heat_score);
+
+                HeatItem {
+                    file_path,
+                    count_7d,
+                    count_long,
+                    rcr,
+                    velocity,
+                    heat_score,
+                    heat_level,
+                    first_access,
+                    last_access,
+                }
+            })
+            .collect();
+
+        // Sort by chosen field
+        match input.sort.as_ref().unwrap_or(&HeatSortBy::Heat) {
+            HeatSortBy::Heat => items.sort_by(|a, b| {
+                b.heat_score
+                    .partial_cmp(&a.heat_score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            }),
+            HeatSortBy::Rcr => items.sort_by(|a, b| {
+                b.rcr
+                    .partial_cmp(&a.rcr)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            }),
+            HeatSortBy::Velocity => items.sort_by(|a, b| {
+                b.velocity
+                    .partial_cmp(&a.velocity)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            }),
+            HeatSortBy::Name => items.sort_by(|a, b| a.file_path.cmp(&b.file_path)),
+        }
+
+        // Compute summary
+        let total_files = items.len() as u32;
+        let hot_count = items.iter().filter(|i| i.heat_level == HeatLevel::Hot).count() as u32;
+        let warm_count = items.iter().filter(|i| i.heat_level == HeatLevel::Warm).count() as u32;
+        let cool_count = items.iter().filter(|i| i.heat_level == HeatLevel::Cool).count() as u32;
+        let cold_count = items.iter().filter(|i| i.heat_level == HeatLevel::Cold).count() as u32;
+
+        let elapsed = start.elapsed();
+        log::info!("query_heat completed in {:?}", elapsed);
+
+        Ok(HeatResult {
+            receipt_id: generate_receipt_id(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            time_range: time_str.to_string(),
+            results: items,
+            summary: HeatSummary {
+                total_files,
+                hot_count,
+                warm_count,
+                cool_count,
+                cold_count,
+            },
+        })
+    }
+
     /// Verify a query receipt against current data
     ///
     /// Returns NOT_FOUND since ledger storage is not yet implemented.
@@ -1081,8 +1218,8 @@ impl QueryEngine {
                 session_id, project_path, started_at, ended_at, duration_seconds,
                 user_message_count, assistant_message_count, total_messages,
                 files_read, files_written, tools_used,
-                first_user_message, conversation_excerpt
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                first_user_message, conversation_excerpt, file_size_bytes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#;
 
         let result = sqlx::query(sql)
@@ -1099,6 +1236,7 @@ impl QueryEngine {
             .bind(&session.tools_used)
             .bind(&session.first_user_message)
             .bind(&session.conversation_excerpt)
+            .bind(session.file_size_bytes)
             .execute(self.db.pool())
             .await
             .map_err(CoreError::Database)?;
@@ -1205,8 +1343,8 @@ impl QueryEngine {
                 session_id, project_path, started_at, ended_at, duration_seconds,
                 user_message_count, assistant_message_count, total_messages,
                 files_read, files_written, tools_used,
-                first_user_message, conversation_excerpt
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                first_user_message, conversation_excerpt, file_size_bytes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#;
 
         let result = sqlx::query(sql)
@@ -1223,6 +1361,7 @@ impl QueryEngine {
             .bind(&session.tools_used)
             .bind(&session.first_user_message)
             .bind(&session.conversation_excerpt)
+            .bind(session.file_size_bytes)
             .execute(self.db.pool())
             .await
             .map_err(CoreError::Database)?;
@@ -1230,6 +1369,27 @@ impl QueryEngine {
         Ok(WriteResult {
             rows_affected: result.rows_affected(),
         })
+    }
+
+    /// Load session file sizes from database for incremental sync.
+    ///
+    /// Returns a map of session_id → file_size_bytes for sessions that have
+    /// a recorded file size. Used by sync to skip re-parsing unchanged JSONL files.
+    pub async fn get_session_file_sizes(&self) -> Result<HashMap<String, i64>, CoreError> {
+        let rows = sqlx::query(
+            "SELECT session_id, file_size_bytes FROM claude_sessions WHERE file_size_bytes IS NOT NULL"
+        )
+            .fetch_all(self.db.pool())
+            .await
+            .map_err(CoreError::Database)?;
+
+        let mut map = HashMap::new();
+        for row in &rows {
+            let id: String = row.get("session_id");
+            let size: i64 = row.get("file_size_bytes");
+            map.insert(id, size);
+        }
+        Ok(map)
     }
 
     /// Persist chains to database (chains + chain_graph tables)

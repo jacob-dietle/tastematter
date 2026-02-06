@@ -147,9 +147,13 @@ async fn sync_sessions_phase(
         incremental: true,
     };
 
-    // For now, pass empty existing sessions (full sync)
-    // TODO: Load from database for incremental sync
-    let existing_sessions: HashMap<String, i64> = HashMap::new();
+    // Load existing session file sizes from DB for incremental sync.
+    // Sessions whose JSONL file size hasn't changed are skipped.
+    let existing_sessions: HashMap<String, i64> = if let Some(engine) = engine {
+        engine.get_session_file_sizes().await.unwrap_or_default()
+    } else {
+        HashMap::new()
+    };
 
     match sync_sessions(claude_dir, &options, &existing_sessions) {
         Ok((summaries, _parse_result)) => {

@@ -4,8 +4,8 @@ Context packages documenting the indexer/daemon investigation and Claude Code da
 
 ## Overview
 
-**Date Range:** 2026-01-12 to 2026-02-03
-**Package Count:** 48
+**Date Range:** 2026-01-12 to 2026-02-05
+**Package Count:** 55
 **Theme:** Chain linking bug, data model, Intel Layer priority, CLI fix, daemon, **FULL RUST PORT COMPLETE (All 9 Phases)**, **GLOB BUG FOUND**, **CANONICAL SPEC COMPLETE**, **TDD FIX APPLIED**, **TEST ALIGNMENT COMPLETE**, **PARSER GAP FIX COMPLETE**, **TYPE CONTRACTS COMPLETE**, **PHASE 3 GIT SYNC COMPLETE**, **PHASE 4 JSONL PARSER COMPLETE**, **PHASE 5 CHAIN GRAPH COMPLETE**, **PHASE 6 INVERTED INDEX COMPLETE**, **PHASE 7 FILE WATCHER COMPLETE**, **PHASE 8 DAEMON RUNNER COMPLETE**, **PARITY TEST SUITE COMPLETE**, **CLI DISTRIBUTION ARCHITECTURE**, **DAEMON AUTO-SETUP COMPLETE**, **TELEMETRY INSTRUMENTATION COMPLETE**, **INTEL SERVICE PHASE 1 COMPLETE**, **PHASE 3+4 PARALLEL COMPLETE**
 
 ## Narrative
@@ -69,6 +69,13 @@ This chain documents investigating and fixing the chain linking bug:
 | 46 | 2026-01-30 | **DATABASE_WRITE_PATH_GAP_ANALYSIS** (CRITICAL BUG: Daemon parses but never persists - INSERT methods exist but uncalled, ~100 line fix needed)
 | 47 | 2026-02-02 | **DATABASE_WRITE_PATH_FIX_COMPLETE** (Fix applied: 978 sessions, 341 chains persisted. Holding release for database init UX fix) |
 | 48 | 2026-02-03 | **FRESH_INSTALL_TDD_AND_RELEASE** (3 TDD tests, install script fix, v0.1.0-alpha.11 deployed, 259 lib + 10 integration tests) |
+| 49 | 2026-02-03 | **VERSION_EMBEDDING_AND_WORKSTREAM_SPLIT** (build.rs for git version, 4-stream split, chain_metadata fix, ~16K lines committed, v0.1.0-alpha.13) |
+| 50 | 2026-02-03 | **RELEASE_INFRASTRUCTURE_COMPLETE** (dev/staging/production workflow, 3 GitHub workflows, install script channels, smoke tests, tastematter-release-ops skill, v0.1.0-alpha.15) |
+| 51 | 2026-02-03 | **SYSTEM_META_REVIEW_AND_CLI_USABILITY_AUDIT** (Heat metrics model, CLI audit for agent-as-user, timestamp/duration bugs identified, Phase 04 core improvements spec, context restoration architecture) |
+| 52 | 2026-02-04 | **TIMESTAMP_BUG_FIX_AND_RELEASE** (1-line fix for .snapshot.timestamp, 2 regression tests, all clippy/fmt resolved, v0.1.0-alpha.16 released) |
+| 53 | 2026-02-04 | **CORE_AUDIT_AND_DATA_QUALITY_RCA** (Full core audit, live CLI testing, new bug: recent sessions have empty files_read, RCA investigation plan, intel service audit) |
+| 54 | 2026-02-05 | **DQ002_FIX_AND_HEAT_SCORE_RCA** (3-fix phantom session fix, 72 records cleaned, incremental sync, heat score broken: 79% snapshot pollution + Skill tool blindness) |
+| 55 | 2026-02-05 | **HEAT_DATA_QUALITY_FIX_COMPLETE** (DQ-003: snapshot exclusion from files_read, Skill tool path extraction, 5 tests, 287 passing, clippy clean) |
 
 ## Key Findings
 
@@ -90,7 +97,7 @@ This chain documents investigating and fixing the chain linking bug:
 
 ## Current State
 
-**Latest package:** [[48_2026-02-03_FRESH_INSTALL_TDD_AND_RELEASE]]
+**Latest package:** [[55_2026-02-05_HEAT_DATA_QUALITY_FIX_COMPLETE]]
 **Canonical specs:**
 - [[canonical/07_CLAUDE_CODE_DATA_MODEL.md]]
 - [[canonical/08_PYTHON_PORT_INVENTORY.md]]

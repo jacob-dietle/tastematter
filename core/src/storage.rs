@@ -460,6 +460,7 @@ mod tests {
                 files_read TEXT,
                 files_written TEXT,
                 tools_used TEXT,
+                file_size_bytes INTEGER,
                 first_user_message TEXT,
                 conversation_excerpt TEXT
             )",
@@ -487,6 +488,7 @@ mod tests {
             tools_used: Some("{\"Read\": 5, \"Edit\": 3}".to_string()),
             first_user_message: Some("Help me refactor this code".to_string()),
             conversation_excerpt: Some("[User 1]: Help me refactor this code".to_string()),
+            file_size_bytes: Some(42000),
         };
 
         // Insert and verify

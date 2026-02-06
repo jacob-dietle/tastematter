@@ -6,7 +6,8 @@
 
 use std::time::Instant;
 use tastematter::{
-    Database, QueryChainsInput, QueryEngine, QueryFlexInput, QuerySessionsInput, QueryTimelineInput,
+    Database, QueryChainsInput, QueryEngine, QueryFlexInput, QueryHeatInput, QuerySessionsInput,
+    QueryTimelineInput,
 };
 
 /// Get the path to the test database (canonical location)
@@ -335,6 +336,87 @@ async fn test_latency_benchmark() {
     println!("Status: {}", if max_ms < 100 { "PASS" } else { "FAIL" });
 
     assert!(max_ms < 100, "Max latency exceeded 100ms: {}ms", max_ms);
+}
+
+// =============================================================================
+// Heat Query Tests
+// =============================================================================
+
+#[tokio::test]
+async fn test_query_heat_basic() {
+    let db_path = get_test_db_path();
+    let db = Database::open(&db_path)
+        .await
+        .expect("Failed to open database");
+    let engine = QueryEngine::new(db);
+
+    let start = Instant::now();
+    let result = engine
+        .query_heat(QueryHeatInput {
+            time: Some("30d".to_string()),
+            limit: Some(20),
+            ..Default::default()
+        })
+        .await;
+    let elapsed = start.elapsed();
+
+    println!("query_heat took: {:?}", elapsed);
+    assert!(
+        elapsed.as_millis() < 200,
+        "Query took too long: {:?}",
+        elapsed
+    );
+
+    assert!(result.is_ok(), "Query failed: {:?}", result.err());
+    let result = result.unwrap();
+
+    println!("Heat results: {} files", result.results.len());
+    println!(
+        "Summary: HOT={} WARM={} COOL={} COLD={}",
+        result.summary.hot_count,
+        result.summary.warm_count,
+        result.summary.cool_count,
+        result.summary.cold_count,
+    );
+    assert!(
+        !result.receipt_id.is_empty(),
+        "Receipt ID should be generated"
+    );
+    assert_eq!(result.time_range, "30d");
+
+    // Print top 5 for manual validation
+    for item in result.results.iter().take(5) {
+        println!(
+            "  {} | RCR={:.2} VEL={:.2} SCORE={:.3} HEAT={}",
+            item.file_path, item.rcr, item.velocity, item.heat_score, item.heat_level,
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_query_heat_empty_on_fresh_db() {
+    use tastematter::Database;
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let db_path = temp_dir.path().join("heat_test.db");
+
+    let db = Database::open_rw(&db_path)
+        .await
+        .expect("Should create fresh database");
+    db.ensure_schema()
+        .await
+        .expect("Schema creation should succeed");
+
+    let engine = QueryEngine::new(db);
+
+    let result = engine
+        .query_heat(QueryHeatInput::default())
+        .await;
+
+    assert!(result.is_ok(), "Heat query should succeed on empty DB: {:?}", result.err());
+    let result = result.unwrap();
+    assert_eq!(result.results.len(), 0);
+    assert_eq!(result.summary.total_files, 0);
 }
 
 // =============================================================================

@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 // =============================================================================
 
 /// Tools that read files/content
-pub const READ_TOOLS: &[&str] = &["Read", "Grep", "Glob", "WebFetch", "WebSearch"];
+pub const READ_TOOLS: &[&str] = &["Read", "Grep", "Glob", "WebFetch", "WebSearch", "Skill"];
 
 /// Tools that write/modify files
 pub const WRITE_TOOLS: &[&str] = &["Edit", "Write", "NotebookEdit"];
@@ -216,6 +216,12 @@ pub fn extract_file_path(tool_name: &str, input: &Value) -> Option<String> {
         if let Some(pattern) = input.get("pattern").and_then(|v| v.as_str()) {
             return Some(format!("GLOB:{}", pattern));
         }
+    }
+    if tool_name == "Skill" {
+        if let Some(skill_name) = input.get("skill").and_then(|v| v.as_str()) {
+            return Some(format!(".claude/skills/{}/SKILL.md", skill_name));
+        }
+        return None;
     }
 
     // Direct field extraction (in priority order)
@@ -511,7 +517,8 @@ pub fn aggregate_session(
     messages: &[ParsedMessage],
     file_size_bytes: i64,
 ) -> SessionSummary {
-    let mut files_read_set = HashSet::new();
+    let mut files_read_set: HashSet<String> = HashSet::new(); // non-snapshot reads
+    let mut snapshot_paths: HashSet<String> = HashSet::new(); // snapshot-only tracking
     let mut files_written_set = HashSet::new();
     let mut files_created_set = HashSet::new();
     let mut tools_used: HashMap<String, i32> = HashMap::new();
@@ -578,7 +585,10 @@ pub fn aggregate_session(
                     continue;
                 }
 
-                if tool_use.is_read {
+                if tool_use.name == "file-history-snapshot" {
+                    // Track separately — don't pollute files_read with snapshot noise
+                    snapshot_paths.insert(path.clone());
+                } else if tool_use.is_read {
                     files_read_set.insert(path.clone());
                 }
                 if tool_use.is_write {
@@ -834,6 +844,12 @@ pub fn sync_sessions(
                 continue;
             }
         };
+
+        // Skip sessions with no parseable messages (summary-only JSONL files)
+        if messages.is_empty() {
+            result.sessions_skipped += 1;
+            continue;
+        }
 
         // Count tool uses
         let session_tool_uses: i64 = messages.iter().map(|m| m.tool_uses.len() as i64).sum();
@@ -1530,5 +1546,160 @@ mod tests {
         let mut existing = HashMap::new();
         existing.insert("other-session".to_string(), 5000);
         assert!(session_needs_update("session-1", 5000, &existing));
+    }
+
+    // =========================================================================
+    // DQ-002: Regression tests for phantom session fix
+    // =========================================================================
+
+    #[test]
+    fn test_summary_only_session_is_skipped() {
+        // aggregate_session with empty messages produces a phantom session
+        // (duration=0, files=[], timestamps=Utc::now()). The fix skips these
+        // at the sync_sessions level, but we verify the aggregate output here.
+        let messages: Vec<ParsedMessage> = vec![];
+        let summary = aggregate_session("test-empty", "/test/project", &messages, 1234);
+
+        assert_eq!(summary.total_messages, 0);
+        assert!(summary.files_read.is_empty());
+        assert!(summary.files_written.is_empty());
+        assert_eq!(summary.duration_seconds, 0);
+        // This is the phantom pattern: no real data but record exists
+    }
+
+    #[test]
+    fn test_session_with_tools_retains_timestamp() {
+        // Sessions with actual tool_use records should retain their historical
+        // timestamps from the JSONL data, not fall back to Utc::now().
+        let ts: DateTime<Utc> = "2026-01-15T10:00:00Z".parse().unwrap();
+        let messages = vec![ParsedMessage {
+            msg_type: "assistant".to_string(),
+            role: Some("assistant".to_string()),
+            timestamp: ts,
+            content: serde_json::Value::Null,
+            tool_uses: vec![ToolUse {
+                id: "toolu_test1".to_string(),
+                name: "Read".to_string(),
+                input: serde_json::Value::Null,
+                timestamp: ts,
+                file_path: Some("/src/main.rs".to_string()),
+                is_read: true,
+                is_write: false,
+            }],
+        }];
+
+        let summary = aggregate_session("test-with-data", "/test/project", &messages, 5000);
+
+        assert_eq!(summary.started_at, ts);
+        assert_eq!(summary.ended_at, ts);
+        assert_eq!(summary.total_messages, 1);
+        assert!(summary.files_read.contains(&"/src/main.rs".to_string()));
+        assert_eq!(summary.file_size_bytes, 5000);
+    }
+
+    // =========================================================================
+    // DQ-003: Heat score data quality — snapshot exclusion & Skill extraction
+    // =========================================================================
+
+    #[test]
+    fn test_snapshot_paths_excluded_from_files_read() {
+        // A file read by both a real tool AND a snapshot should appear in files_read.
+        // A file ONLY seen via snapshot should NOT appear in files_read.
+        let ts = test_timestamp();
+        let messages = vec![
+            // Real read of /shared.rs
+            make_message_with_tool("assistant", "Read", Some("/shared.rs"), true, false, ts),
+            // Snapshot sees /shared.rs AND /snapshot_only.rs
+            ParsedMessage {
+                msg_type: "file-history-snapshot".to_string(),
+                role: None,
+                content: Value::Null,
+                timestamp: ts,
+                tool_uses: vec![
+                    ToolUse {
+                        id: "file-history-snapshot".to_string(),
+                        name: "file-history-snapshot".to_string(),
+                        input: serde_json::json!({"file_path": "/shared.rs"}),
+                        timestamp: ts,
+                        file_path: Some("/shared.rs".to_string()),
+                        is_read: true,
+                        is_write: false,
+                    },
+                    ToolUse {
+                        id: "file-history-snapshot".to_string(),
+                        name: "file-history-snapshot".to_string(),
+                        input: serde_json::json!({"file_path": "/snapshot_only.rs"}),
+                        timestamp: ts,
+                        file_path: Some("/snapshot_only.rs".to_string()),
+                        is_read: true,
+                        is_write: false,
+                    },
+                ],
+            },
+        ];
+
+        let summary = aggregate_session("test-snap", "/project", &messages, 1000);
+
+        // /shared.rs kept (real Read), /snapshot_only.rs dropped
+        assert!(summary.files_read.contains(&"/shared.rs".to_string()));
+        assert!(!summary.files_read.contains(&"/snapshot_only.rs".to_string()));
+        assert_eq!(summary.files_read.len(), 1);
+    }
+
+    #[test]
+    fn test_snapshot_only_session_has_empty_files_read() {
+        // A session with ONLY file-history-snapshot entries should have files_read: []
+        let ts = test_timestamp();
+        let messages = vec![ParsedMessage {
+            msg_type: "file-history-snapshot".to_string(),
+            role: None,
+            content: Value::Null,
+            timestamp: ts,
+            tool_uses: vec![
+                ToolUse {
+                    id: "file-history-snapshot".to_string(),
+                    name: "file-history-snapshot".to_string(),
+                    input: serde_json::json!({"file_path": "/a.rs"}),
+                    timestamp: ts,
+                    file_path: Some("/a.rs".to_string()),
+                    is_read: true,
+                    is_write: false,
+                },
+                ToolUse {
+                    id: "file-history-snapshot".to_string(),
+                    name: "file-history-snapshot".to_string(),
+                    input: serde_json::json!({"file_path": "/b.rs"}),
+                    timestamp: ts,
+                    file_path: Some("/b.rs".to_string()),
+                    is_read: true,
+                    is_write: false,
+                },
+            ],
+        }];
+
+        let summary = aggregate_session("test-snap-only", "/project", &messages, 500);
+
+        assert!(summary.files_read.is_empty());
+    }
+
+    #[test]
+    fn test_skill_tool_extracts_file_path() {
+        let input = serde_json::json!({"skill": "context-package"});
+        assert_eq!(
+            extract_file_path("Skill", &input),
+            Some(".claude/skills/context-package/SKILL.md".to_string())
+        );
+    }
+
+    #[test]
+    fn test_skill_tool_without_skill_field_returns_none() {
+        // Skill tool invoked without a "skill" field should return None
+        let input = serde_json::json!({"args": "--verbose"});
+        assert_eq!(extract_file_path("Skill", &input), None);
+    }
+
+    #[test]
+    fn test_skill_in_read_tools() {
+        assert!(is_read_tool("Skill"));
     }
 }

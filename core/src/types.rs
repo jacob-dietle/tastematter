@@ -502,6 +502,8 @@ pub struct SessionInput {
     pub first_user_message: Option<String>,
     /// Full conversation excerpt (all user messages concatenated, truncated)
     pub conversation_excerpt: Option<String>,
+    /// JSONL file size in bytes (for incremental sync change detection)
+    pub file_size_bytes: Option<i64>,
 }
 
 /// Result of a write operation
@@ -531,8 +533,97 @@ impl From<crate::capture::jsonl_parser::SessionSummary> for SessionInput {
             tools_used: Some(serde_json::to_string(&s.tools_used).unwrap_or_default()),
             first_user_message: s.first_user_message,
             conversation_excerpt: s.conversation_excerpt,
+            file_size_bytes: Some(s.file_size_bytes),
         }
     }
+}
+
+// =============================================================================
+// QUERY INPUT/OUTPUT TYPES - query_heat
+// =============================================================================
+
+/// Heat level classification based on composite heat score
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum HeatLevel {
+    #[serde(rename = "HOT")]
+    Hot,
+    #[serde(rename = "WARM")]
+    Warm,
+    #[serde(rename = "COOL")]
+    Cool,
+    #[serde(rename = "COLD")]
+    Cold,
+}
+
+impl std::fmt::Display for HeatLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HeatLevel::Hot => write!(f, "HOT"),
+            HeatLevel::Warm => write!(f, "WARM"),
+            HeatLevel::Cool => write!(f, "COOL"),
+            HeatLevel::Cold => write!(f, "COLD"),
+        }
+    }
+}
+
+/// Sort field for heat query results
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub enum HeatSortBy {
+    #[default]
+    Heat,
+    Rcr,
+    Velocity,
+    Name,
+}
+
+/// Input for query_heat command
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct QueryHeatInput {
+    /// Long window time range (default: "30d")
+    pub time: Option<String>,
+
+    /// File path pattern filter (glob-style)
+    pub files: Option<String>,
+
+    /// Maximum results to return (default: 50)
+    pub limit: Option<u32>,
+
+    /// Sort by: heat (default), rcr, velocity, name
+    pub sort: Option<HeatSortBy>,
+}
+
+/// Individual file heat item
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HeatItem {
+    pub file_path: String,
+    pub count_7d: u32,
+    pub count_long: u32,
+    pub rcr: f64,
+    pub velocity: f64,
+    pub heat_score: f64,
+    pub heat_level: HeatLevel,
+    pub first_access: String,
+    pub last_access: String,
+}
+
+/// Summary of heat distribution
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HeatSummary {
+    pub total_files: u32,
+    pub hot_count: u32,
+    pub warm_count: u32,
+    pub cool_count: u32,
+    pub cold_count: u32,
+}
+
+/// Complete heat query result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HeatResult {
+    pub receipt_id: String,
+    pub timestamp: String,
+    pub time_range: String,
+    pub results: Vec<HeatItem>,
+    pub summary: HeatSummary,
 }
 
 // =============================================================================
@@ -559,6 +650,108 @@ pub fn parse_time_range(time: &str) -> Result<i64, CoreError> {
             }
         }
     }
+}
+
+// =============================================================================
+// HEAT METRIC FUNCTIONS
+// =============================================================================
+
+/// Classify a composite heat score into a HeatLevel
+///
+/// Thresholds (from heat-metrics-model.md):
+///   > 0.7 = HOT | 0.4-0.7 = WARM | 0.2-0.4 = COOL | < 0.2 = COLD
+pub fn classify_heat(heat_score: f64) -> HeatLevel {
+    if heat_score > 0.7 {
+        HeatLevel::Hot
+    } else if heat_score >= 0.4 {
+        HeatLevel::Warm
+    } else if heat_score >= 0.2 {
+        HeatLevel::Cool
+    } else {
+        HeatLevel::Cold
+    }
+}
+
+/// Compute access velocity: accesses per day over the observation window
+///
+/// Returns 0.0 if count_long is 0.
+/// Floors days_active to minimum 1 to avoid division by zero.
+pub fn compute_velocity(count_long: u32, first_access: &str, last_access: &str) -> f64 {
+    if count_long == 0 {
+        return 0.0;
+    }
+    let days = compute_days_active(first_access, last_access).max(1) as f64;
+    count_long as f64 / days
+}
+
+/// Compute the number of days between first and last access
+///
+/// Returns at least 1 if both timestamps parse successfully.
+/// Returns 1 on parse failure (safe fallback).
+fn compute_days_active(first_access: &str, last_access: &str) -> i64 {
+    let parse = |s: &str| -> Option<chrono::NaiveDateTime> {
+        // Try RFC3339 first, then date-only
+        chrono::DateTime::parse_from_rfc3339(s)
+            .map(|dt| dt.naive_utc())
+            .ok()
+            .or_else(|| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
+                .map(|d| d.and_hms_opt(0, 0, 0).unwrap())
+                .ok())
+            .or_else(|| chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")
+                .ok())
+    };
+
+    match (parse(first_access), parse(last_access)) {
+        (Some(first), Some(last)) => {
+            let diff = (last - first).num_days();
+            diff.max(1)
+        }
+        _ => 1,
+    }
+}
+
+/// Compute recency bonus based on last_access timestamp
+///
+/// Returns:
+///   1.0 if last_access < 24h ago
+///   0.5 if last_access < 7d ago
+///   0.0 otherwise
+fn compute_recency_bonus(last_access: &str) -> f64 {
+    let now = chrono::Utc::now();
+
+    let parsed = chrono::DateTime::parse_from_rfc3339(last_access)
+        .map(|dt| dt.with_timezone(&chrono::Utc))
+        .ok()
+        .or_else(|| chrono::NaiveDate::parse_from_str(last_access, "%Y-%m-%d")
+            .map(|d| d.and_hms_opt(0, 0, 0).unwrap().and_utc())
+            .ok())
+        .or_else(|| chrono::NaiveDateTime::parse_from_str(last_access, "%Y-%m-%d %H:%M:%S")
+            .map(|dt| dt.and_utc())
+            .ok());
+
+    match parsed {
+        Some(ts) => {
+            let hours = (now - ts).num_hours();
+            if hours < 24 {
+                1.0
+            } else if hours < 24 * 7 {
+                0.5
+            } else {
+                0.0
+            }
+        }
+        None => 0.0,
+    }
+}
+
+/// Compute composite heat score
+///
+/// Formula: (normalized_AV * 0.3) + (RCR * 0.5) + (recency_bonus * 0.2)
+/// Where normalized_AV = min(velocity / 5.0, 1.0)
+pub fn compute_heat_score(velocity: f64, rcr: f64, last_access: &str) -> f64 {
+    let normalized_av = (velocity / 5.0).min(1.0);
+    let recency = compute_recency_bonus(last_access);
+    (normalized_av * 0.3) + (rcr * 0.5) + (recency * 0.2)
 }
 
 // =============================================================================
@@ -725,5 +918,160 @@ mod tests {
         assert!(input.session_id.is_empty());
         assert!(input.project_path.is_none());
         assert!(input.duration_seconds.is_none());
+    }
+
+    // =========================================================================
+    // Heat metric tests
+    // =========================================================================
+
+    #[test]
+    fn test_classify_heat_hot() {
+        assert_eq!(classify_heat(0.85), HeatLevel::Hot);
+    }
+
+    #[test]
+    fn test_classify_heat_warm() {
+        assert_eq!(classify_heat(0.55), HeatLevel::Warm);
+    }
+
+    #[test]
+    fn test_classify_heat_cool() {
+        assert_eq!(classify_heat(0.30), HeatLevel::Cool);
+    }
+
+    #[test]
+    fn test_classify_heat_cold() {
+        assert_eq!(classify_heat(0.10), HeatLevel::Cold);
+    }
+
+    #[test]
+    fn test_classify_heat_boundary_hot() {
+        // 0.7 is NOT hot (threshold is > 0.7), should be warm
+        assert_eq!(classify_heat(0.70), HeatLevel::Warm);
+    }
+
+    #[test]
+    fn test_classify_heat_boundary_warm() {
+        // 0.4 is warm (>= 0.4)
+        assert_eq!(classify_heat(0.40), HeatLevel::Warm);
+    }
+
+    #[test]
+    fn test_classify_heat_boundary_cool() {
+        // 0.2 is cool (>= 0.2)
+        assert_eq!(classify_heat(0.20), HeatLevel::Cool);
+    }
+
+    #[test]
+    fn test_compute_velocity_basic() {
+        // 30 accesses over 30 days = 1.0 accesses/day
+        let v = compute_velocity(30, "2026-01-01T00:00:00Z", "2026-01-31T00:00:00Z");
+        assert!((v - 1.0).abs() < 0.01, "Expected ~1.0, got {}", v);
+    }
+
+    #[test]
+    fn test_compute_velocity_single_day() {
+        // Same first/last day -> floor to 1 day
+        let v = compute_velocity(5, "2026-01-15T00:00:00Z", "2026-01-15T12:00:00Z");
+        assert!((v - 5.0).abs() < 0.01, "Expected ~5.0, got {}", v);
+    }
+
+    #[test]
+    fn test_compute_velocity_zero_accesses() {
+        let v = compute_velocity(0, "2026-01-01T00:00:00Z", "2026-01-31T00:00:00Z");
+        assert!((v - 0.0).abs() < f64::EPSILON, "Expected 0.0, got {}", v);
+    }
+
+    #[test]
+    fn test_recency_bonus_within_24h() {
+        let now = chrono::Utc::now().to_rfc3339();
+        let bonus = compute_recency_bonus(&now);
+        assert!((bonus - 1.0).abs() < f64::EPSILON, "Expected 1.0, got {}", bonus);
+    }
+
+    #[test]
+    fn test_recency_bonus_within_7d() {
+        let three_days_ago = (chrono::Utc::now() - chrono::Duration::days(3)).to_rfc3339();
+        let bonus = compute_recency_bonus(&three_days_ago);
+        assert!((bonus - 0.5).abs() < f64::EPSILON, "Expected 0.5, got {}", bonus);
+    }
+
+    #[test]
+    fn test_recency_bonus_old() {
+        let thirty_days_ago = (chrono::Utc::now() - chrono::Duration::days(30)).to_rfc3339();
+        let bonus = compute_recency_bonus(&thirty_days_ago);
+        assert!((bonus - 0.0).abs() < f64::EPSILON, "Expected 0.0, got {}", bonus);
+    }
+
+    #[test]
+    fn test_compute_heat_score_hot_file() {
+        // High velocity (5.0), high RCR (0.9), recent access -> should be > 0.7
+        let now = chrono::Utc::now().to_rfc3339();
+        let score = compute_heat_score(5.0, 0.9, &now);
+        assert!(score > 0.7, "Expected > 0.7, got {}", score);
+    }
+
+    #[test]
+    fn test_compute_heat_score_cold_file() {
+        // Low velocity (0.1), low RCR (0.05), old access -> should be < 0.2
+        let old = (chrono::Utc::now() - chrono::Duration::days(60)).to_rfc3339();
+        let score = compute_heat_score(0.1, 0.05, &old);
+        assert!(score < 0.2, "Expected < 0.2, got {}", score);
+    }
+
+    #[test]
+    fn test_compute_heat_score_velocity_cap() {
+        // AV > 5.0 should be normalized to 1.0
+        let now = chrono::Utc::now().to_rfc3339();
+        let score_at_5 = compute_heat_score(5.0, 0.5, &now);
+        let score_at_10 = compute_heat_score(10.0, 0.5, &now);
+        assert!(
+            (score_at_5 - score_at_10).abs() < f64::EPSILON,
+            "Velocity > 5.0 should be capped: {} vs {}",
+            score_at_5,
+            score_at_10
+        );
+    }
+
+    #[test]
+    fn test_heat_level_serialization() {
+        assert_eq!(
+            serde_json::to_string(&HeatLevel::Hot).unwrap(),
+            "\"HOT\""
+        );
+        assert_eq!(
+            serde_json::to_string(&HeatLevel::Warm).unwrap(),
+            "\"WARM\""
+        );
+        assert_eq!(
+            serde_json::to_string(&HeatLevel::Cool).unwrap(),
+            "\"COOL\""
+        );
+        assert_eq!(
+            serde_json::to_string(&HeatLevel::Cold).unwrap(),
+            "\"COLD\""
+        );
+    }
+
+    #[test]
+    fn test_heat_sort_by_default() {
+        let sort: HeatSortBy = Default::default();
+        assert!(matches!(sort, HeatSortBy::Heat));
+    }
+
+    #[test]
+    fn test_rcr_safe_division() {
+        // When count_long is 0, RCR should be 0.0 (handled by caller)
+        // But velocity should also be safe
+        let v = compute_velocity(0, "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z");
+        assert!((v - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_heat_level_display() {
+        assert_eq!(format!("{}", HeatLevel::Hot), "HOT");
+        assert_eq!(format!("{}", HeatLevel::Warm), "WARM");
+        assert_eq!(format!("{}", HeatLevel::Cool), "COOL");
+        assert_eq!(format!("{}", HeatLevel::Cold), "COLD");
     }
 }

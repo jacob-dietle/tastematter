@@ -31,9 +31,9 @@ use tastematter::{
     index::chain_graph::{build_chain_graph, ChainBuildResult},
     index::inverted_index::{build_inverted_index, get_sessions_for_file, IndexBuildResult},
     intelligence::{ChainNamingRequest, IntelClient},
-    CommandExecutedEvent, Database, QueryChainsInput, QueryCoAccessInput, QueryEngine,
-    QueryFileInput, QueryFlexInput, QueryReceiptsInput, QuerySearchInput, QuerySessionsInput,
-    QueryTimelineInput, QueryVerifyInput, TimeRangeBucket,
+    CommandExecutedEvent, Database, HeatSortBy, QueryChainsInput, QueryCoAccessInput, QueryEngine,
+    QueryFileInput, QueryFlexInput, QueryHeatInput, QueryReceiptsInput, QuerySearchInput,
+    QuerySessionsInput, QueryTimelineInput, QueryVerifyInput, TimeRangeBucket,
 };
 
 #[derive(Parser)]
@@ -349,6 +349,29 @@ enum QueryCommands {
         format: String,
     },
 
+    /// Show file heat metrics (RCR, velocity, composite score)
+    Heat {
+        /// Long window time range: 30d (default), 14d, 60d, 90d
+        #[arg(short, long, default_value = "30d")]
+        time: String,
+
+        /// File path pattern filter (glob-style)
+        #[arg(short, long)]
+        files: Option<String>,
+
+        /// Maximum results to return
+        #[arg(short, long, default_value = "50")]
+        limit: u32,
+
+        /// Sort by: heat (default), rcr, velocity, name
+        #[arg(short, long, default_value = "heat")]
+        sort: String,
+
+        /// Output format: table (default), json, compact, csv
+        #[arg(long, default_value = "table")]
+        format: String,
+    },
+
     /// Verify a query receipt against current data
     Verify {
         /// Receipt ID to verify (e.g., q_abc123)
@@ -402,6 +425,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             QueryCommands::Search { .. } => "query_search",
             QueryCommands::File { .. } => "query_file",
             QueryCommands::CoAccess { .. } => "query_coaccess",
+            QueryCommands::Heat { time, .. } => {
+                time_range_bucket = Some(TimeRangeBucket::from_time_arg(time));
+                "query_heat"
+            }
             QueryCommands::Verify { .. } => "query_verify",
             QueryCommands::Receipts { .. } => "query_receipts",
         },
@@ -681,6 +708,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let query_result = engine.query_co_access(input).await?;
                 result_count = Some(query_result.results.len() as u32);
                 output(&query_result, &format)?;
+            }
+            QueryCommands::Heat {
+                time,
+                files,
+                limit,
+                sort,
+                format,
+            } => {
+                let sort_by = match sort.as_str() {
+                    "rcr" => HeatSortBy::Rcr,
+                    "velocity" => HeatSortBy::Velocity,
+                    "name" => HeatSortBy::Name,
+                    _ => HeatSortBy::Heat,
+                };
+                let input = QueryHeatInput {
+                    time: Some(time),
+                    files,
+                    limit: Some(limit),
+                    sort: Some(sort_by),
+                };
+                let query_result = engine.query_heat(input).await?;
+                result_count = Some(query_result.results.len() as u32);
+                match format.as_str() {
+                    "table" => output_heat_table(&query_result),
+                    "csv" => output_heat_csv(&query_result),
+                    _ => output(&query_result, &format)?,
+                }
             }
             QueryCommands::Verify { receipt_id, format } => {
                 let input = QueryVerifyInput { receipt_id };
@@ -1275,4 +1329,67 @@ fn output<T: serde::Serialize>(data: &T, format: &str) -> Result<(), Box<dyn std
         _ => println!("{}", serde_json::to_string_pretty(data)?),
     }
     Ok(())
+}
+
+/// Output heat results as a formatted table
+fn output_heat_table(result: &tastematter::HeatResult) {
+    // Header
+    println!(
+        "{:<60} {:>6} {:>6} {:>5} {:>7} {:>6} {:>4}",
+        "FILE", "7D", "TOTAL", "RCR", "VEL", "SCORE", "HEAT"
+    );
+    println!("{}", "-".repeat(100));
+
+    // Rows
+    for item in &result.results {
+        // Truncate long file paths
+        let display_path = if item.file_path.len() > 58 {
+            format!("..{}", &item.file_path[item.file_path.len() - 56..])
+        } else {
+            item.file_path.clone()
+        };
+
+        println!(
+            "{:<60} {:>6} {:>6} {:>5.2} {:>7.2} {:>6.3} {:>4}",
+            display_path,
+            item.count_7d,
+            item.count_long,
+            item.rcr,
+            item.velocity,
+            item.heat_score,
+            item.heat_level,
+        );
+    }
+
+    // Summary
+    println!("{}", "-".repeat(100));
+    println!(
+        "Total: {} files | HOT: {} | WARM: {} | COOL: {} | COLD: {} | Window: {}",
+        result.summary.total_files,
+        result.summary.hot_count,
+        result.summary.warm_count,
+        result.summary.cool_count,
+        result.summary.cold_count,
+        result.time_range,
+    );
+    println!("Receipt: {}", result.receipt_id);
+}
+
+/// Output heat results as CSV
+fn output_heat_csv(result: &tastematter::HeatResult) {
+    println!("file_path,count_7d,count_long,rcr,velocity,heat_score,heat_level,first_access,last_access");
+    for item in &result.results {
+        println!(
+            "{},{},{},{:.4},{:.4},{:.4},{},{},{}",
+            item.file_path,
+            item.count_7d,
+            item.count_long,
+            item.rcr,
+            item.velocity,
+            item.heat_score,
+            item.heat_level,
+            item.first_access,
+            item.last_access,
+        );
+    }
 }
