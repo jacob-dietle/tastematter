@@ -953,10 +953,22 @@ impl QueryEngine {
 
         // Compute summary
         let total_files = items.len() as u32;
-        let hot_count = items.iter().filter(|i| i.heat_level == HeatLevel::Hot).count() as u32;
-        let warm_count = items.iter().filter(|i| i.heat_level == HeatLevel::Warm).count() as u32;
-        let cool_count = items.iter().filter(|i| i.heat_level == HeatLevel::Cool).count() as u32;
-        let cold_count = items.iter().filter(|i| i.heat_level == HeatLevel::Cold).count() as u32;
+        let hot_count = items
+            .iter()
+            .filter(|i| i.heat_level == HeatLevel::Hot)
+            .count() as u32;
+        let warm_count = items
+            .iter()
+            .filter(|i| i.heat_level == HeatLevel::Warm)
+            .count() as u32;
+        let cool_count = items
+            .iter()
+            .filter(|i| i.heat_level == HeatLevel::Cool)
+            .count() as u32;
+        let cold_count = items
+            .iter()
+            .filter(|i| i.heat_level == HeatLevel::Cold)
+            .count() as u32;
 
         let elapsed = start.elapsed();
         log::info!("query_heat completed in {:?}", elapsed);

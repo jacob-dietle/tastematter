@@ -1642,7 +1642,9 @@ mod tests {
 
         // /shared.rs kept (real Read), /snapshot_only.rs dropped
         assert!(summary.files_read.contains(&"/shared.rs".to_string()));
-        assert!(!summary.files_read.contains(&"/snapshot_only.rs".to_string()));
+        assert!(!summary
+            .files_read
+            .contains(&"/snapshot_only.rs".to_string()));
         assert_eq!(summary.files_read.len(), 1);
     }
 
