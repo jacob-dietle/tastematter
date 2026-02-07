@@ -740,13 +740,12 @@ mod tests {
         );
 
         // Verify the row was written
-        let row: (String, f64) = sqlx::query_as(
-            "SELECT category, confidence FROM chain_metadata WHERE chain_id = ?",
-        )
-        .bind("test-chain-id")
-        .fetch_one(db.pool())
-        .await
-        .unwrap();
+        let row: (String, f64) =
+            sqlx::query_as("SELECT category, confidence FROM chain_metadata WHERE chain_id = ?")
+                .bind("test-chain-id")
+                .fetch_one(db.pool())
+                .await
+                .unwrap();
 
         assert_eq!(row.0, "development");
         assert!((row.1 - 0.95).abs() < f64::EPSILON);

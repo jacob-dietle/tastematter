@@ -799,7 +799,9 @@ pub fn extract_project_path_from_file(path: &Path) -> Option<String> {
 ///
 /// Returns (messages, file_size, cwd). The `cwd` is extracted from the first
 /// record's `cwd` field, giving the real project path (vs lossy filename decoding).
-pub fn parse_session_file(path: &Path) -> Result<(Vec<ParsedMessage>, i64, Option<String>), String> {
+pub fn parse_session_file(
+    path: &Path,
+) -> Result<(Vec<ParsedMessage>, i64, Option<String>), String> {
     let file =
         fs::File::open(path).map_err(|e| format!("Failed to open {}: {}", path.display(), e))?;
 

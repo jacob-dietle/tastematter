@@ -1381,10 +1381,7 @@ fn output_heat_table(result: &tastematter::HeatResult) {
 /// Output chain results as a formatted table
 fn output_chains_table(result: &tastematter::ChainQueryResult) {
     // Header
-    println!(
-        "{:<40} {:>8} {:>8}  ID",
-        "CHAIN", "SESSIONS", "FILES"
-    );
+    println!("{:<40} {:>8} {:>8}  ID", "CHAIN", "SESSIONS", "FILES");
     println!("{}", "-".repeat(90));
 
     // Rows

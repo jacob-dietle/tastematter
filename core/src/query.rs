@@ -1609,12 +1609,7 @@ impl QueryEngine {
 
         // Begin an IMMEDIATE transaction to acquire a write lock upfront.
         // Readers (WAL mode) see the old complete state until COMMIT.
-        let mut tx = self
-            .db
-            .pool()
-            .begin()
-            .await
-            .map_err(CoreError::Database)?;
+        let mut tx = self.db.pool().begin().await.map_err(CoreError::Database)?;
 
         // Remove stale chains that no longer exist in the input set
         if current_chain_ids.is_empty() {
@@ -1832,11 +1827,7 @@ mod tests {
 
         // Long message — truncated at word boundary
         let long_msg = "Can you help me refactor the authentication module to use JWT tokens instead of session cookies for better scalability";
-        let result = compute_display_name(
-            "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
-            None,
-            Some(long_msg),
-        );
+        let result = compute_display_name("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4", None, Some(long_msg));
         assert!(result.len() <= 60);
         assert!(result.ends_with("..."));
 
@@ -1861,19 +1852,11 @@ mod tests {
 
     #[test]
     fn test_compute_display_name_fallback_hex_id() {
-        let result = compute_display_name(
-            "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
-            None,
-            None,
-        );
+        let result = compute_display_name("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4", None, None);
         assert_eq!(result, "a1b2c3d4e5f6...");
 
         // Empty first_user_message also falls through
-        let result = compute_display_name(
-            "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
-            None,
-            Some(""),
-        );
+        let result = compute_display_name("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4", None, Some(""));
         assert_eq!(result, "a1b2c3d4e5f6...");
 
         // Short chain_id (edge case)
@@ -1958,8 +1941,14 @@ mod tests {
         let chains_count2 = count_chain_rows(&engine, "chains").await;
         let graph_count2 = count_chain_rows(&engine, "chain_graph").await;
 
-        assert_eq!(chains_count1, chains_count2, "chains row count must be stable");
-        assert_eq!(graph_count1, graph_count2, "chain_graph row count must be stable");
+        assert_eq!(
+            chains_count1, chains_count2,
+            "chains row count must be stable"
+        );
+        assert_eq!(
+            graph_count1, graph_count2,
+            "chain_graph row count must be stable"
+        );
         assert_eq!(
             result1.rows_affected, result2.rows_affected,
             "rows_affected must be stable"
@@ -1996,7 +1985,10 @@ mod tests {
                 .await
                 .unwrap()
                 .get("cnt");
-        assert_eq!(stale_count, 0, "stale chain_graph entries should be removed");
+        assert_eq!(
+            stale_count, 0,
+            "stale chain_graph entries should be removed"
+        );
 
         // Remaining chains should be intact
         assert_eq!(count_chain_rows(&engine, "chain_graph").await, 4); // 2 chains x 2 sessions
