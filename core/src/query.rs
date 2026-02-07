@@ -1059,11 +1059,9 @@ impl QueryEngine {
              FROM all_files af
              WHERE 1=1
                {file_filter}
-             GROUP BY af.file_path
-             LIMIT {limit}",
+             GROUP BY af.file_path",
             file_filter = file_filter,
             days = days,
-            limit = limit,
         );
 
         // Bind file filter pattern (once)
@@ -1133,6 +1131,9 @@ impl QueryEngine {
             }),
             HeatSortBy::Name => items.sort_by(|a, b| a.file_path.cmp(&b.file_path)),
         }
+
+        // Apply limit AFTER sort (not in SQL, where it truncates before scoring)
+        items.truncate(limit as usize);
 
         // Compute summary
         let total_files = items.len() as u32;
