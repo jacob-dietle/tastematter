@@ -845,6 +845,7 @@ mod tests {
     // =========================================================================
 
     #[test]
+    #[ignore] // Requires local workstreams.yaml — not available in CI
     fn test_load_workstreams_from_real_yaml() {
         // Test loading from actual project workstreams.yaml
         let project_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
