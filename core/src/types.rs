@@ -231,6 +231,10 @@ pub struct ChainTimeRange {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChainData {
     pub chain_id: String,
+
+    /// Human-readable name: generated_name → first_user_message (truncated) → chain_id[:12]+"..."
+    pub display_name: String,
+
     pub session_count: u32,
     pub file_count: u32,
 
@@ -240,6 +244,10 @@ pub struct ChainData {
     /// AI-generated human-readable name for the chain (from Intel service)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub generated_name: Option<String>,
+
+    /// Chain summary from Intel service
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
 }
 
 /// Chain query result
@@ -397,6 +405,10 @@ pub struct SessionData {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chain_id: Option<String>,
+
+    /// Human-readable chain name (from chain_metadata.generated_name)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chain_name: Option<String>,
 
     pub started_at: String,
 
@@ -832,10 +844,12 @@ mod tests {
         // ChainData should have an optional generated_name field for Intel enrichment
         let chain = ChainData {
             chain_id: "abc123".to_string(),
+            display_name: "Authentication refactor".to_string(),
             session_count: 10,
             file_count: 25,
             time_range: None,
             generated_name: Some("Authentication refactor".to_string()),
+            summary: None,
         };
 
         assert_eq!(
@@ -849,10 +863,12 @@ mod tests {
         // generated_name should be included in JSON when present
         let chain = ChainData {
             chain_id: "abc123".to_string(),
+            display_name: "Query engine port".to_string(),
             session_count: 10,
             file_count: 25,
             time_range: None,
             generated_name: Some("Query engine port".to_string()),
+            summary: None,
         };
 
         let json = serde_json::to_string(&chain).unwrap();
@@ -865,10 +881,12 @@ mod tests {
         // generated_name should be omitted from JSON when None (skip_serializing_if)
         let chain = ChainData {
             chain_id: "abc123".to_string(),
+            display_name: "abc123...".to_string(),
             session_count: 10,
             file_count: 25,
             time_range: None,
             generated_name: None,
+            summary: None,
         };
 
         let json = serde_json::to_string(&chain).unwrap();

@@ -24,6 +24,52 @@ fn generate_receipt_id() -> String {
     format!("q_{:06x}", hash & 0xFFFFFF) // 6 hex chars
 }
 
+/// Compute a human-readable display name for a chain.
+///
+/// Fallback priority:
+/// 1. generated_name (from Intel service)
+/// 2. first_user_message (truncated to 60 chars)
+/// 3. chain_id[:12] + "..."
+fn compute_display_name(
+    chain_id: &str,
+    generated_name: Option<&str>,
+    first_user_message: Option<&str>,
+) -> String {
+    if let Some(name) = generated_name {
+        if !name.is_empty() {
+            return name.to_string();
+        }
+    }
+
+    if let Some(msg) = first_user_message {
+        if !msg.is_empty() {
+            let trimmed = msg.trim();
+            if trimmed.len() <= 60 {
+                return trimmed.to_string();
+            }
+            // Find a safe char boundary near 57 bytes for truncation
+            let safe_end = trimmed
+                .char_indices()
+                .take_while(|(i, _)| *i <= 57)
+                .last()
+                .map(|(i, c)| i + c.len_utf8())
+                .unwrap_or(57.min(trimmed.len()));
+            // Truncate at word boundary near safe_end
+            if let Some(pos) = trimmed[..safe_end].rfind(' ') {
+                return format!("{}...", &trimmed[..pos]);
+            }
+            return format!("{}...", &trimmed[..safe_end]);
+        }
+    }
+
+    // Final fallback: truncated hex ID
+    if chain_id.len() > 12 {
+        format!("{}...", &chain_id[..12])
+    } else {
+        chain_id.to_string()
+    }
+}
+
 /// Query engine for context-os
 ///
 /// Provides direct SQLite queries with sub-100ms latency.
@@ -55,29 +101,39 @@ impl QueryEngine {
         let start = Instant::now();
 
         // Build the query dynamically based on filters
-        // Data is in claude_sessions.files_read as JSON array, use json_each() to expand
+        // FIX BUG-05: Use CTE to include both files_read and files_written
         // chain_id is in chain_graph table, joined via session_id
-        let mut sql = String::from(
-            "SELECT
-                json_each.value as file_path,
+
+        // Build time filter for CTE legs
+        let time_filter = if let Some(ref time) = input.time {
+            let days = parse_time_range(time)?;
+            format!(" AND s.started_at >= datetime('now', '-{} days')", days)
+        } else {
+            String::new()
+        };
+
+        let mut sql = format!(
+            "WITH all_files AS (
+                SELECT s.session_id, s.started_at, json_each.value as file_path
+                FROM claude_sessions s, json_each(s.files_read)
+                WHERE s.files_read IS NOT NULL AND s.files_read != '[]'{time_filter}
+                UNION ALL
+                SELECT s.session_id, s.started_at, json_each.value as file_path
+                FROM claude_sessions s, json_each(s.files_written)
+                WHERE s.files_written IS NOT NULL AND s.files_written != '[]'{time_filter}
+            )
+            SELECT
+                af.file_path,
                 COUNT(*) as total_access_count,
-                MAX(s.started_at) as last_access,
-                COUNT(DISTINCT s.session_id) as session_count
-             FROM claude_sessions s, json_each(s.files_read)
-             LEFT JOIN chain_graph cg ON s.session_id = cg.session_id
-             WHERE s.files_read IS NOT NULL AND s.files_read != '[]'",
+                MAX(af.started_at) as last_access,
+                COUNT(DISTINCT af.session_id) as session_count
+             FROM all_files af
+             LEFT JOIN chain_graph cg ON af.session_id = cg.session_id
+             WHERE 1=1",
+            time_filter = time_filter,
         );
 
         let mut bindings: Vec<String> = Vec::new();
-
-        // Add time filter (using session started_at)
-        if let Some(ref time) = input.time {
-            let days = parse_time_range(time)?;
-            sql.push_str(&format!(
-                " AND s.started_at >= datetime('now', '-{} days')",
-                days
-            ));
-        }
 
         // Add chain filter (via chain_graph join)
         if let Some(ref chain) = input.chain {
@@ -87,7 +143,7 @@ impl QueryEngine {
 
         // Add session filter
         if let Some(ref session) = input.session {
-            sql.push_str(" AND s.session_id = ?");
+            sql.push_str(" AND af.session_id = ?");
             bindings.push(session.clone());
         }
 
@@ -95,12 +151,12 @@ impl QueryEngine {
         if let Some(ref files) = input.files {
             // Convert glob-style pattern to SQL LIKE pattern
             let pattern = files.replace('*', "%").replace('?', "_");
-            sql.push_str(" AND json_each.value LIKE ?");
+            sql.push_str(" AND af.file_path LIKE ?");
             bindings.push(pattern);
         }
 
         // Group by file_path
-        sql.push_str(" GROUP BY json_each.value");
+        sql.push_str(" GROUP BY af.file_path");
 
         // Add sorting
         match input.sort.as_deref() {
@@ -161,12 +217,23 @@ impl QueryEngine {
         // FIX BUG-001: Compute file_count dynamically by joining to session data
         // instead of reading from stale chains.files_json column
         // FIX: LEFT JOIN chain_metadata to include Intel-generated names
+        // FIX LIVE-02: Add summary and first_user_message for display_name fallback
         let sql = format!(
             "SELECT
                 cg.chain_id,
                 COUNT(DISTINCT cg.session_id) as session_count,
                 COUNT(DISTINCT json_each.value) as file_count,
-                cm.generated_name
+                cm.generated_name,
+                cm.summary,
+                (SELECT s2.first_user_message
+                 FROM claude_sessions s2
+                 JOIN chain_graph cg2 ON s2.session_id = cg2.session_id
+                 WHERE cg2.chain_id = cg.chain_id
+                   AND s2.first_user_message IS NOT NULL
+                   AND s2.first_user_message != ''
+                 ORDER BY s2.started_at ASC
+                 LIMIT 1
+                ) as first_user_message
              FROM chain_graph cg
              JOIN claude_sessions s ON cg.session_id = s.session_id
              LEFT JOIN json_each(s.files_read) ON s.files_read IS NOT NULL AND s.files_read != '[]'
@@ -182,12 +249,25 @@ impl QueryEngine {
         let chains: Vec<ChainData> = rows
             .iter()
             .map(|row| {
+                let chain_id: String = row.get("chain_id");
+                let generated_name: Option<String> = row.get("generated_name");
+                let first_user_message: Option<String> = row.get("first_user_message");
+                let summary: Option<String> = row.get("summary");
+
+                let display_name = compute_display_name(
+                    &chain_id,
+                    generated_name.as_deref(),
+                    first_user_message.as_deref(),
+                );
+
                 ChainData {
-                    chain_id: row.get("chain_id"),
+                    chain_id,
+                    display_name,
                     session_count: row.get::<i64, _>("session_count") as u32,
                     file_count: row.get::<i64, _>("file_count") as u32,
-                    time_range: None, // TODO: Add time range query if needed
-                    generated_name: row.get::<Option<String>, _>("generated_name"),
+                    time_range: None,
+                    generated_name,
+                    summary,
                 }
             })
             .collect();
@@ -214,18 +294,28 @@ impl QueryEngine {
         let days = parse_time_range(&input.time)?;
         let limit = input.limit.unwrap_or(30);
 
-        // Get daily buckets from claude_sessions.files_read JSON
+        // Get daily buckets — FIX BUG-05: include files_written via CTE
         let mut bucket_sql = format!(
-            "SELECT
-                date(s.started_at) as date,
+            "WITH all_files AS (
+                SELECT s.session_id, s.started_at, json_each.value as file_path
+                FROM claude_sessions s, json_each(s.files_read)
+                WHERE s.started_at >= datetime('now', '-{days} days')
+                  AND s.files_read IS NOT NULL AND s.files_read != '[]'
+                UNION ALL
+                SELECT s.session_id, s.started_at, json_each.value as file_path
+                FROM claude_sessions s, json_each(s.files_written)
+                WHERE s.started_at >= datetime('now', '-{days} days')
+                  AND s.files_written IS NOT NULL AND s.files_written != '[]'
+            )
+            SELECT
+                date(af.started_at) as date,
                 COUNT(*) as access_count,
-                COUNT(DISTINCT json_each.value) as files_touched,
-                GROUP_CONCAT(DISTINCT s.session_id) as sessions
-             FROM claude_sessions s, json_each(s.files_read)
-             LEFT JOIN chain_graph cg ON s.session_id = cg.session_id
-             WHERE s.started_at >= datetime('now', '-{} days')
-               AND s.files_read IS NOT NULL AND s.files_read != '[]'",
-            days
+                COUNT(DISTINCT af.file_path) as files_touched,
+                GROUP_CONCAT(DISTINCT af.session_id) as sessions
+             FROM all_files af
+             LEFT JOIN chain_graph cg ON af.session_id = cg.session_id
+             WHERE 1=1",
+            days = days
         );
 
         let mut bucket_bindings: Vec<String> = Vec::new();
@@ -234,7 +324,7 @@ impl QueryEngine {
             bucket_bindings.push(chain.clone());
         }
 
-        bucket_sql.push_str(" GROUP BY date(s.started_at) ORDER BY date DESC");
+        bucket_sql.push_str(" GROUP BY date(af.started_at) ORDER BY date DESC");
 
         let mut bucket_query = sqlx::query(&bucket_sql);
         for binding in &bucket_bindings {
@@ -268,18 +358,28 @@ impl QueryEngine {
             })
             .collect();
 
-        // Get per-file timeline data from claude_sessions.files_read JSON
+        // Get per-file timeline data — FIX BUG-05: include files_written
         let mut file_sql = format!(
-            "SELECT
-                json_each.value as file_path,
+            "WITH all_files AS (
+                SELECT s.session_id, s.started_at, json_each.value as file_path
+                FROM claude_sessions s, json_each(s.files_read)
+                WHERE s.started_at >= datetime('now', '-{days} days')
+                  AND s.files_read IS NOT NULL AND s.files_read != '[]'
+                UNION ALL
+                SELECT s.session_id, s.started_at, json_each.value as file_path
+                FROM claude_sessions s, json_each(s.files_written)
+                WHERE s.started_at >= datetime('now', '-{days} days')
+                  AND s.files_written IS NOT NULL AND s.files_written != '[]'
+            )
+            SELECT
+                af.file_path,
                 COUNT(*) as total_accesses,
-                MIN(s.started_at) as first_access,
-                MAX(s.started_at) as last_access
-             FROM claude_sessions s, json_each(s.files_read)
-             LEFT JOIN chain_graph cg ON s.session_id = cg.session_id
-             WHERE s.started_at >= datetime('now', '-{} days')
-               AND s.files_read IS NOT NULL AND s.files_read != '[]'",
-            days
+                MIN(af.started_at) as first_access,
+                MAX(af.started_at) as last_access
+             FROM all_files af
+             LEFT JOIN chain_graph cg ON af.session_id = cg.session_id
+             WHERE 1=1",
+            days = days
         );
 
         let mut file_bindings: Vec<String> = Vec::new();
@@ -290,12 +390,12 @@ impl QueryEngine {
 
         if let Some(ref files) = input.files {
             let pattern = files.replace('*', "%").replace('?', "_");
-            file_sql.push_str(" AND json_each.value LIKE ?");
+            file_sql.push_str(" AND af.file_path LIKE ?");
             file_bindings.push(pattern);
         }
 
         file_sql.push_str(&format!(
-            " GROUP BY json_each.value
+            " GROUP BY af.file_path
              ORDER BY total_accesses DESC
              LIMIT {}",
             limit
@@ -307,18 +407,27 @@ impl QueryEngine {
         }
         let file_rows = file_query.fetch_all(self.db.pool()).await?;
 
-        // Query per-file, per-date bucket counts
-        // This populates the file.buckets HashMap for heat map rendering
+        // Query per-file, per-date bucket counts — FIX BUG-05: include files_written
         let mut per_file_bucket_sql = format!(
-            "SELECT
-                json_each.value as file_path,
-                date(s.started_at) as date,
+            "WITH all_files AS (
+                SELECT s.session_id, s.started_at, json_each.value as file_path
+                FROM claude_sessions s, json_each(s.files_read)
+                WHERE s.started_at >= datetime('now', '-{days} days')
+                  AND s.files_read IS NOT NULL AND s.files_read != '[]'
+                UNION ALL
+                SELECT s.session_id, s.started_at, json_each.value as file_path
+                FROM claude_sessions s, json_each(s.files_written)
+                WHERE s.started_at >= datetime('now', '-{days} days')
+                  AND s.files_written IS NOT NULL AND s.files_written != '[]'
+            )
+            SELECT
+                af.file_path,
+                date(af.started_at) as date,
                 COUNT(*) as count
-             FROM claude_sessions s, json_each(s.files_read)
-             LEFT JOIN chain_graph cg ON s.session_id = cg.session_id
-             WHERE s.started_at >= datetime('now', '-{} days')
-               AND s.files_read IS NOT NULL AND s.files_read != '[]'",
-            days
+             FROM all_files af
+             LEFT JOIN chain_graph cg ON af.session_id = cg.session_id
+             WHERE 1=1",
+            days = days
         );
 
         let mut bucket_bindings: Vec<String> = Vec::new();
@@ -327,7 +436,7 @@ impl QueryEngine {
             bucket_bindings.push(chain.clone());
         }
 
-        per_file_bucket_sql.push_str(" GROUP BY json_each.value, date(s.started_at)");
+        per_file_bucket_sql.push_str(" GROUP BY af.file_path, date(af.started_at)");
 
         let mut bucket_query = sqlx::query(&per_file_bucket_sql);
         for binding in &bucket_bindings {
@@ -422,22 +531,32 @@ impl QueryEngine {
         let limit = input.limit.unwrap_or(50);
 
         // Build query for sessions - use subquery to count files from JSON
+        // FIX LIVE-02: Join chain_metadata to include chain_name
+        // FIX BUG-10: Include files_written in file_count and total_accesses
         let mut sql = format!(
             "SELECT
                 s.session_id,
                 cg.chain_id,
+                cm.generated_name as chain_name,
                 s.started_at,
                 s.ended_at,
-                CASE
-                    WHEN s.files_read IS NULL OR s.files_read = '[]' THEN 0
-                    ELSE (SELECT COUNT(*) FROM json_each(s.files_read))
-                END as file_count,
-                CASE
-                    WHEN s.files_read IS NULL OR s.files_read = '[]' THEN 0
-                    ELSE (SELECT COUNT(*) FROM json_each(s.files_read))
-                END as total_accesses
+                (
+                    CASE WHEN s.files_read IS NULL OR s.files_read = '[]' THEN 0
+                         ELSE (SELECT COUNT(*) FROM json_each(s.files_read)) END
+                    +
+                    CASE WHEN s.files_written IS NULL OR s.files_written = '[]' THEN 0
+                         ELSE (SELECT COUNT(*) FROM json_each(s.files_written)) END
+                ) as file_count,
+                (
+                    CASE WHEN s.files_read IS NULL OR s.files_read = '[]' THEN 0
+                         ELSE (SELECT COUNT(*) FROM json_each(s.files_read)) END
+                    +
+                    CASE WHEN s.files_written IS NULL OR s.files_written = '[]' THEN 0
+                         ELSE (SELECT COUNT(*) FROM json_each(s.files_written)) END
+                ) as total_accesses
              FROM claude_sessions s
              LEFT JOIN chain_graph cg ON s.session_id = cg.session_id
+             LEFT JOIN chain_metadata cm ON cg.chain_id = cm.chain_id
              WHERE s.started_at >= datetime('now', '-{} days')",
             days
         );
@@ -481,16 +600,22 @@ impl QueryEngine {
                 None
             };
 
-            // Get top files for this session from files_read JSON
-            let files_sql = "SELECT
-                    json_each.value as file_path,
-                    1 as access_count,
-                    s.started_at as first_accessed_at
-                 FROM claude_sessions s, json_each(s.files_read)
-                 WHERE s.session_id = ?
+            // Get top files for this session — FIX BUG-10: include files_written
+            // Use UNION (not UNION ALL) to dedup files present in both
+            let files_sql = "SELECT file_path, 1 as access_count, started_at as first_accessed_at
+                 FROM (
+                    SELECT json_each.value as file_path, s.started_at
+                    FROM claude_sessions s, json_each(s.files_read)
+                    WHERE s.session_id = ? AND s.files_read IS NOT NULL AND s.files_read != '[]'
+                    UNION
+                    SELECT json_each.value as file_path, s.started_at
+                    FROM claude_sessions s, json_each(s.files_written)
+                    WHERE s.session_id = ? AND s.files_written IS NOT NULL AND s.files_written != '[]'
+                 )
                  LIMIT 5";
 
             let file_rows = sqlx::query(files_sql)
+                .bind(&session_id)
                 .bind(&session_id)
                 .fetch_all(self.db.pool())
                 .await?;
@@ -510,6 +635,7 @@ impl QueryEngine {
             sessions.push(SessionData {
                 session_id,
                 chain_id: row.get("chain_id"),
+                chain_name: row.get("chain_name"),
                 started_at,
                 ended_at,
                 duration_seconds,
@@ -520,21 +646,32 @@ impl QueryEngine {
             });
         }
 
-        // Get chain summaries via chain_graph join with claude_sessions JSON
+        // Get chain summaries — FIX BUG-05: include files_written
         let chain_sql = format!(
-            "SELECT
+            "WITH all_files AS (
+                SELECT s.session_id, s.started_at, json_each.value as file_path
+                FROM claude_sessions s, json_each(s.files_read)
+                WHERE s.started_at >= datetime('now', '-{days} days')
+                  AND s.files_read IS NOT NULL AND s.files_read != '[]'
+                UNION
+                SELECT s.session_id, s.started_at, json_each.value as file_path
+                FROM claude_sessions s, json_each(s.files_written)
+                WHERE s.started_at >= datetime('now', '-{days} days')
+                  AND s.files_written IS NOT NULL AND s.files_written != '[]'
+            )
+            SELECT
                 cg.chain_id,
                 COUNT(DISTINCT cg.session_id) as session_count,
-                COUNT(DISTINCT json_each.value) as file_count,
-                MAX(s.started_at) as last_active
+                COUNT(DISTINCT af.file_path) as file_count,
+                MAX(af.started_at) as last_active
              FROM chain_graph cg
              JOIN claude_sessions s ON cg.session_id = s.session_id
-             LEFT JOIN json_each(s.files_read) ON s.files_read IS NOT NULL AND s.files_read != '[]'
-             WHERE s.started_at >= datetime('now', '-{} days')
+             LEFT JOIN all_files af ON af.session_id = s.session_id
+             WHERE s.started_at >= datetime('now', '-{days} days')
                AND cg.chain_id IS NOT NULL
              GROUP BY cg.chain_id
              ORDER BY last_active DESC",
-            days
+            days = days
         );
 
         let chain_rows = sqlx::query(&chain_sql).fetch_all(self.db.pool()).await?;
@@ -593,16 +730,20 @@ impl QueryEngine {
         let limit = input.limit.unwrap_or(20) as i64;
         let pattern = format!("%{}%", input.pattern.to_lowercase());
 
-        // Query file_accesses table (or claude_sessions.files_read JSON)
-        // Using claude_sessions.files_read to match Python behavior
-        let sql = "SELECT
-                json_each.value as file_path,
-                COUNT(*) as access_count
-             FROM claude_sessions s, json_each(s.files_read)
-             WHERE s.files_read IS NOT NULL
-               AND s.files_read != '[]'
-               AND LOWER(json_each.value) LIKE ?
-             GROUP BY json_each.value
+        // FIX BUG-05: Include files_written in search via CTE
+        let sql = "WITH all_files AS (
+                SELECT json_each.value as file_path
+                FROM claude_sessions s, json_each(s.files_read)
+                WHERE s.files_read IS NOT NULL AND s.files_read != '[]'
+                UNION ALL
+                SELECT json_each.value as file_path
+                FROM claude_sessions s, json_each(s.files_written)
+                WHERE s.files_written IS NOT NULL AND s.files_written != '[]'
+            )
+            SELECT file_path, COUNT(*) as access_count
+             FROM all_files
+             WHERE LOWER(file_path) LIKE ?
+             GROUP BY file_path
              ORDER BY access_count DESC
              LIMIT ?";
 
@@ -647,18 +788,33 @@ impl QueryEngine {
         let limit = input.limit.unwrap_or(20) as i64;
         let file_path = &input.file_path;
 
-        // First try exact match
-        let exact_sql = "SELECT DISTINCT
-                s.session_id,
-                s.started_at as last_access,
-                cg.chain_id
-             FROM claude_sessions s, json_each(s.files_read)
-             LEFT JOIN chain_graph cg ON s.session_id = cg.session_id
-             WHERE json_each.value = ?
-             ORDER BY s.started_at DESC
-             LIMIT ?";
+        // FIX BUG-05: Include files_written in file queries via CTE
+        // Reusable CTE SQL fragment for all three match attempts
+        let cte = "WITH all_files AS (
+                SELECT s.session_id, s.started_at, json_each.value as file_path
+                FROM claude_sessions s, json_each(s.files_read)
+                WHERE s.files_read IS NOT NULL AND s.files_read != '[]'
+                UNION ALL
+                SELECT s.session_id, s.started_at, json_each.value as file_path
+                FROM claude_sessions s, json_each(s.files_written)
+                WHERE s.files_written IS NOT NULL AND s.files_written != '[]'
+            )";
 
-        let rows = sqlx::query(exact_sql)
+        // First try exact match
+        let exact_sql = format!(
+            "{} SELECT DISTINCT
+                af.session_id,
+                af.started_at as last_access,
+                cg.chain_id
+             FROM all_files af
+             LEFT JOIN chain_graph cg ON af.session_id = cg.session_id
+             WHERE af.file_path = ?
+             ORDER BY af.started_at DESC
+             LIMIT ?",
+            cte
+        );
+
+        let rows = sqlx::query(&exact_sql)
             .bind(file_path)
             .bind(limit)
             .fetch_all(self.db.pool())
@@ -670,7 +826,7 @@ impl QueryEngine {
                 .iter()
                 .map(|row| FileSessionInfo {
                     session_id: row.get("session_id"),
-                    access_types: vec!["read".to_string()], // Default to read
+                    access_types: vec!["read".to_string()],
                     last_access: row.get("last_access"),
                     chain_id: row.get("chain_id"),
                 })
@@ -678,19 +834,22 @@ impl QueryEngine {
             (Some(file_path.clone()), sessions)
         } else {
             // Try suffix match
-            let suffix_sql = "SELECT DISTINCT
-                    json_each.value as matched_path,
-                    s.session_id,
-                    s.started_at as last_access,
+            let suffix_sql = format!(
+                "{} SELECT DISTINCT
+                    af.file_path as matched_path,
+                    af.session_id,
+                    af.started_at as last_access,
                     cg.chain_id
-                 FROM claude_sessions s, json_each(s.files_read)
-                 LEFT JOIN chain_graph cg ON s.session_id = cg.session_id
-                 WHERE json_each.value LIKE ?
-                 ORDER BY s.started_at DESC
-                 LIMIT ?";
+                 FROM all_files af
+                 LEFT JOIN chain_graph cg ON af.session_id = cg.session_id
+                 WHERE af.file_path LIKE ?
+                 ORDER BY af.started_at DESC
+                 LIMIT ?",
+                cte
+            );
 
             let suffix_pattern = format!("%{}", file_path);
-            let suffix_rows = sqlx::query(suffix_sql)
+            let suffix_rows = sqlx::query(&suffix_sql)
                 .bind(&suffix_pattern)
                 .bind(limit)
                 .fetch_all(self.db.pool())
@@ -711,7 +870,7 @@ impl QueryEngine {
             } else {
                 // Try substring match
                 let substr_pattern = format!("%{}%", file_path);
-                let substr_rows = sqlx::query(suffix_sql)
+                let substr_rows = sqlx::query(&suffix_sql)
                     .bind(&substr_pattern)
                     .bind(limit)
                     .fetch_all(self.db.pool())
@@ -766,10 +925,16 @@ impl QueryEngine {
         let limit = input.limit.unwrap_or(10) as i64;
         let file_path = &input.file_path;
 
-        // Get sessions that touched this file
-        let sessions_sql = "SELECT DISTINCT s.session_id
-             FROM claude_sessions s, json_each(s.files_read)
-             WHERE json_each.value LIKE ?";
+        // Get sessions that touched this file — FIX BUG-05: include files_written
+        let sessions_sql = "SELECT DISTINCT session_id FROM (
+                SELECT s.session_id, json_each.value as file_path
+                FROM claude_sessions s, json_each(s.files_read)
+                WHERE s.files_read IS NOT NULL AND s.files_read != '[]'
+                UNION ALL
+                SELECT s.session_id, json_each.value as file_path
+                FROM claude_sessions s, json_each(s.files_written)
+                WHERE s.files_written IS NOT NULL AND s.files_written != '[]'
+            ) WHERE file_path LIKE ?";
 
         let file_pattern = format!("%{}%", file_path);
         let session_rows = sqlx::query(sessions_sql)
@@ -791,20 +956,29 @@ impl QueryEngine {
             });
         }
 
-        // Get files co-accessed in those sessions with frequency
-        // Simplified PMI: count co-occurrences / total sessions for file
+        // Get files co-accessed in those sessions — FIX BUG-05: include files_written
         let placeholders: Vec<String> = session_ids.iter().map(|_| "?".to_string()).collect();
+        let placeholders_str = placeholders.join(",");
         let co_access_sql = format!(
-            "SELECT
-                json_each.value as file_path,
-                COUNT(DISTINCT s.session_id) as co_count
-             FROM claude_sessions s, json_each(s.files_read)
-             WHERE s.session_id IN ({})
-               AND json_each.value NOT LIKE ?
-             GROUP BY json_each.value
+            "WITH all_files AS (
+                SELECT s.session_id, json_each.value as file_path
+                FROM claude_sessions s, json_each(s.files_read)
+                WHERE s.files_read IS NOT NULL AND s.files_read != '[]'
+                UNION ALL
+                SELECT s.session_id, json_each.value as file_path
+                FROM claude_sessions s, json_each(s.files_written)
+                WHERE s.files_written IS NOT NULL AND s.files_written != '[]'
+            )
+            SELECT
+                file_path,
+                COUNT(DISTINCT session_id) as co_count
+             FROM all_files
+             WHERE session_id IN ({})
+               AND file_path NOT LIKE ?
+             GROUP BY file_path
              ORDER BY co_count DESC
              LIMIT ?",
-            placeholders.join(",")
+            placeholders_str
         );
 
         let mut query = sqlx::query(&co_access_sql);
@@ -859,24 +1033,33 @@ impl QueryEngine {
 
         // Build file filter clause
         let file_filter = if input.files.is_some() {
-            " AND json_each.value LIKE ?"
+            " AND af.file_path LIKE ?"
         } else {
             ""
         };
 
-        // Single-scan approach: compute both 7d and long-window counts in one pass
-        // using conditional SUM for the short window (avoids double table scan)
+        // FIX BUG-06: Include files_written via CTE
         let sql = format!(
-            "SELECT json_each.value as file_path,
-                    SUM(CASE WHEN s.started_at >= datetime('now', '-7 days') THEN 1 ELSE 0 END) as count_7d,
+            "WITH all_files AS (
+                SELECT s.session_id, s.started_at, json_each.value as file_path
+                FROM claude_sessions s, json_each(s.files_read)
+                WHERE s.started_at >= datetime('now', '-{days} days')
+                  AND s.files_read IS NOT NULL AND s.files_read != '[]'
+                UNION ALL
+                SELECT s.session_id, s.started_at, json_each.value as file_path
+                FROM claude_sessions s, json_each(s.files_written)
+                WHERE s.started_at >= datetime('now', '-{days} days')
+                  AND s.files_written IS NOT NULL AND s.files_written != '[]'
+            )
+            SELECT af.file_path,
+                    SUM(CASE WHEN af.started_at >= datetime('now', '-7 days') THEN 1 ELSE 0 END) as count_7d,
                     COUNT(*) as count_long,
-                    MIN(s.started_at) as first_access,
-                    MAX(s.started_at) as last_access
-             FROM claude_sessions s, json_each(s.files_read)
-             WHERE s.started_at >= datetime('now', '-{days} days')
-               AND s.files_read IS NOT NULL AND s.files_read != '[]'
+                    MIN(af.started_at) as first_access,
+                    MAX(af.started_at) as last_access
+             FROM all_files af
+             WHERE 1=1
                {file_filter}
-             GROUP BY json_each.value
+             GROUP BY af.file_path
              LIMIT {limit}",
             file_filter = file_filter,
             days = days,
@@ -1421,47 +1604,62 @@ impl QueryEngine {
     ) -> Result<WriteResult, CoreError> {
         let mut rows = 0u64;
 
-        // Drop and recreate tables to avoid FK constraint issues from old Python schema
-        // The old Python schema had FK constraints that cause issues during Rust sync
-        sqlx::query("DROP TABLE IF EXISTS chain_graph")
-            .execute(self.db.pool())
+        // Collect current chain IDs for stale detection
+        let current_chain_ids: Vec<&str> = chains.keys().map(|s| s.as_str()).collect();
+
+        // Begin an IMMEDIATE transaction to acquire a write lock upfront.
+        // Readers (WAL mode) see the old complete state until COMMIT.
+        let mut tx = self
+            .db
+            .pool()
+            .begin()
             .await
             .map_err(CoreError::Database)?;
 
-        sqlx::query("DROP TABLE IF EXISTS chains")
-            .execute(self.db.pool())
-            .await
-            .map_err(CoreError::Database)?;
+        // Remove stale chains that no longer exist in the input set
+        if current_chain_ids.is_empty() {
+            sqlx::query("DELETE FROM chain_graph")
+                .execute(&mut *tx)
+                .await
+                .map_err(CoreError::Database)?;
+            sqlx::query("DELETE FROM chains")
+                .execute(&mut *tx)
+                .await
+                .map_err(CoreError::Database)?;
+        } else {
+            // Batch deletion to respect SQLite's ~999 parameter limit
+            for batch in current_chain_ids.chunks(500) {
+                let placeholders: String = batch
+                    .iter()
+                    .enumerate()
+                    .map(|(i, _)| format!("?{}", i + 1))
+                    .collect::<Vec<_>>()
+                    .join(", ");
 
-        // Recreate tables WITHOUT foreign key constraints
-        sqlx::query(
-            "CREATE TABLE chains (
-                chain_id TEXT PRIMARY KEY,
-                root_session_id TEXT,
-                session_count INTEGER,
-                files_count INTEGER,
-                updated_at TEXT
-            )",
-        )
-        .execute(self.db.pool())
-        .await
-        .map_err(CoreError::Database)?;
+                let delete_graph_sql = format!(
+                    "DELETE FROM chain_graph WHERE chain_id NOT IN ({})",
+                    placeholders
+                );
+                let mut q1 = sqlx::query(&delete_graph_sql);
+                for id in batch {
+                    q1 = q1.bind(id);
+                }
+                q1.execute(&mut *tx).await.map_err(CoreError::Database)?;
 
-        sqlx::query(
-            "CREATE TABLE chain_graph (
-                session_id TEXT PRIMARY KEY,
-                chain_id TEXT,
-                parent_session_id TEXT,
-                is_root BOOLEAN,
-                indexed_at TEXT
-            )",
-        )
-        .execute(self.db.pool())
-        .await
-        .map_err(CoreError::Database)?;
+                let delete_chains_sql = format!(
+                    "DELETE FROM chains WHERE chain_id NOT IN ({})",
+                    placeholders
+                );
+                let mut q2 = sqlx::query(&delete_chains_sql);
+                for id in batch {
+                    q2 = q2.bind(id);
+                }
+                q2.execute(&mut *tx).await.map_err(CoreError::Database)?;
+            }
+        }
 
+        // Upsert current chains and their graph entries
         for chain in chains.values() {
-            // Insert chain metadata
             sqlx::query(
                 "INSERT OR REPLACE INTO chains (
                     chain_id, root_session_id, session_count, files_count, updated_at
@@ -1471,12 +1669,18 @@ impl QueryEngine {
             .bind(&chain.root_session)
             .bind(chain.sessions.len() as i32)
             .bind(chain.files_list.len() as i32)
-            .execute(self.db.pool())
+            .execute(&mut *tx)
             .await
             .map_err(CoreError::Database)?;
             rows += 1;
 
-            // Insert session memberships
+            // Remove stale session entries for this chain before re-inserting
+            sqlx::query("DELETE FROM chain_graph WHERE chain_id = ?")
+                .bind(&chain.chain_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(CoreError::Database)?;
+
             for session_id in &chain.sessions {
                 let is_root = *session_id == chain.root_session;
                 let parent = chain
@@ -1494,12 +1698,15 @@ impl QueryEngine {
                 .bind(&chain.chain_id)
                 .bind(&parent)
                 .bind(is_root)
-                .execute(self.db.pool())
+                .execute(&mut *tx)
                 .await
                 .map_err(CoreError::Database)?;
                 rows += 1;
             }
         }
+
+        // Commit atomically - readers now see the new complete state
+        tx.commit().await.map_err(CoreError::Database)?;
 
         Ok(WriteResult {
             rows_affected: rows,
@@ -1597,5 +1804,259 @@ mod tests {
         let recency = agg.recency.unwrap();
         assert_eq!(recency.newest, "2026-01-08");
         assert_eq!(recency.oldest, "2026-01-05");
+    }
+
+    // =========================================================================
+    // compute_display_name tests (LIVE-02 fix)
+    // =========================================================================
+
+    #[test]
+    fn test_compute_display_name_with_generated_name() {
+        let result = compute_display_name(
+            "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+            Some("Codebase Audit"),
+            Some("help me fix bugs"),
+        );
+        assert_eq!(result, "Codebase Audit");
+    }
+
+    #[test]
+    fn test_compute_display_name_fallback_first_message() {
+        // Short message — no truncation
+        let result = compute_display_name(
+            "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+            None,
+            Some("Can you help me refactor the auth module"),
+        );
+        assert_eq!(result, "Can you help me refactor the auth module");
+
+        // Long message — truncated at word boundary
+        let long_msg = "Can you help me refactor the authentication module to use JWT tokens instead of session cookies for better scalability";
+        let result = compute_display_name(
+            "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+            None,
+            Some(long_msg),
+        );
+        assert!(result.len() <= 60);
+        assert!(result.ends_with("..."));
+
+        // Empty generated_name falls through
+        let result = compute_display_name(
+            "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+            Some(""),
+            Some("fallback message"),
+        );
+        assert_eq!(result, "fallback message");
+
+        // Multi-byte chars near truncation boundary don't panic
+        let msg_with_dash = "Implement the following plan: Foundation Fixes — Spec Writing + Agent Team Implementation";
+        let result = compute_display_name(
+            "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+            None,
+            Some(msg_with_dash),
+        );
+        assert!(result.len() <= 63); // 60 + "..." overhead
+        assert!(result.ends_with("..."));
+    }
+
+    #[test]
+    fn test_compute_display_name_fallback_hex_id() {
+        let result = compute_display_name(
+            "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+            None,
+            None,
+        );
+        assert_eq!(result, "a1b2c3d4e5f6...");
+
+        // Empty first_user_message also falls through
+        let result = compute_display_name(
+            "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+            None,
+            Some(""),
+        );
+        assert_eq!(result, "a1b2c3d4e5f6...");
+
+        // Short chain_id (edge case)
+        let result = compute_display_name("short", None, None);
+        assert_eq!(result, "short");
+    }
+
+    // =========================================================================
+    // persist_chains tests (BUG-07 fix)
+    // =========================================================================
+
+    /// Helper: create a test database with schema for persist_chains tests
+    async fn setup_chains_test_db() -> (QueryEngine, tempfile::TempDir) {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("chains_test.db");
+        let db = crate::storage::Database::open_rw(&db_path).await.unwrap();
+        db.ensure_schema().await.unwrap();
+
+        // ensure_schema creates chain_graph with only 2 columns (session_id, chain_id).
+        // persist_chains needs 5 columns. Add the missing ones for test compatibility.
+        // (The other agent is updating ensure_schema; for now we add them here.)
+        for alter_sql in &[
+            "ALTER TABLE chain_graph ADD COLUMN parent_session_id TEXT",
+            "ALTER TABLE chain_graph ADD COLUMN is_root BOOLEAN",
+            "ALTER TABLE chain_graph ADD COLUMN indexed_at TEXT",
+        ] {
+            let _ = sqlx::query(alter_sql).execute(db.pool()).await;
+        }
+
+        let engine = QueryEngine::new(db);
+        (engine, temp_dir)
+    }
+
+    /// Helper: build a HashMap of test chains
+    fn make_test_chains(
+        count: usize,
+    ) -> std::collections::HashMap<String, crate::index::chain_graph::Chain> {
+        let mut chains = std::collections::HashMap::new();
+        for i in 0..count {
+            let chain_id = format!("chain_{}", i);
+            let root = format!("session_{}_root", i);
+            let child = format!("session_{}_child", i);
+            let mut branches = std::collections::HashMap::new();
+            branches.insert(root.clone(), vec![child.clone()]);
+            chains.insert(
+                chain_id.clone(),
+                crate::index::chain_graph::Chain {
+                    chain_id,
+                    root_session: root.clone(),
+                    sessions: vec![root, child],
+                    branches,
+                    time_range: None,
+                    total_duration_seconds: 0,
+                    files_bloom: None,
+                    files_list: vec!["file_a.rs".to_string()],
+                },
+            );
+        }
+        chains
+    }
+
+    /// Helper: count rows in a table
+    async fn count_chain_rows(engine: &QueryEngine, table: &str) -> i64 {
+        let sql = format!("SELECT COUNT(*) as cnt FROM {}", table);
+        let row = sqlx::query(&sql)
+            .fetch_one(engine.database().pool())
+            .await
+            .unwrap();
+        row.get::<i64, _>("cnt")
+    }
+
+    #[tokio::test]
+    async fn test_persist_chains_idempotent() {
+        let (engine, _dir) = setup_chains_test_db().await;
+        let chains = make_test_chains(3);
+
+        let result1 = engine.persist_chains(&chains).await.unwrap();
+        let chains_count1 = count_chain_rows(&engine, "chains").await;
+        let graph_count1 = count_chain_rows(&engine, "chain_graph").await;
+
+        let result2 = engine.persist_chains(&chains).await.unwrap();
+        let chains_count2 = count_chain_rows(&engine, "chains").await;
+        let graph_count2 = count_chain_rows(&engine, "chain_graph").await;
+
+        assert_eq!(chains_count1, chains_count2, "chains row count must be stable");
+        assert_eq!(graph_count1, graph_count2, "chain_graph row count must be stable");
+        assert_eq!(
+            result1.rows_affected, result2.rows_affected,
+            "rows_affected must be stable"
+        );
+        assert_eq!(chains_count1, 3, "should have 3 chains");
+        // 3 chains x 2 sessions each = 6 graph entries
+        assert_eq!(graph_count1, 6, "should have 6 chain_graph entries");
+    }
+
+    #[tokio::test]
+    async fn test_persist_chains_removes_stale_chains() {
+        let (engine, _dir) = setup_chains_test_db().await;
+
+        let mut chains = make_test_chains(3);
+        engine.persist_chains(&chains).await.unwrap();
+        assert_eq!(count_chain_rows(&engine, "chains").await, 3);
+
+        // Remove one chain
+        let removed_id = chains.keys().next().unwrap().clone();
+        chains.remove(&removed_id);
+
+        engine.persist_chains(&chains).await.unwrap();
+        assert_eq!(
+            count_chain_rows(&engine, "chains").await,
+            2,
+            "stale chain should be removed"
+        );
+
+        // Verify the removed chain's graph entries are also gone
+        let stale_count: i64 =
+            sqlx::query("SELECT COUNT(*) as cnt FROM chain_graph WHERE chain_id = ?")
+                .bind(&removed_id)
+                .fetch_one(engine.database().pool())
+                .await
+                .unwrap()
+                .get("cnt");
+        assert_eq!(stale_count, 0, "stale chain_graph entries should be removed");
+
+        // Remaining chains should be intact
+        assert_eq!(count_chain_rows(&engine, "chain_graph").await, 4); // 2 chains x 2 sessions
+    }
+
+    #[tokio::test]
+    async fn test_persist_chains_does_not_drop_tables() {
+        let (engine, _dir) = setup_chains_test_db().await;
+
+        // Verify tables exist before persist
+        let schema_before: String =
+            sqlx::query("SELECT sql FROM sqlite_master WHERE type='table' AND name='chain_graph'")
+                .fetch_one(engine.database().pool())
+                .await
+                .unwrap()
+                .get("sql");
+        assert!(
+            schema_before.contains("session_id"),
+            "chain_graph should exist before persist"
+        );
+
+        let chains = make_test_chains(2);
+        engine.persist_chains(&chains).await.unwrap();
+
+        // Verify tables still exist with same schema after persist
+        let schema_after: String =
+            sqlx::query("SELECT sql FROM sqlite_master WHERE type='table' AND name='chain_graph'")
+                .fetch_one(engine.database().pool())
+                .await
+                .unwrap()
+                .get("sql");
+        assert_eq!(
+            schema_before, schema_after,
+            "schema must not change during persist"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_persist_chains_empty_input_clears_tables() {
+        let (engine, _dir) = setup_chains_test_db().await;
+
+        // Populate first
+        let chains = make_test_chains(2);
+        engine.persist_chains(&chains).await.unwrap();
+        assert_eq!(count_chain_rows(&engine, "chains").await, 2);
+
+        // Persist with empty input
+        let empty: std::collections::HashMap<String, crate::index::chain_graph::Chain> =
+            std::collections::HashMap::new();
+        engine.persist_chains(&empty).await.unwrap();
+
+        assert_eq!(
+            count_chain_rows(&engine, "chains").await,
+            0,
+            "empty input should clear all chains"
+        );
+        assert_eq!(
+            count_chain_rows(&engine, "chain_graph").await,
+            0,
+            "empty input should clear all chain_graph entries"
+        );
     }
 }

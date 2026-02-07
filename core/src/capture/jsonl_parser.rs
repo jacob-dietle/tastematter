@@ -183,6 +183,51 @@ pub fn decode_project_path(encoded: &str) -> String {
 }
 
 // =============================================================================
+// Path Normalization
+// =============================================================================
+
+/// Normalize a file path to project-relative form.
+///
+/// Rules:
+/// 1. If path starts with project_path (case-insensitive on Windows), strip it
+/// 2. Convert backslashes to forward slashes for consistency
+/// 3. Strip leading separator after prefix removal
+/// 4. Leave pseudo-paths (GREP:, GLOB:) unchanged
+/// 5. Leave already-relative paths unchanged
+/// 6. Leave paths outside the project unchanged (cannot normalize)
+pub fn normalize_file_path(raw_path: &str, project_path: &str) -> String {
+    // Rule 4: Skip pseudo-paths
+    if raw_path.starts_with("GREP:") || raw_path.starts_with("GLOB:") {
+        return raw_path.to_string();
+    }
+
+    // Skip empty paths
+    if raw_path.is_empty() {
+        return raw_path.to_string();
+    }
+
+    // Normalize separators for comparison
+    let normalized_raw = raw_path.replace('\\', "/");
+    let normalized_project = project_path.replace('\\', "/");
+
+    // Rule 1: Strip project path prefix (case-insensitive for Windows)
+    let relative = if normalized_raw
+        .to_lowercase()
+        .starts_with(&normalized_project.to_lowercase())
+    {
+        let remainder = &normalized_raw[normalized_project.len()..];
+        // Rule 3: Strip leading separator
+        remainder.trim_start_matches('/')
+    } else {
+        // Rule 5/6: Already relative or outside project
+        &normalized_raw
+    };
+
+    // Rule 2: Result already has forward slashes from normalization
+    relative.to_string()
+}
+
+// =============================================================================
 // Tool Classification
 // =============================================================================
 
@@ -585,17 +630,20 @@ pub fn aggregate_session(
                     continue;
                 }
 
+                let normalized = normalize_file_path(path, project_path);
                 if tool_use.name == "file-history-snapshot" {
                     // Track separately — don't pollute files_read with snapshot noise
-                    snapshot_paths.insert(path.clone());
-                } else if tool_use.is_read {
-                    files_read_set.insert(path.clone());
-                }
-                if tool_use.is_write {
-                    files_written_set.insert(path.clone());
-                    // Heuristic: Write tool = created file
-                    if tool_use.name == "Write" {
-                        files_created_set.insert(path.clone());
+                    snapshot_paths.insert(normalized.clone());
+                } else {
+                    if tool_use.is_read {
+                        files_read_set.insert(normalized.clone());
+                    }
+                    if tool_use.is_write {
+                        files_written_set.insert(normalized.clone());
+                        // Heuristic: Write tool = created file
+                        if tool_use.name == "Write" {
+                            files_created_set.insert(normalized);
+                        }
                     }
                 }
             }
@@ -749,8 +797,9 @@ pub fn extract_project_path_from_file(path: &Path) -> Option<String> {
 
 /// Parse a single JSONL session file into messages.
 ///
-/// Returns all parsed messages and the file size.
-pub fn parse_session_file(path: &Path) -> Result<(Vec<ParsedMessage>, i64), String> {
+/// Returns (messages, file_size, cwd). The `cwd` is extracted from the first
+/// record's `cwd` field, giving the real project path (vs lossy filename decoding).
+pub fn parse_session_file(path: &Path) -> Result<(Vec<ParsedMessage>, i64, Option<String>), String> {
     let file =
         fs::File::open(path).map_err(|e| format!("Failed to open {}: {}", path.display(), e))?;
 
@@ -761,6 +810,7 @@ pub fn parse_session_file(path: &Path) -> Result<(Vec<ParsedMessage>, i64), Stri
 
     let reader = BufReader::new(file);
     let mut messages = Vec::new();
+    let mut cwd: Option<String> = None;
 
     for (line_num, line_result) in reader.lines().enumerate() {
         let line = match line_result {
@@ -776,12 +826,21 @@ pub fn parse_session_file(path: &Path) -> Result<(Vec<ParsedMessage>, i64), Stri
             }
         };
 
+        // Extract cwd from the first record that has it
+        if cwd.is_none() {
+            if let Ok(data) = serde_json::from_str::<Value>(&line) {
+                if let Some(c) = data.get("cwd").and_then(|v| v.as_str()) {
+                    cwd = Some(c.to_string());
+                }
+            }
+        }
+
         if let Some(msg) = parse_jsonl_line(&line) {
             messages.push(msg);
         }
     }
 
-    Ok((messages, file_size))
+    Ok((messages, file_size, cwd))
 }
 
 /// Main orchestration: Parse all sessions and return summaries.
@@ -832,18 +891,19 @@ pub fn sync_sessions(
             continue;
         }
 
-        // Extract project path (for output - filtering is done at file discovery)
-        let project_path =
-            extract_project_path_from_file(&path).unwrap_or_else(|| "unknown".to_string());
-
-        // Parse the session file
-        let (messages, _) = match parse_session_file(&path) {
+        // Parse the session file (also extracts cwd for accurate project path)
+        let (messages, _, cwd) = match parse_session_file(&path) {
             Ok(result) => result,
             Err(e) => {
                 result.errors.push(e);
                 continue;
             }
         };
+
+        // Use cwd from JSONL (accurate) over lossy filename decoding
+        let project_path = cwd.unwrap_or_else(|| {
+            extract_project_path_from_file(&path).unwrap_or_else(|| "unknown".to_string())
+        });
 
         // Skip sessions with no parseable messages (summary-only JSONL files)
         if messages.is_empty() {
@@ -1703,5 +1763,102 @@ mod tests {
     #[test]
     fn test_skill_in_read_tools() {
         assert!(is_read_tool("Skill"));
+    }
+
+    // =========================================================================
+    // Path Normalization Tests (Spec 02: LIVE-01 fix)
+    // =========================================================================
+
+    #[test]
+    fn test_normalize_absolute_to_relative() {
+        assert_eq!(
+            normalize_file_path(
+                "C:\\Users\\dietl\\VSCode Projects\\taste_systems\\gtm_operating_system\\_system\\temp\\foo.md",
+                "C:\\Users\\dietl\\VSCode Projects\\taste_systems\\gtm_operating_system"
+            ),
+            "_system/temp/foo.md"
+        );
+    }
+
+    #[test]
+    fn test_normalize_already_relative_unchanged() {
+        assert_eq!(
+            normalize_file_path(
+                "_system\\temp\\foo.md",
+                "C:\\Users\\dietl\\VSCode Projects\\taste_systems\\gtm_operating_system"
+            ),
+            "_system/temp/foo.md"
+        );
+    }
+
+    #[test]
+    fn test_normalize_pseudo_paths_unchanged() {
+        assert_eq!(
+            normalize_file_path("GREP:some_pattern", "/any/project"),
+            "GREP:some_pattern"
+        );
+        assert_eq!(
+            normalize_file_path("GLOB:*.rs", "/any/project"),
+            "GLOB:*.rs"
+        );
+    }
+
+    #[test]
+    fn test_normalize_backslash_to_forward_slash() {
+        assert_eq!(
+            normalize_file_path("src\\capture\\jsonl_parser.rs", "/some/project"),
+            "src/capture/jsonl_parser.rs"
+        );
+    }
+
+    #[test]
+    fn test_normalize_outside_project_unchanged() {
+        assert_eq!(
+            normalize_file_path("D:\\Other\\Project\\file.rs", "C:\\Users\\dietl\\MyProject"),
+            "D:/Other/Project/file.rs"
+        );
+    }
+
+    #[test]
+    fn test_normalize_case_insensitive_windows() {
+        assert_eq!(
+            normalize_file_path(
+                "c:\\users\\DIETL\\vscode projects\\taste_systems\\gtm_operating_system\\foo.md",
+                "C:\\Users\\dietl\\VSCode Projects\\taste_systems\\gtm_operating_system"
+            ),
+            "foo.md"
+        );
+    }
+
+    #[test]
+    fn test_normalize_trailing_separator() {
+        assert_eq!(
+            normalize_file_path("C:\\Users\\project\\foo.md", "C:\\Users\\project\\"),
+            "foo.md"
+        );
+    }
+
+    #[test]
+    fn test_session_dedup_after_normalization() {
+        // Integration test: same file via absolute and relative paths should deduplicate
+        let ts = test_timestamp();
+        let project = "C:\\Users\\dietl\\VSCode Projects\\taste_systems\\gtm_operating_system";
+        let messages = vec![
+            make_message_with_tool(
+                "assistant",
+                "Read",
+                Some("C:\\Users\\dietl\\VSCode Projects\\taste_systems\\gtm_operating_system\\foo.md"),
+                true,
+                false,
+                ts,
+            ),
+            make_message_with_tool("assistant", "Read", Some("foo.md"), true, false, ts),
+        ];
+
+        let summary = aggregate_session("test-dedup", project, &messages, 1000);
+
+        // Both paths should normalize to "foo.md", so only 1 entry
+        assert_eq!(summary.files_read.len(), 1);
+        assert!(summary.files_read.contains(&"foo.md".to_string()));
     }
 }

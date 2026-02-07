@@ -1115,7 +1115,7 @@ mod tests {
                 .fetch_one(db.pool())
                 .await
                 .expect("Schema version should exist");
-        assert_eq!(version.0, "2.1", "Schema version should be 2.1");
+        assert_eq!(version.0, "2.2", "Schema version should be 2.2");
     }
 
     /// Test 3: Zero Sessions Graceful Handling

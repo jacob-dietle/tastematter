@@ -199,7 +199,10 @@ impl Database {
             -- Layer 5: Chain Graph (session-to-chain mapping)
             CREATE TABLE IF NOT EXISTS chain_graph (
                 session_id TEXT PRIMARY KEY,
-                chain_id TEXT NOT NULL
+                chain_id TEXT NOT NULL,
+                parent_session_id TEXT,
+                is_root BOOLEAN,
+                indexed_at TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_chain_graph_chain ON chain_graph(chain_id);
 
@@ -209,8 +212,24 @@ impl Database {
                 generated_name TEXT,
                 summary TEXT,
                 key_topics TEXT,
+                category TEXT,
+                confidence REAL,
+                generated_at TEXT,
+                model_used TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+
+            -- Layer 7: Chain Summaries (Intel-generated chain summaries)
+            CREATE TABLE IF NOT EXISTS chain_summaries (
+                chain_id TEXT PRIMARY KEY,
+                summary TEXT,
+                accomplishments TEXT,
+                status TEXT,
+                key_files TEXT,
+                workstream_tags TEXT,
+                model_used TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
 
             -- Metadata
@@ -219,7 +238,7 @@ impl Database {
                 value TEXT,
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
-            INSERT OR IGNORE INTO _metadata (key, value) VALUES ('schema_version', '2.1');
+            INSERT OR IGNORE INTO _metadata (key, value) VALUES ('schema_version', '2.2');
         "#;
 
         // Execute schema SQL
@@ -227,6 +246,30 @@ impl Database {
             .execute(&self.pool)
             .await
             .map_err(CoreError::Database)?;
+
+        // Migration: add columns that may be missing from older schemas.
+        // Each ALTER is idempotent: if the column already exists, SQLite returns
+        // "duplicate column name" which we silently ignore.
+        let migrations = vec![
+            // chain_metadata columns from cache.rs
+            "ALTER TABLE chain_metadata ADD COLUMN category TEXT",
+            "ALTER TABLE chain_metadata ADD COLUMN confidence REAL",
+            "ALTER TABLE chain_metadata ADD COLUMN generated_at TEXT",
+            "ALTER TABLE chain_metadata ADD COLUMN model_used TEXT",
+            // chain_metadata columns from storage.rs (in case cache.rs ran first historically)
+            "ALTER TABLE chain_metadata ADD COLUMN summary TEXT",
+            "ALTER TABLE chain_metadata ADD COLUMN key_topics TEXT",
+            "ALTER TABLE chain_metadata ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP",
+            // chain_graph columns from persist_chains
+            "ALTER TABLE chain_graph ADD COLUMN parent_session_id TEXT",
+            "ALTER TABLE chain_graph ADD COLUMN is_root BOOLEAN",
+            "ALTER TABLE chain_graph ADD COLUMN indexed_at TEXT",
+        ];
+
+        for migration in migrations {
+            // Ignore "duplicate column name" errors -- column already exists
+            let _ = sqlx::query(migration).execute(&self.pool).await;
+        }
 
         Ok(())
     }
@@ -634,6 +677,192 @@ mod tests {
             .fetch_one(db.pool())
             .await;
         assert!(result.is_ok(), "Tables should still be queryable");
+    }
+
+    // =========================================================================
+    // Spec 05: Schema Unification Tests (XCHECK-1, BUG-09, XCHECK-4)
+    // =========================================================================
+
+    #[tokio::test]
+    async fn test_unified_schema_has_all_columns() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("unified.db");
+        let db = Database::open_rw(&db_path).await.unwrap();
+        db.ensure_schema().await.unwrap();
+
+        // Verify chain_metadata has ALL expected columns
+        let rows: Vec<(i32, String, String, i32, Option<String>, i32)> =
+            sqlx::query_as("PRAGMA table_info(chain_metadata)")
+                .fetch_all(db.pool())
+                .await
+                .unwrap();
+
+        let col_names: Vec<String> = rows.iter().map(|r| r.1.clone()).collect();
+
+        assert!(col_names.contains(&"chain_id".to_string()));
+        assert!(col_names.contains(&"generated_name".to_string()));
+        assert!(col_names.contains(&"summary".to_string()));
+        assert!(col_names.contains(&"key_topics".to_string()));
+        assert!(col_names.contains(&"category".to_string()));
+        assert!(col_names.contains(&"confidence".to_string()));
+        assert!(col_names.contains(&"generated_at".to_string()));
+        assert!(col_names.contains(&"model_used".to_string()));
+        assert!(col_names.contains(&"created_at".to_string()));
+        assert!(col_names.contains(&"updated_at".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_cache_writes_succeed_after_schema_update() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("cache_write.db");
+        let db = Database::open_rw(&db_path).await.unwrap();
+        db.ensure_schema().await.unwrap();
+
+        // Simulate the exact INSERT that cache.rs performs
+        let result = sqlx::query(
+            r#"INSERT OR REPLACE INTO chain_metadata
+            (chain_id, generated_name, category, confidence, generated_at, model_used, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)"#,
+        )
+        .bind("test-chain-id")
+        .bind("Test Chain Name")
+        .bind("development")
+        .bind(0.95_f64)
+        .bind("2026-02-06T12:00:00Z")
+        .bind("claude-sonnet-4-5-20250929")
+        .bind("2026-02-06T12:00:00Z")
+        .execute(db.pool())
+        .await;
+
+        assert!(
+            result.is_ok(),
+            "Cache INSERT should succeed with unified schema"
+        );
+
+        // Verify the row was written
+        let row: (String, f64) = sqlx::query_as(
+            "SELECT category, confidence FROM chain_metadata WHERE chain_id = ?",
+        )
+        .bind("test-chain-id")
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
+
+        assert_eq!(row.0, "development");
+        assert!((row.1 - 0.95).abs() < f64::EPSILON);
+    }
+
+    #[tokio::test]
+    async fn test_migration_adds_missing_columns() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("migration.db");
+
+        // Create the OLD storage.rs schema (without cache.rs columns)
+        {
+            let conn = rusqlite::Connection::open(&db_path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE chain_metadata (
+                    chain_id TEXT PRIMARY KEY,
+                    generated_name TEXT,
+                    summary TEXT,
+                    key_topics TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE chain_graph (
+                    session_id TEXT PRIMARY KEY,
+                    chain_id TEXT NOT NULL
+                );",
+            )
+            .unwrap();
+        }
+
+        // Run ensure_schema which includes migrations
+        let db = Database::open_rw(&db_path).await.unwrap();
+        db.ensure_schema().await.unwrap();
+
+        // Verify new columns were added to chain_metadata
+        let rows: Vec<(i32, String, String, i32, Option<String>, i32)> =
+            sqlx::query_as("PRAGMA table_info(chain_metadata)")
+                .fetch_all(db.pool())
+                .await
+                .unwrap();
+
+        let col_names: Vec<String> = rows.iter().map(|r| r.1.clone()).collect();
+
+        assert!(col_names.contains(&"category".to_string()));
+        assert!(col_names.contains(&"confidence".to_string()));
+        assert!(col_names.contains(&"generated_at".to_string()));
+        assert!(col_names.contains(&"model_used".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_schema_idempotent() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("idempotent2.db");
+        let db = Database::open_rw(&db_path).await.unwrap();
+
+        // Run ensure_schema twice - should not error
+        db.ensure_schema().await.unwrap();
+        db.ensure_schema().await.unwrap();
+
+        // Verify schema is still correct
+        let rows: Vec<(i32, String, String, i32, Option<String>, i32)> =
+            sqlx::query_as("PRAGMA table_info(chain_metadata)")
+                .fetch_all(db.pool())
+                .await
+                .unwrap();
+
+        assert_eq!(
+            rows.len(),
+            10,
+            "chain_metadata should have exactly 10 columns"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_chain_summaries_table_exists() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("summaries.db");
+        let db = Database::open_rw(&db_path).await.unwrap();
+        db.ensure_schema().await.unwrap();
+
+        // Verify chain_summaries table exists and has correct columns
+        let rows: Vec<(i32, String, String, i32, Option<String>, i32)> =
+            sqlx::query_as("PRAGMA table_info(chain_summaries)")
+                .fetch_all(db.pool())
+                .await
+                .unwrap();
+
+        let col_names: Vec<String> = rows.iter().map(|r| r.1.clone()).collect();
+
+        assert!(col_names.contains(&"chain_id".to_string()));
+        assert!(col_names.contains(&"summary".to_string()));
+        assert!(col_names.contains(&"accomplishments".to_string()));
+        assert!(col_names.contains(&"status".to_string()));
+        assert!(col_names.contains(&"key_files".to_string()));
+        assert!(col_names.contains(&"workstream_tags".to_string()));
+        assert!(col_names.contains(&"model_used".to_string()));
+        assert!(col_names.contains(&"created_at".to_string()));
+
+        // Verify INSERT works
+        let result = sqlx::query(
+            r#"INSERT OR REPLACE INTO chain_summaries
+            (chain_id, summary, accomplishments, status, key_files, workstream_tags, model_used, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)"#,
+        )
+        .bind("test-chain")
+        .bind("A test summary")
+        .bind("[]")
+        .bind("active")
+        .bind("[]")
+        .bind("[]")
+        .bind("claude-sonnet-4-5-20250929")
+        .bind("2026-02-06T12:00:00Z")
+        .execute(db.pool())
+        .await;
+
+        assert!(result.is_ok(), "chain_summaries INSERT should succeed");
     }
 
     /// Test: ensure_schema() doesn't destroy existing data

@@ -2,7 +2,7 @@
 title: "Tastematter Context Package 55"
 package_number: 55
 date: 2026-02-05
-status: current
+status: superseded
 previous_package: "[[54_2026-02-05_DQ002_FIX_AND_HEAT_SCORE_RCA]]"
 related:
   - "[[core/src/capture/jsonl_parser.rs]]"

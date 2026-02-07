@@ -398,18 +398,9 @@ impl MetadataStore {
     }
 }
 
-/// SQL migration for intelligence metadata tables
+/// SQL migration for intelligence-only cache tables.
+/// Note: chain_metadata and chain_summaries are owned by storage.rs ensure_schema().
 const MIGRATION_SQL: &str = r#"
-CREATE TABLE IF NOT EXISTS chain_metadata (
-    chain_id TEXT PRIMARY KEY,
-    generated_name TEXT,
-    category TEXT,
-    confidence REAL,
-    generated_at TEXT,
-    model_used TEXT,
-    created_at TEXT DEFAULT (datetime('now'))
-);
-
 CREATE TABLE IF NOT EXISTS commit_analysis (
     commit_hash TEXT PRIMARY KEY,
     is_agent_commit INTEGER NOT NULL DEFAULT 0,
@@ -450,17 +441,6 @@ CREATE TABLE IF NOT EXISTS intelligence_costs (
     cost_usd REAL NOT NULL,
     timestamp TEXT DEFAULT (datetime('now'))
 );
-
-CREATE TABLE IF NOT EXISTS chain_summaries (
-    chain_id TEXT PRIMARY KEY,
-    summary TEXT,
-    accomplishments TEXT,       -- JSON array
-    status TEXT,
-    key_files TEXT,             -- JSON array
-    workstream_tags TEXT,       -- JSON array of {tag, source}
-    model_used TEXT,
-    created_at TEXT DEFAULT (datetime('now'))
-);
 "#;
 
 #[cfg(test)]
@@ -472,6 +452,12 @@ mod tests {
     async fn create_test_store() -> (MetadataStore, TempDir) {
         let temp_dir = TempDir::new().unwrap();
         let db_path = temp_dir.path().join("test.db");
+
+        // Create the prerequisite tables that storage.rs ensure_schema() normally creates.
+        // In production, ensure_schema() runs before MetadataStore::new().
+        let db = crate::storage::Database::open_rw(&db_path).await.unwrap();
+        db.ensure_schema().await.unwrap();
+
         let store = MetadataStore::new(&db_path).await.unwrap();
         (store, temp_dir)
     }

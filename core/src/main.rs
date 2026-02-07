@@ -636,7 +636,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let input = QueryChainsInput { limit: Some(limit) };
                 let query_result = engine.query_chains(input).await?;
                 result_count = Some(query_result.chains.len() as u32);
-                output(&query_result, &format)?;
+                match format.as_str() {
+                    "table" => output_chains_table(&query_result),
+                    _ => output(&query_result, &format)?,
+                }
             }
             QueryCommands::Timeline {
                 time,
@@ -1373,6 +1376,42 @@ fn output_heat_table(result: &tastematter::HeatResult) {
         result.time_range,
     );
     println!("Receipt: {}", result.receipt_id);
+}
+
+/// Output chain results as a formatted table
+fn output_chains_table(result: &tastematter::ChainQueryResult) {
+    // Header
+    println!(
+        "{:<40} {:>8} {:>8}  ID",
+        "CHAIN", "SESSIONS", "FILES"
+    );
+    println!("{}", "-".repeat(90));
+
+    // Rows
+    for chain in &result.chains {
+        // Truncate display_name if needed
+        let name = if chain.display_name.len() > 38 {
+            format!("{}...", &chain.display_name[..35])
+        } else {
+            chain.display_name.clone()
+        };
+
+        // Show truncated chain_id for reference
+        let short_id = if chain.chain_id.len() > 12 {
+            &chain.chain_id[..12]
+        } else {
+            &chain.chain_id
+        };
+
+        println!(
+            "{:<40} {:>8} {:>8}  {}",
+            name, chain.session_count, chain.file_count, short_id,
+        );
+    }
+
+    // Summary
+    println!("{}", "-".repeat(90));
+    println!("Total: {} chains", result.total_chains);
 }
 
 /// Output heat results as CSV
