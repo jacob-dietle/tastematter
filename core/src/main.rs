@@ -33,8 +33,8 @@ use tastematter::{
     intelligence::{ChainNamingRequest, IntelClient},
     CommandExecutedEvent, ContextRestoreInput, Database, HeatSortBy, QueryChainsInput,
     QueryCoAccessInput, QueryEngine, QueryFileInput, QueryFlexInput, QueryHeatInput,
-    QueryReceiptsInput, QuerySearchInput, QuerySessionsInput, QueryTimelineInput,
-    QueryVerifyInput, TimeRangeBucket,
+    QueryReceiptsInput, QuerySearchInput, QuerySessionsInput, QueryTimelineInput, QueryVerifyInput,
+    TimeRangeBucket,
 };
 
 #[derive(Parser)]
@@ -1498,7 +1498,10 @@ fn output_context_table(result: &tastematter::ContextRestoreResult) {
     if !result.insights.is_empty() {
         println!("--- Insights ---");
         for insight in &result.insights {
-            println!("  [{}] {}: {}", insight.insight_type, insight.title, insight.description);
+            println!(
+                "  [{}] {}: {}",
+                insight.insight_type, insight.title, insight.description
+            );
         }
         println!();
     }

@@ -1343,9 +1343,7 @@ impl QueryEngine {
                 limit: Some(limit),
                 ..Default::default()
             }),
-            self.query_chains(QueryChainsInput {
-                limit: Some(limit),
-            }),
+            self.query_chains(QueryChainsInput { limit: Some(limit) }),
             self.query_sessions(QuerySessionsInput {
                 time: time.clone(),
                 chain: None,
@@ -1388,8 +1386,7 @@ impl QueryEngine {
 
         // Phase 3: Filesystem-based project context discovery
         let cwd = std::env::current_dir().unwrap_or_default();
-        let context_files =
-            crate::context_restore::discover_project_context(&input.query, &cwd);
+        let context_files = crate::context_restore::discover_project_context(&input.query, &cwd);
 
         // Phase 4: Assembly via builder functions
         let receipt_id = generate_receipt_id();
@@ -1398,31 +1395,17 @@ impl QueryEngine {
             receipt_id: receipt_id.clone(),
             query: input.query.clone(),
             generated_at: chrono::Utc::now().to_rfc3339(),
-            executive_summary: crate::context_restore::build_executive_summary(
-                &sessions, &heat,
-            ),
-            current_state: crate::context_restore::build_current_state(
-                &context_files,
-                &flex,
-            ),
-            continuity: crate::context_restore::build_continuity(
-                &context_files,
-                &chains,
-            ),
-            work_clusters: crate::context_restore::build_work_clusters(
-                &flex,
-                &co_access_results,
-            ),
+            executive_summary: crate::context_restore::build_executive_summary(&sessions, &heat),
+            current_state: crate::context_restore::build_current_state(&context_files, &flex),
+            continuity: crate::context_restore::build_continuity(&context_files, &chains),
+            work_clusters: crate::context_restore::build_work_clusters(&flex, &co_access_results),
             suggested_reads: crate::context_restore::build_suggested_reads(
                 &flex,
                 &co_access_results,
                 &context_files,
             ),
             timeline: crate::context_restore::build_timeline(&timeline),
-            insights: crate::context_restore::build_deterministic_insights(
-                &heat,
-                &context_files,
-            ),
+            insights: crate::context_restore::build_deterministic_insights(&heat, &context_files),
             verification: crate::context_restore::build_verification(
                 &receipt_id,
                 &flex,

@@ -30,10 +30,7 @@ pub fn build_executive_summary(
     _heat: &HeatResult,
 ) -> ExecutiveSummary {
     // Find the most recent session timestamp
-    let last_session_ts = sessions
-        .sessions
-        .first()
-        .map(|s| s.started_at.clone());
+    let last_session_ts = sessions.sessions.first().map(|s| s.started_at.clone());
 
     // Determine status from recency
     let status = match &last_session_ts {
@@ -137,9 +134,7 @@ pub fn build_work_clusters(
         // Find the anchor in flex results for classification
         let anchor_flex = flex.results.iter().find(|f| f.file_path == *anchor);
         let anchor_count = anchor_flex.map(|f| f.access_count).unwrap_or(0);
-        let anchor_sessions = anchor_flex
-            .and_then(|f| f.session_count)
-            .unwrap_or(0);
+        let anchor_sessions = anchor_flex.and_then(|f| f.session_count).unwrap_or(0);
 
         let access_pattern = match (
             anchor_count >= median_count,
@@ -293,8 +288,14 @@ pub fn build_timeline(timeline: &TimelineData) -> TimelineSection {
         let total_access: u32 = period_buckets.iter().map(|b| b.access_count).sum();
 
         periods.push(FocusPeriod {
-            start_date: period_buckets.first().map(|b| b.date.clone()).unwrap_or_default(),
-            end_date: period_buckets.last().map(|b| b.date.clone()).unwrap_or_default(),
+            start_date: period_buckets
+                .first()
+                .map(|b| b.date.clone())
+                .unwrap_or_default(),
+            end_date: period_buckets
+                .last()
+                .map(|b| b.date.clone())
+                .unwrap_or_default(),
             top_files: file_accesses
                 .iter()
                 .take(5)
@@ -359,7 +360,9 @@ pub fn build_deterministic_insights(
 
     // Detector: abandoned files (high count but cold/cool heat)
     for item in &heat.results {
-        if item.count_long >= 10 && (item.heat_level == HeatLevel::Cold || item.heat_level == HeatLevel::Cool) {
+        if item.count_long >= 10
+            && (item.heat_level == HeatLevel::Cold || item.heat_level == HeatLevel::Cool)
+        {
             insights.push(ContextInsight {
                 insight_type: "abandoned".to_string(),
                 title: format!("Previously active file now {}", item.heat_level),
@@ -368,7 +371,10 @@ pub fn build_deterministic_insights(
                     item.file_path, item.count_long, item.heat_level, item.last_access
                 ),
                 evidence: vec![
-                    format!("count_long={}, heat_level={}", item.count_long, item.heat_level),
+                    format!(
+                        "count_long={}, heat_level={}",
+                        item.count_long, item.heat_level
+                    ),
                     format!("last_access={}", item.last_access),
                 ],
             });
@@ -398,7 +404,10 @@ pub fn build_verification(
     sessions: &SessionQueryResult,
     co_access_results: &[CoAccessResult],
 ) -> ContextVerification {
-    let co_access_pairs: u32 = co_access_results.iter().map(|c| c.results.len() as u32).sum();
+    let co_access_pairs: u32 = co_access_results
+        .iter()
+        .map(|c| c.results.len() as u32)
+        .sum();
 
     ContextVerification {
         receipt_id: receipt_id.to_string(),
@@ -618,10 +627,7 @@ fn parse_context_file(content: &str) -> (Option<String>, Vec<String>, Vec<String
 
         // Collect section headings
         if line.starts_with("## ") || line.starts_with("### ") {
-            let heading = line
-                .trim_start_matches('#')
-                .trim()
-                .to_string();
+            let heading = line.trim_start_matches('#').trim().to_string();
             // Check if this heading precedes actionable code
             let heading_lower = heading.to_lowercase();
             if heading_lower.contains("test")
@@ -681,10 +687,7 @@ pub fn build_current_state(
         .take(5)
         .map(|f| Evidence {
             source: f.path.clone(),
-            content: f
-                .title
-                .clone()
-                .unwrap_or_else(|| "(untitled)".to_string()),
+            content: f.title.clone().unwrap_or_else(|| "(untitled)".to_string()),
         })
         .collect();
 
@@ -722,13 +725,14 @@ pub fn build_continuity(
     });
 
     // Find what was left off at (most recent high-tier context file)
-    let left_off_at = context_files.iter().find(|f| f.tier == "high").map(|f| {
-        LeftOffAt {
+    let left_off_at = context_files
+        .iter()
+        .find(|f| f.tier == "high")
+        .map(|f| LeftOffAt {
             file: f.path.clone(),
             section: f.sections.last().cloned(),
             timestamp: None,
-        }
-    });
+        });
 
     if pending_items.is_empty() && chain_context.is_none() && left_off_at.is_none() {
         return None;
