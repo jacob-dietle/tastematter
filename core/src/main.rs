@@ -618,11 +618,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return daemon_result;
     }
 
-    // For non-daemon commands, open database (requires existing DB)
+    // For non-daemon commands, open database (auto-creates on fresh machines)
     let db = if let Some(ref path) = cli.db {
         Database::open(path).await?
     } else {
-        Database::open_default().await?
+        Database::open_or_create_default().await?
     };
 
     let engine = QueryEngine::new(db);

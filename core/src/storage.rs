@@ -346,6 +346,32 @@ impl Database {
         Self::open(path).await
     }
 
+    /// Open database from canonical location, creating if it doesn't exist.
+    ///
+    /// For fresh machines: creates `~/.context-os/` directory and empty DB with schema.
+    /// Queries return empty results, which is correct for "no data yet."
+    /// Returns a read-only connection (schema created via temporary RW connection).
+    pub async fn open_or_create_default() -> Result<Self, CoreError> {
+        let canonical = Self::canonical_path()?;
+
+        if canonical.exists() {
+            return Self::open(&canonical).await;
+        }
+
+        // Fresh machine: create directory + DB + schema
+        if let Some(parent) = canonical.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| {
+                CoreError::Config(format!("Could not create database directory: {}", e))
+            })?;
+        }
+
+        let rw = Self::open_rw(&canonical).await?;
+        rw.ensure_schema().await?;
+        rw.close().await;
+
+        Self::open(&canonical).await
+    }
+
     /// Close the database connection pool
     ///
     /// Note: The pool will also close when dropped, but this allows
