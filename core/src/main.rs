@@ -31,9 +31,10 @@ use tastematter::{
     index::chain_graph::{build_chain_graph, ChainBuildResult},
     index::inverted_index::{build_inverted_index, get_sessions_for_file, IndexBuildResult},
     intelligence::{ChainNamingRequest, IntelClient},
-    CommandExecutedEvent, Database, HeatSortBy, QueryChainsInput, QueryCoAccessInput, QueryEngine,
-    QueryFileInput, QueryFlexInput, QueryHeatInput, QueryReceiptsInput, QuerySearchInput,
-    QuerySessionsInput, QueryTimelineInput, QueryVerifyInput, TimeRangeBucket,
+    CommandExecutedEvent, ContextRestoreInput, Database, HeatSortBy, QueryChainsInput,
+    QueryCoAccessInput, QueryEngine, QueryFileInput, QueryFlexInput, QueryHeatInput,
+    QueryReceiptsInput, QuerySearchInput, QuerySessionsInput, QueryTimelineInput,
+    QueryVerifyInput, TimeRangeBucket,
 };
 
 #[derive(Parser)]
@@ -165,6 +166,23 @@ enum Commands {
     Intel {
         #[command(subcommand)]
         intel_cmd: IntelCommands,
+    },
+    /// Restore context for a topic — composed query across flex, heat, chains, sessions, timeline, co-access
+    Context {
+        /// Search query (used as glob pattern *query*)
+        query: String,
+
+        /// Time window (default: 30d)
+        #[arg(short, long, default_value = "30d")]
+        time: String,
+
+        /// Maximum results per sub-query
+        #[arg(short, long, default_value = "20")]
+        limit: u32,
+
+        /// Output format: json (default), compact, table
+        #[arg(long, default_value = "json")]
+        format: String,
     },
 }
 
@@ -449,6 +467,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             IntelCommands::Health => "intel_health",
             IntelCommands::NameChain { .. } => "intel_name_chain",
         },
+        Commands::Context { ref time, .. } => {
+            time_range_bucket = Some(TimeRangeBucket::from_time_arg(time));
+            "context"
+        }
     };
 
     // Handle daemon commands FIRST - they manage their own database lifecycle
@@ -1300,6 +1322,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
+        Commands::Context {
+            query,
+            time,
+            limit,
+            format,
+        } => {
+            let input = ContextRestoreInput {
+                query,
+                time: Some(time),
+                limit: Some(limit),
+            };
+            let ctx_result = engine.query_context(input).await?;
+            result_count = Some(ctx_result.work_clusters.len() as u32);
+            match format.as_str() {
+                "table" => output_context_table(&ctx_result),
+                _ => output(&ctx_result, &format)?,
+            }
+        }
     }
 
     // Capture telemetry event using typed helper (fire-and-forget)
@@ -1409,6 +1449,68 @@ fn output_chains_table(result: &tastematter::ChainQueryResult) {
     // Summary
     println!("{}", "-".repeat(90));
     println!("Total: {} chains", result.total_chains);
+}
+
+/// Output context restore results as a summary table
+fn output_context_table(result: &tastematter::ContextRestoreResult) {
+    // Executive summary
+    println!("=== Context: {} ===", result.query);
+    println!(
+        "Status: {} | Tempo: {} | Generated: {}",
+        result.executive_summary.status,
+        result.executive_summary.work_tempo,
+        &result.generated_at[..10],
+    );
+    if let Some(ref ts) = result.executive_summary.last_meaningful_session {
+        println!("Last meaningful session: {}", &ts[..10.min(ts.len())]);
+    }
+    println!();
+
+    // Work clusters
+    if !result.work_clusters.is_empty() {
+        println!("--- Work Clusters ({}) ---", result.work_clusters.len());
+        for (i, cluster) in result.work_clusters.iter().enumerate() {
+            println!(
+                "  [{}] PMI={:.2} ({}) {} files",
+                i + 1,
+                cluster.pmi_score,
+                cluster.access_pattern,
+                cluster.files.len(),
+            );
+            for f in cluster.files.iter().take(3) {
+                println!("      {}", f);
+            }
+        }
+        println!();
+    }
+
+    // Suggested reads
+    if !result.suggested_reads.is_empty() {
+        println!("--- Suggested Reads ---");
+        for read in result.suggested_reads.iter().take(10) {
+            let surprise_marker = if read.surprise { " *SURPRISE*" } else { "" };
+            println!("  [P{}] {}{}", read.priority, read.path, surprise_marker);
+        }
+        println!();
+    }
+
+    // Insights
+    if !result.insights.is_empty() {
+        println!("--- Insights ---");
+        for insight in &result.insights {
+            println!("  [{}] {}: {}", insight.insight_type, insight.title, insight.description);
+        }
+        println!();
+    }
+
+    // Verification
+    println!(
+        "Receipt: {} | Files: {} | Sessions: {} | Co-access pairs: {}",
+        result.verification.receipt_id,
+        result.verification.files_analyzed,
+        result.verification.sessions_analyzed,
+        result.verification.co_access_pairs,
+    );
 }
 
 /// Output heat results as CSV

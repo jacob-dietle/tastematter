@@ -639,6 +639,187 @@ pub struct HeatResult {
 }
 
 // =============================================================================
+// QUERY INPUT/OUTPUT TYPES - context restore
+// =============================================================================
+
+/// Input for the context restore command
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ContextRestoreInput {
+    /// Search query (used as glob pattern *query*)
+    pub query: String,
+    /// Time window (default: "30d")
+    pub time: Option<String>,
+    /// Maximum results per sub-query (default: 20)
+    pub limit: Option<u32>,
+}
+
+/// Complete context restoration result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContextRestoreResult {
+    pub receipt_id: String,
+    pub query: String,
+    pub generated_at: String,
+    pub executive_summary: ExecutiveSummary,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_state: Option<CurrentState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub continuity: Option<Continuity>,
+    pub work_clusters: Vec<WorkCluster>,
+    pub suggested_reads: Vec<SuggestedRead>,
+    pub timeline: TimelineSection,
+    pub insights: Vec<ContextInsight>,
+    pub verification: ContextVerification,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quick_start: Option<QuickStart>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutiveSummary {
+    /// Phase 2: LLM-generated one-liner
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub one_liner: Option<String>,
+    /// healthy | warning | stale | unknown
+    pub status: String,
+    /// active | cooling | dormant
+    pub work_tempo: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_meaningful_session: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CurrentState {
+    /// Phase 2: LLM-generated narrative
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub narrative: Option<String>,
+    pub key_metrics: serde_json::Value,
+    pub evidence: Vec<Evidence>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Evidence {
+    pub source: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Continuity {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub left_off_at: Option<LeftOffAt>,
+    pub pending_items: Vec<PendingItem>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chain_context: Option<ChainContext>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LeftOffAt {
+    pub file: String,
+    pub section: Option<String>,
+    pub timestamp: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PendingItem {
+    pub text: String,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChainContext {
+    pub chain_id: String,
+    pub display_name: String,
+    pub session_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkCluster {
+    /// Phase 2: LLM-generated cluster name
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub files: Vec<String>,
+    pub pmi_score: f64,
+    /// Phase 2: LLM-generated interpretation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interpretation: Option<String>,
+    /// high_access_high_session | high_access_low_session | low_access_high_session | low_access_low_session
+    pub access_pattern: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SuggestedRead {
+    pub path: String,
+    /// Phase 2: LLM-generated reason
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    pub priority: u32,
+    pub surprise: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimelineSection {
+    pub recent_focus: Vec<FocusPeriod>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attention_shift: Option<AttentionShift>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FocusPeriod {
+    pub start_date: String,
+    pub end_date: String,
+    pub top_files: Vec<String>,
+    pub access_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AttentionShift {
+    pub from_period: String,
+    pub to_period: String,
+    pub jaccard_similarity: f64,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContextInsight {
+    /// stale | abandoned | surprise
+    pub insight_type: String,
+    pub title: String,
+    pub description: String,
+    pub evidence: Vec<String>,
+}
+
+/// Verification data for context restore (named to avoid collision with VerifyResult)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContextVerification {
+    pub receipt_id: String,
+    pub files_analyzed: u32,
+    pub sessions_analyzed: u32,
+    pub co_access_pairs: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuickStart {
+    pub commands: Vec<QuickStartCommand>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuickStartCommand {
+    pub command: String,
+    pub description: String,
+}
+
+/// Discovered project context file (from filesystem)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectContextFile {
+    pub path: String,
+    pub title: Option<String>,
+    pub sections: Vec<String>,
+    pub pending_items: Vec<String>,
+    pub code_blocks: Vec<String>,
+    pub content: String,
+    /// Discovery priority tier: high, medium, low
+    pub tier: String,
+}
+
+// =============================================================================
 // HELPER FUNCTIONS
 // =============================================================================
 

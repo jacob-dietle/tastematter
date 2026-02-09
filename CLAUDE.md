@@ -61,7 +61,7 @@ apps/tastematter/
 ```bash
 # Rust core
 cd core && cargo build --release
-cd core && cargo test
+cd core && cargo test -- --test-threads=2  # ALWAYS limit threads (see Known Issues)
 
 # Frontend (desktop app)
 cd frontend && pnpm install
@@ -93,6 +93,7 @@ The Rust core is READ-ONLY. The Python daemon (to be replaced with Rust indexer)
 
 ## Known Issues
 
+- **CRITICAL: `cargo test` MUST use `--test-threads=2`** — The daemon integration tests (`test_full_daemon_workflow`, `test_sync_result_aggregates_all_phases`, `test_run_sync_*`) each spin up full SQLite databases, parse real JSONL session files, and build chain graphs. Running all 311 tests at default parallelism (= CPU core count) causes memory spikes that crash VS Code and all Claude Code instances. Always run: `cargo test -- --test-threads=2`. The `test_batch_insert_commits_performance` test is a known flaky failure under resource contention (4600ms vs 1000ms threshold) — not a real regression.
 - **Chain linking broken:** Python indexer doesn't parse `leafUuid` → all sessions in one chain
 - **Solution:** Port indexer to Rust (TODO)
 

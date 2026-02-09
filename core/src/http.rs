@@ -30,8 +30,9 @@ use std::time::Instant;
 use tower_http::cors::{Any, CorsLayer};
 
 use crate::{
-    ChainQueryResult, CoreError, QueryChainsInput, QueryEngine, QueryFlexInput, QueryResult,
-    QuerySessionsInput, QueryTimelineInput, SessionQueryResult, TimelineData,
+    ChainQueryResult, ContextRestoreInput, ContextRestoreResult, CoreError, QueryChainsInput,
+    QueryEngine, QueryFlexInput, QueryResult, QuerySessionsInput, QueryTimelineInput,
+    SessionQueryResult, TimelineData,
 };
 
 /// Application state shared across handlers
@@ -74,6 +75,7 @@ pub fn create_router(state: Arc<AppState>, enable_cors: bool) -> Router {
         .route("/api/query/timeline", post(query_timeline_handler))
         .route("/api/query/sessions", post(query_sessions_handler))
         .route("/api/query/chains", post(query_chains_handler))
+        .route("/api/query/context", post(query_context_handler))
         .with_state(state);
 
     if enable_cors {
@@ -145,6 +147,19 @@ async fn query_chains_handler(
     state
         .engine
         .query_chains(input)
+        .await
+        .map(Json)
+        .map_err(Into::into)
+}
+
+/// Context restore endpoint - POST /api/query/context
+async fn query_context_handler(
+    State(state): State<Arc<AppState>>,
+    Json(input): Json<ContextRestoreInput>,
+) -> Result<Json<ContextRestoreResult>, (StatusCode, Json<ApiError>)> {
+    state
+        .engine
+        .query_context(input)
         .await
         .map(Json)
         .map_err(Into::into)

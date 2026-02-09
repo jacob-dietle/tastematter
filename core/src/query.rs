@@ -1314,6 +1314,126 @@ impl QueryEngine {
     }
 
     // =========================================================================
+    // CONTEXT RESTORE (Composed Query)
+    // =========================================================================
+
+    /// Restore context for a topic by composing all query primitives.
+    ///
+    /// This is the first composed query — uses tokio::join! for parallel DB
+    /// queries, then sequential co-access and filesystem discovery.
+    pub async fn query_context(
+        &self,
+        input: ContextRestoreInput,
+    ) -> Result<ContextRestoreResult, CoreError> {
+        let time = input.time.clone().unwrap_or_else(|| "30d".to_string());
+        let limit = input.limit.unwrap_or(20);
+        let pattern = format!("*{}*", input.query);
+
+        // Phase 1: Parallel DB queries via tokio::join!
+        let (flex, heat, chains, sessions, timeline) = tokio::join!(
+            self.query_flex(QueryFlexInput {
+                time: Some(time.clone()),
+                files: Some(pattern.clone()),
+                limit: Some(limit),
+                ..Default::default()
+            }),
+            self.query_heat(QueryHeatInput {
+                time: Some(time.clone()),
+                files: Some(pattern.clone()),
+                limit: Some(limit),
+                ..Default::default()
+            }),
+            self.query_chains(QueryChainsInput {
+                limit: Some(limit),
+            }),
+            self.query_sessions(QuerySessionsInput {
+                time: time.clone(),
+                chain: None,
+                limit: Some(limit),
+            }),
+            self.query_timeline(QueryTimelineInput {
+                time: time.clone(),
+                files: Some(pattern.clone()),
+                chain: None,
+                limit: Some(30),
+            }),
+        );
+
+        // Unwrap results
+        let flex = flex?;
+        let heat = heat?;
+        let chains = chains?;
+        let sessions = sessions?;
+        let timeline = timeline?;
+
+        // Phase 2: Sequential co-access for top 5 hot files
+        let anchors: Vec<String> = flex
+            .results
+            .iter()
+            .take(5)
+            .map(|f| f.file_path.clone())
+            .collect();
+        let mut co_access_results = Vec::new();
+        for anchor in &anchors {
+            if let Ok(co) = self
+                .query_co_access(QueryCoAccessInput {
+                    file_path: anchor.clone(),
+                    limit: Some(10),
+                })
+                .await
+            {
+                co_access_results.push(co);
+            }
+        }
+
+        // Phase 3: Filesystem-based project context discovery
+        let cwd = std::env::current_dir().unwrap_or_default();
+        let context_files =
+            crate::context_restore::discover_project_context(&input.query, &cwd);
+
+        // Phase 4: Assembly via builder functions
+        let receipt_id = generate_receipt_id();
+
+        Ok(ContextRestoreResult {
+            receipt_id: receipt_id.clone(),
+            query: input.query.clone(),
+            generated_at: chrono::Utc::now().to_rfc3339(),
+            executive_summary: crate::context_restore::build_executive_summary(
+                &sessions, &heat,
+            ),
+            current_state: crate::context_restore::build_current_state(
+                &context_files,
+                &flex,
+            ),
+            continuity: crate::context_restore::build_continuity(
+                &context_files,
+                &chains,
+            ),
+            work_clusters: crate::context_restore::build_work_clusters(
+                &flex,
+                &co_access_results,
+            ),
+            suggested_reads: crate::context_restore::build_suggested_reads(
+                &flex,
+                &co_access_results,
+                &context_files,
+            ),
+            timeline: crate::context_restore::build_timeline(&timeline),
+            insights: crate::context_restore::build_deterministic_insights(
+                &heat,
+                &context_files,
+            ),
+            verification: crate::context_restore::build_verification(
+                &receipt_id,
+                &flex,
+                &sessions,
+                &co_access_results,
+            ),
+            quick_start: crate::context_restore::build_quick_start(&context_files),
+        })
+    }
+
+    // =========================================================================
     // WRITE OPERATIONS (Phase 1: Storage Foundation)
     // =========================================================================
 
