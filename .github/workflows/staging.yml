@@ -169,3 +169,55 @@ jobs:
           export PATH="$HOME/.local/bin:$PATH"
           tastematter --version
           tastematter --help
+
+      - name: Test fresh init flow (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $env:Path = "$env:USERPROFILE\.local\bin;$env:Path"
+
+          # 1. Verify no DB exists (fresh machine)
+          if (Test-Path "$env:USERPROFILE\.context-os\context_os_events.db") {
+            throw "DB already exists - not a fresh machine test"
+          }
+
+          # 2. daemon once creates DB + schema (no sessions, shouldn't crash)
+          tastematter daemon once 2>&1 | Out-String
+          # daemon once may exit non-zero if no sessions found, that's OK
+
+          # 3. DB should now exist
+          if (-not (Test-Path "$env:USERPROFILE\.context-os\context_os_events.db")) {
+            throw "DB was not created by daemon once"
+          }
+
+          # 4. context command should return valid JSON on empty DB
+          $result = tastematter context "test" --format json | ConvertFrom-Json
+          if (-not $result.receipt_id) { throw "Missing receipt_id" }
+          if ($result.executive_summary.status -notin @("healthy","warning","stale","unknown")) {
+            throw "Invalid status: $($result.executive_summary.status)"
+          }
+          Write-Host "FRESH INIT: ALL CHECKS PASSED"
+
+      - name: Test fresh init flow (Unix)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+
+          # 1. Verify no DB exists (fresh machine)
+          test ! -f ~/.context-os/context_os_events.db || { echo "DB already exists"; exit 1; }
+
+          # 2. daemon once creates DB + schema (no sessions, shouldn't crash)
+          tastematter daemon once 2>&1 || true
+
+          # 3. DB should now exist
+          test -f ~/.context-os/context_os_events.db || { echo "DB was not created"; exit 1; }
+
+          # 4. context command should return valid JSON on empty DB
+          tastematter context "test" --format json | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          assert 'receipt_id' in d, 'Missing receipt_id'
+          assert d['executive_summary']['status'] in ['healthy','warning','stale','unknown'], f'Bad status: {d[\"executive_summary\"][\"status\"]}'
+          print('FRESH INIT: ALL CHECKS PASSED')
+          "
