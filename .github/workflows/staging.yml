@@ -176,10 +176,8 @@ jobs:
         run: |
           $env:Path = "$env:USERPROFILE\.local\bin;$env:Path"
 
-          # 1. Verify no DB exists (fresh machine)
-          if (Test-Path "$env:USERPROFILE\.context-os\context_os_events.db") {
-            throw "DB already exists - not a fresh machine test"
-          }
+          # 1. Remove any existing DB to simulate fresh machine
+          Remove-Item "$env:USERPROFILE\.context-os" -Recurse -Force -ErrorAction SilentlyContinue
 
           # 2. daemon once creates DB + schema (no sessions, shouldn't crash)
           tastematter daemon once 2>&1 | Out-String
@@ -204,8 +202,8 @@ jobs:
         run: |
           export PATH="$HOME/.local/bin:$PATH"
 
-          # 1. Verify no DB exists (fresh machine)
-          test ! -f ~/.context-os/context_os_events.db || { echo "DB already exists"; exit 1; }
+          # 1. Remove any existing DB to simulate fresh machine
+          rm -rf ~/.context-os
 
           # 2. daemon once creates DB + schema (no sessions, shouldn't crash)
           tastematter daemon once 2>&1 || true
