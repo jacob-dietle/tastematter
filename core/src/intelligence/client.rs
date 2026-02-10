@@ -11,6 +11,7 @@ use uuid::Uuid;
 use crate::error::CoreError;
 use crate::intelligence::types::{
     ChainNamingRequest, ChainNamingResponse, ChainSummaryRequest, ChainSummaryResponse,
+    ContextSynthesisRequest, ContextSynthesisResponse,
 };
 
 /// HTTP client for intelligence service at localhost:3002
@@ -197,6 +198,87 @@ impl IntelClient {
         }
     }
 
+    /// Call context synthesis endpoint with graceful degradation
+    ///
+    /// Returns `Ok(Some(response))` on success, `Ok(None)` on any failure.
+    /// Uses a 15s per-request timeout (LLM synthesis takes 3-5s).
+    pub async fn synthesize_context(
+        &self,
+        request: &ContextSynthesisRequest,
+    ) -> Result<Option<ContextSynthesisResponse>, CoreError> {
+        let correlation_id = Uuid::new_v4().to_string();
+        let start = Instant::now();
+        let url = format!("{}/api/intel/synthesize-context", self.base_url);
+
+        info!(
+            target: "intelligence",
+            "Starting intelligence request: correlation_id={}, operation=synthesize_context, query={}, cluster_count={}, read_count={}",
+            correlation_id,
+            request.query,
+            request.clusters.len(),
+            request.suggested_reads.len()
+        );
+
+        let result = self
+            .http_client
+            .post(&url)
+            .header("X-Correlation-ID", &correlation_id)
+            .header("Content-Type", "application/json")
+            .timeout(Duration::from_secs(15))
+            .json(request)
+            .send()
+            .await;
+
+        let duration_ms = start.elapsed().as_millis();
+
+        match result {
+            Ok(response) if response.status().is_success() => {
+                match response.json::<ContextSynthesisResponse>().await {
+                    Ok(data) => {
+                        info!(
+                            target: "intelligence",
+                            "Intelligence request completed: correlation_id={}, duration_ms={}, success=true, one_liner_len={}",
+                            correlation_id,
+                            duration_ms,
+                            data.one_liner.len()
+                        );
+                        Ok(Some(data))
+                    }
+                    Err(e) => {
+                        warn!(
+                            target: "intelligence",
+                            "Failed to parse intelligence response: correlation_id={}, duration_ms={}, error={}",
+                            correlation_id,
+                            duration_ms,
+                            e
+                        );
+                        Ok(None)
+                    }
+                }
+            }
+            Ok(response) => {
+                warn!(
+                    target: "intelligence",
+                    "Intelligence service returned error status: correlation_id={}, duration_ms={}, status={}",
+                    correlation_id,
+                    duration_ms,
+                    response.status().as_u16()
+                );
+                Ok(None)
+            }
+            Err(e) => {
+                warn!(
+                    target: "intelligence",
+                    "Intelligence service unavailable - degrading gracefully: correlation_id={}, duration_ms={}, error={}",
+                    correlation_id,
+                    duration_ms,
+                    e
+                );
+                Ok(None)
+            }
+        }
+    }
+
     /// Check if the intelligence service is available
     pub async fn health_check(&self) -> bool {
         let url = format!("{}/api/intel/health", self.base_url);
@@ -210,6 +292,7 @@ impl IntelClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::intelligence::types::{ClusterInput, SuggestedReadInput};
 
     #[test]
     fn intel_client_creates_with_base_url() {
@@ -323,5 +406,72 @@ mod tests {
         let _ = client.summarize_chain(&request).await;
         // Should timeout within 15 seconds (default + buffer)
         assert!(start.elapsed().as_secs() < 15);
+    }
+
+    // =========================================================================
+    // synthesize_context() tests (Context Restore Phase 2)
+    // =========================================================================
+
+    #[tokio::test]
+    async fn synthesize_context_returns_none_when_service_unavailable() {
+        let client = IntelClient::new("http://localhost:59999");
+        let request = ContextSynthesisRequest {
+            query: "test".to_string(),
+            status: "unknown".to_string(),
+            work_tempo: "dormant".to_string(),
+            clusters: vec![],
+            suggested_reads: vec![],
+            context_package_content: None,
+            key_metrics: None,
+            evidence_sources: vec![],
+        };
+        let result = client.synthesize_context(&request).await;
+        assert!(result.is_ok()); // Graceful degradation
+        assert!(result.unwrap().is_none()); // Returns None when unavailable
+    }
+
+    #[tokio::test]
+    async fn synthesize_context_handles_full_request() {
+        let client = IntelClient::new("http://localhost:59999");
+        let request = ContextSynthesisRequest {
+            query: "nickel".to_string(),
+            status: "healthy".to_string(),
+            work_tempo: "active".to_string(),
+            clusters: vec![ClusterInput {
+                files: vec!["src/auth.rs".to_string()],
+                access_pattern: "high_access_high_session".to_string(),
+                pmi_score: 2.5,
+            }],
+            suggested_reads: vec![SuggestedReadInput {
+                path: "specs/README.md".to_string(),
+                priority: 1,
+                surprise: false,
+            }],
+            context_package_content: Some("# Package 35".to_string()),
+            key_metrics: Some(serde_json::json!({"files": 20})),
+            evidence_sources: vec!["CLAUDE.md".to_string()],
+        };
+        let result = client.synthesize_context(&request).await;
+        // Should complete without panicking even with full request
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn synthesize_context_has_timeout() {
+        let client = IntelClient::new("http://localhost:59999");
+        let start = std::time::Instant::now();
+        let request = ContextSynthesisRequest {
+            query: "timeout-test".to_string(),
+            status: "unknown".to_string(),
+            work_tempo: "dormant".to_string(),
+            clusters: vec![],
+            suggested_reads: vec![],
+            context_package_content: None,
+            key_metrics: None,
+            evidence_sources: vec![],
+        };
+        let _ = client.synthesize_context(&request).await;
+        // Should timeout within 20 seconds (15s per-request + buffer)
+        assert!(start.elapsed().as_secs() < 20);
     }
 }

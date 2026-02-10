@@ -625,7 +625,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Database::open_or_create_default().await?
     };
 
-    let engine = QueryEngine::new(db);
+    let engine = QueryEngine::new(db).with_intel(IntelClient::default());
 
     match cli.command {
         // Daemon commands already handled above

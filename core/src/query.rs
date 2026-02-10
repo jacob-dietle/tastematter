@@ -10,6 +10,7 @@ use std::hash::{Hash, Hasher};
 use std::time::Instant;
 
 use crate::error::CoreError;
+use crate::intelligence::IntelClient;
 use crate::storage::Database;
 use crate::types::*;
 
@@ -73,14 +74,25 @@ fn compute_display_name(
 /// Query engine for context-os
 ///
 /// Provides direct SQLite queries with sub-100ms latency.
+/// Optionally integrates with intelligence service for LLM synthesis.
 pub struct QueryEngine {
     db: Database,
+    intel_client: Option<IntelClient>,
 }
 
 impl QueryEngine {
     /// Create a new QueryEngine with the given database
     pub fn new(db: Database) -> Self {
-        Self { db }
+        Self {
+            db,
+            intel_client: None,
+        }
+    }
+
+    /// Add an intelligence client for LLM-powered synthesis
+    pub fn with_intel(mut self, client: IntelClient) -> Self {
+        self.intel_client = Some(client);
+        self
     }
 
     /// Get a reference to the underlying database
@@ -1391,7 +1403,7 @@ impl QueryEngine {
         // Phase 4: Assembly via builder functions
         let receipt_id = generate_receipt_id();
 
-        Ok(ContextRestoreResult {
+        let mut result = ContextRestoreResult {
             receipt_id: receipt_id.clone(),
             query: input.query.clone(),
             generated_at: chrono::Utc::now().to_rfc3339(),
@@ -1413,7 +1425,18 @@ impl QueryEngine {
                 &co_access_results,
             ),
             quick_start: crate::context_restore::build_quick_start(&context_files),
-        })
+        };
+
+        // Phase 5: LLM synthesis (optional — graceful degradation)
+        if let Some(ref intel) = self.intel_client {
+            let synth_request =
+                crate::context_restore::build_synthesis_request(&result, &context_files);
+            if let Ok(Some(synthesis)) = intel.synthesize_context(&synth_request).await {
+                crate::context_restore::merge_synthesis(&mut result, &synthesis);
+            }
+        }
+
+        Ok(result)
     }
 
     // =========================================================================

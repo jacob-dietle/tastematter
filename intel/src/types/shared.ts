@@ -453,3 +453,55 @@ export const GitOpsDecisionSchema = z.object({
   model_used: z.string(),
 });
 export type GitOpsDecision = z.infer<typeof GitOpsDecisionSchema>;
+
+// ============================================================================
+// Context Synthesis Schemas (Context Restore Phase 2)
+// ============================================================================
+
+/**
+ * Cluster input for context synthesis
+ */
+export const ClusterInputSchema = z.object({
+  files: z.array(z.string()),
+  access_pattern: z.string(),
+  pmi_score: z.number(),
+});
+export type ClusterInput = z.infer<typeof ClusterInputSchema>;
+
+/**
+ * Suggested read input for context synthesis
+ */
+export const SuggestedReadInputSchema = z.object({
+  path: z.string(),
+  priority: z.number().int(),
+  surprise: z.boolean(),
+});
+export type SuggestedReadInput = z.infer<typeof SuggestedReadInputSchema>;
+
+/**
+ * Request for context synthesis - curated subset of ContextRestoreResult
+ */
+export const ContextSynthesisRequestSchema = z.object({
+  query: z.string(),
+  status: z.string(),
+  work_tempo: z.string(),
+  clusters: z.array(ClusterInputSchema),
+  suggested_reads: z.array(SuggestedReadInputSchema),
+  context_package_content: z.string().optional(),
+  key_metrics: z.record(z.unknown()).optional(),
+  evidence_sources: z.array(z.string()),
+});
+export type ContextSynthesisRequest = z.infer<typeof ContextSynthesisRequestSchema>;
+
+/**
+ * Response from context synthesis - fills 5 None fields
+ */
+export const ContextSynthesisResponseSchema = z.object({
+  one_liner: z.string(),
+  narrative: z.string(),
+  cluster_names: z.array(z.string()),
+  cluster_interpretations: z.array(z.string()),
+  suggested_read_reasons: z.array(z.string()),
+  model_used: z.string(),
+});
+export type ContextSynthesisResponse = z.infer<typeof ContextSynthesisResponseSchema>;

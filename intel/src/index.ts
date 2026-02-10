@@ -15,6 +15,7 @@
  * - POST /api/intel/summarize-session - Summarize sessions (Phase 4)
  * - POST /api/intel/generate-insights - Generate insights (Phase 4)
  * - POST /api/intel/gitops-decide    - Intelligent GitOps decisions (GitOps Level 0)
+ * - POST /api/intel/synthesize-context - Context synthesis for restore Phase 2
  */
 
 import { Elysia } from "elysia";
@@ -27,6 +28,7 @@ import { summarizeSession } from "./agents/session-summary";
 import { generateInsights } from "./agents/insights";
 import { summarizeChain } from "./agents/chain-summary";
 import { decideGitOps } from "./agents/gitops-decision";
+import { synthesizeContext } from "./agents/context-synthesis";
 import { log } from "./services/logger";
 import {
   ChainNamingRequestSchema,
@@ -35,6 +37,7 @@ import {
   SessionSummaryRequestSchema,
   InsightsRequestSchema,
   GitOpsSignalsSchema,
+  ContextSynthesisRequestSchema,
   type HealthResponse,
   type ChainNamingResponse,
   type ABTestResult,
@@ -43,6 +46,7 @@ import {
   type SessionSummaryResponse,
   type InsightsResponse,
   type GitOpsDecision,
+  type ContextSynthesisResponse,
 } from "./types/shared";
 
 const VERSION = "0.1.0";
@@ -457,6 +461,39 @@ export function createApp() {
           message: error instanceof Error ? error.message : "Unknown error",
         };
       }
+    })
+
+    // Context synthesis endpoint (Context Restore Phase 2)
+    .post("/api/intel/synthesize-context", async ({ body, set, correlationId }) => {
+      const validation = ContextSynthesisRequestSchema.safeParse(body);
+      if (!validation.success) {
+        set.status = 400;
+        return {
+          error: "Invalid request",
+          details: validation.error.flatten().fieldErrors,
+        };
+      }
+
+      return withOperationLogging(
+        {
+          operation: "synthesize_context",
+          getInputMetrics: () => ({
+            query: validation.data.query,
+            cluster_count: validation.data.clusters.length,
+            read_count: validation.data.suggested_reads.length,
+            has_context_package: !!validation.data.context_package_content,
+          }),
+          getOutputMetrics: (result) => ({
+            model_used: (result as ContextSynthesisResponse).model_used,
+            one_liner_length: (result as ContextSynthesisResponse).one_liner.length,
+            cluster_names_count: (result as ContextSynthesisResponse).cluster_names.length,
+          }),
+        },
+        async () => {
+          const client = getAnthropicClient();
+          return await synthesizeContext(client, validation.data);
+        }
+      )({ correlationId, body, set });
     })
 }
 

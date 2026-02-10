@@ -215,6 +215,53 @@ pub struct GitOpsDecision {
     pub model_used: String,
 }
 
+// =============================================================================
+// Context Synthesis Types - Context Restore Phase 2
+// matches TypeScript /api/intel/synthesize-context endpoint
+// =============================================================================
+
+/// Work cluster input for context synthesis request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClusterInput {
+    pub files: Vec<String>,
+    pub access_pattern: String,
+    pub pmi_score: f64,
+}
+
+/// Suggested read input for context synthesis request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SuggestedReadInput {
+    pub path: String,
+    pub priority: u32,
+    pub surprise: bool,
+}
+
+/// Request for context synthesis — curated subset of ContextRestoreResult
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContextSynthesisRequest {
+    pub query: String,
+    pub status: String,
+    pub work_tempo: String,
+    pub clusters: Vec<ClusterInput>,
+    pub suggested_reads: Vec<SuggestedReadInput>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_package_content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key_metrics: Option<serde_json::Value>,
+    pub evidence_sources: Vec<String>,
+}
+
+/// Response from context synthesis — fills 5 None fields
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContextSynthesisResponse {
+    pub one_liner: String,
+    pub narrative: String,
+    pub cluster_names: Vec<String>,
+    pub cluster_interpretations: Vec<String>,
+    pub suggested_read_reasons: Vec<String>,
+    pub model_used: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -574,5 +621,91 @@ mod tests {
         assert_eq!(decision.action, GitOpsAction::Wait);
         assert_eq!(decision.urgency, GitOpsUrgency::Low);
         assert!(decision.suggested_commit_message.is_none());
+    }
+
+    // =========================================================================
+    // Context Synthesis Tests (Context Restore Phase 2)
+    // =========================================================================
+
+    #[test]
+    fn context_synthesis_request_serializes() {
+        let request = ContextSynthesisRequest {
+            query: "nickel".to_string(),
+            status: "healthy".to_string(),
+            work_tempo: "active".to_string(),
+            clusters: vec![ClusterInput {
+                files: vec!["src/auth.rs".to_string()],
+                access_pattern: "high_access_high_session".to_string(),
+                pmi_score: 2.5,
+            }],
+            suggested_reads: vec![SuggestedReadInput {
+                path: "specs/README.md".to_string(),
+                priority: 1,
+                surprise: false,
+            }],
+            context_package_content: Some("# Package 35".to_string()),
+            key_metrics: Some(serde_json::json!({"files_in_scope": 20})),
+            evidence_sources: vec!["CLAUDE.md".to_string()],
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        assert!(json.contains("\"query\":\"nickel\""));
+        assert!(json.contains("\"status\":\"healthy\""));
+        assert!(json.contains("\"work_tempo\":\"active\""));
+        assert!(json.contains("\"pmi_score\":2.5"));
+        assert!(json.contains("\"priority\":1"));
+        assert!(json.contains("\"surprise\":false"));
+        assert!(json.contains("\"context_package_content\""));
+    }
+
+    #[test]
+    fn context_synthesis_request_skips_none_fields() {
+        let request = ContextSynthesisRequest {
+            query: "test".to_string(),
+            status: "unknown".to_string(),
+            work_tempo: "dormant".to_string(),
+            clusters: vec![],
+            suggested_reads: vec![],
+            context_package_content: None,
+            key_metrics: None,
+            evidence_sources: vec![],
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        assert!(!json.contains("context_package_content"));
+        assert!(!json.contains("key_metrics"));
+    }
+
+    #[test]
+    fn context_synthesis_response_deserializes() {
+        let json = r#"{
+            "one_liner": "Nickel transcript worker is production-ready",
+            "narrative": "You built a multi-provider ingestion system.",
+            "cluster_names": ["Core Pipeline", "Type Contracts"],
+            "cluster_interpretations": ["Active dev files", "Shared types"],
+            "suggested_read_reasons": ["Start here", "Entry point"],
+            "model_used": "claude-haiku-4-5-20251001"
+        }"#;
+        let response: ContextSynthesisResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(response.one_liner, "Nickel transcript worker is production-ready");
+        assert_eq!(response.cluster_names.len(), 2);
+        assert_eq!(response.cluster_names[0], "Core Pipeline");
+        assert_eq!(response.cluster_interpretations.len(), 2);
+        assert_eq!(response.suggested_read_reasons.len(), 2);
+        assert_eq!(response.model_used, "claude-haiku-4-5-20251001");
+    }
+
+    #[test]
+    fn context_synthesis_response_deserializes_empty_arrays() {
+        let json = r#"{
+            "one_liner": "Empty project",
+            "narrative": "No recent activity.",
+            "cluster_names": [],
+            "cluster_interpretations": [],
+            "suggested_read_reasons": [],
+            "model_used": "claude-haiku-4-5-20251001"
+        }"#;
+        let response: ContextSynthesisResponse = serde_json::from_str(json).unwrap();
+        assert!(response.cluster_names.is_empty());
+        assert!(response.cluster_interpretations.is_empty());
+        assert!(response.suggested_read_reasons.is_empty());
     }
 }

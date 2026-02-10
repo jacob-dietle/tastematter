@@ -14,6 +14,10 @@
 use std::collections::HashSet;
 use std::path::Path;
 
+use crate::intelligence::{
+    ClusterInput, ContextSynthesisResponse, SuggestedReadInput,
+    ContextSynthesisRequest,
+};
 use crate::types::*;
 
 // =============================================================================
@@ -764,5 +768,353 @@ pub fn build_quick_start(context_files: &[ProjectContextFile]) -> Option<QuickSt
         None
     } else {
         Some(QuickStart { commands })
+    }
+}
+
+// =============================================================================
+// PHASE 2: LLM Synthesis (build request + merge response)
+// =============================================================================
+
+/// Build a curated synthesis request from ContextRestoreResult.
+///
+/// Extracts a 2-4K token subset for the LLM — clusters, reads, context
+/// package content (from highest-tier context file), and evidence sources.
+pub fn build_synthesis_request(
+    result: &ContextRestoreResult,
+    context_files: &[ProjectContextFile],
+) -> ContextSynthesisRequest {
+    // Convert work clusters to ClusterInput
+    let clusters: Vec<ClusterInput> = result
+        .work_clusters
+        .iter()
+        .map(|c| ClusterInput {
+            files: c.files.clone(),
+            access_pattern: c.access_pattern.clone(),
+            pmi_score: c.pmi_score,
+        })
+        .collect();
+
+    // Convert suggested reads to SuggestedReadInput
+    let suggested_reads: Vec<SuggestedReadInput> = result
+        .suggested_reads
+        .iter()
+        .map(|r| SuggestedReadInput {
+            path: r.path.clone(),
+            priority: r.priority,
+            surprise: r.surprise,
+        })
+        .collect();
+
+    // Get context package content from highest-tier context file
+    let context_package_content = context_files
+        .iter()
+        .find(|f| f.tier == "high")
+        .map(|f| f.content.clone());
+
+    // Get key_metrics from current_state
+    let key_metrics = result
+        .current_state
+        .as_ref()
+        .map(|cs| cs.key_metrics.clone());
+
+    // Collect evidence sources
+    let evidence_sources: Vec<String> = result
+        .current_state
+        .as_ref()
+        .map(|cs| cs.evidence.iter().map(|e| e.source.clone()).collect())
+        .unwrap_or_default();
+
+    ContextSynthesisRequest {
+        query: result.query.clone(),
+        status: result.executive_summary.status.clone(),
+        work_tempo: result.executive_summary.work_tempo.clone(),
+        clusters,
+        suggested_reads,
+        context_package_content,
+        key_metrics,
+        evidence_sources,
+    }
+}
+
+/// Merge LLM synthesis response into the ContextRestoreResult.
+///
+/// Fills the 5 None fields using index-matched arrays from the response.
+/// Silently skips mismatched array lengths (graceful degradation).
+pub fn merge_synthesis(
+    result: &mut ContextRestoreResult,
+    synthesis: &ContextSynthesisResponse,
+) {
+    // 1. one_liner
+    result.executive_summary.one_liner = Some(synthesis.one_liner.clone());
+
+    // 2. narrative
+    if let Some(ref mut cs) = result.current_state {
+        cs.narrative = Some(synthesis.narrative.clone());
+    }
+
+    // 3 & 4. cluster names and interpretations (index-matched)
+    for (i, cluster) in result.work_clusters.iter_mut().enumerate() {
+        if let Some(name) = synthesis.cluster_names.get(i) {
+            cluster.name = Some(name.clone());
+        }
+        if let Some(interp) = synthesis.cluster_interpretations.get(i) {
+            cluster.interpretation = Some(interp.clone());
+        }
+    }
+
+    // 5. suggested read reasons (index-matched)
+    for (i, read) in result.suggested_reads.iter_mut().enumerate() {
+        if let Some(reason) = synthesis.suggested_read_reasons.get(i) {
+            read.reason = Some(reason.clone());
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_minimal_result() -> ContextRestoreResult {
+        ContextRestoreResult {
+            receipt_id: "q_test01".to_string(),
+            query: "nickel".to_string(),
+            generated_at: "2026-02-10T00:00:00Z".to_string(),
+            executive_summary: ExecutiveSummary {
+                one_liner: None,
+                status: "healthy".to_string(),
+                work_tempo: "active".to_string(),
+                last_meaningful_session: None,
+            },
+            current_state: Some(CurrentState {
+                narrative: None,
+                key_metrics: serde_json::json!({"files_in_scope": 20}),
+                evidence: vec![Evidence {
+                    source: "specs/README.md".to_string(),
+                    content: "Test spec".to_string(),
+                }],
+            }),
+            continuity: None,
+            work_clusters: vec![
+                WorkCluster {
+                    name: None,
+                    files: vec!["src/auth.rs".to_string(), "src/login.rs".to_string()],
+                    pmi_score: 2.5,
+                    interpretation: None,
+                    access_pattern: "high_access_high_session".to_string(),
+                },
+                WorkCluster {
+                    name: None,
+                    files: vec!["tests/test_auth.rs".to_string()],
+                    pmi_score: 1.2,
+                    interpretation: None,
+                    access_pattern: "low_access_low_session".to_string(),
+                },
+            ],
+            suggested_reads: vec![
+                SuggestedRead {
+                    path: "specs/README.md".to_string(),
+                    reason: None,
+                    priority: 1,
+                    surprise: false,
+                },
+                SuggestedRead {
+                    path: "src/weird.rs".to_string(),
+                    reason: None,
+                    priority: 2,
+                    surprise: true,
+                },
+            ],
+            timeline: TimelineSection {
+                recent_focus: vec![],
+                attention_shift: None,
+            },
+            insights: vec![],
+            verification: ContextVerification {
+                receipt_id: "q_test01".to_string(),
+                files_analyzed: 20,
+                sessions_analyzed: 5,
+                co_access_pairs: 10,
+            },
+            quick_start: None,
+        }
+    }
+
+    fn make_synthesis_response() -> ContextSynthesisResponse {
+        ContextSynthesisResponse {
+            one_liner: "Nickel transcript worker is production-ready".to_string(),
+            narrative: "You built a multi-provider ingestion system.".to_string(),
+            cluster_names: vec!["Auth Pipeline".to_string(), "Test Suite".to_string()],
+            cluster_interpretations: vec![
+                "Core auth files that move together".to_string(),
+                "Test coverage for auth".to_string(),
+            ],
+            suggested_read_reasons: vec![
+                "Start here for project overview".to_string(),
+                "Unexpected co-access pattern worth investigating".to_string(),
+            ],
+            model_used: "claude-haiku-4-5-20251001".to_string(),
+        }
+    }
+
+    // =========================================================================
+    // build_synthesis_request tests
+    // =========================================================================
+
+    #[test]
+    fn build_synthesis_request_extracts_query_and_status() {
+        let result = make_minimal_result();
+        let req = build_synthesis_request(&result, &[]);
+        assert_eq!(req.query, "nickel");
+        assert_eq!(req.status, "healthy");
+        assert_eq!(req.work_tempo, "active");
+    }
+
+    #[test]
+    fn build_synthesis_request_converts_clusters() {
+        let result = make_minimal_result();
+        let req = build_synthesis_request(&result, &[]);
+        assert_eq!(req.clusters.len(), 2);
+        assert_eq!(req.clusters[0].files[0], "src/auth.rs");
+        assert_eq!(req.clusters[0].access_pattern, "high_access_high_session");
+        assert!((req.clusters[0].pmi_score - 2.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn build_synthesis_request_converts_suggested_reads() {
+        let result = make_minimal_result();
+        let req = build_synthesis_request(&result, &[]);
+        assert_eq!(req.suggested_reads.len(), 2);
+        assert_eq!(req.suggested_reads[0].path, "specs/README.md");
+        assert_eq!(req.suggested_reads[0].priority, 1);
+        assert!(!req.suggested_reads[0].surprise);
+        assert!(req.suggested_reads[1].surprise);
+    }
+
+    #[test]
+    fn build_synthesis_request_extracts_context_package_from_high_tier() {
+        let result = make_minimal_result();
+        let context_files = vec![ProjectContextFile {
+            path: "specs/pkg.md".to_string(),
+            title: Some("Package 35".to_string()),
+            sections: vec![],
+            pending_items: vec![],
+            code_blocks: vec![],
+            content: "# Package 35\nDB auto-init complete.".to_string(),
+            tier: "high".to_string(),
+        }];
+        let req = build_synthesis_request(&result, &context_files);
+        assert!(req.context_package_content.is_some());
+        assert!(req.context_package_content.unwrap().contains("Package 35"));
+    }
+
+    #[test]
+    fn build_synthesis_request_no_context_when_no_high_tier() {
+        let result = make_minimal_result();
+        let context_files = vec![ProjectContextFile {
+            path: "docs/readme.md".to_string(),
+            title: None,
+            sections: vec![],
+            pending_items: vec![],
+            code_blocks: vec![],
+            content: "Low tier content".to_string(),
+            tier: "low".to_string(),
+        }];
+        let req = build_synthesis_request(&result, &context_files);
+        assert!(req.context_package_content.is_none());
+    }
+
+    #[test]
+    fn build_synthesis_request_extracts_evidence_sources() {
+        let result = make_minimal_result();
+        let req = build_synthesis_request(&result, &[]);
+        assert_eq!(req.evidence_sources, vec!["specs/README.md"]);
+    }
+
+    // =========================================================================
+    // merge_synthesis tests
+    // =========================================================================
+
+    #[test]
+    fn merge_synthesis_fills_one_liner() {
+        let mut result = make_minimal_result();
+        let synthesis = make_synthesis_response();
+        merge_synthesis(&mut result, &synthesis);
+        assert_eq!(
+            result.executive_summary.one_liner.unwrap(),
+            "Nickel transcript worker is production-ready"
+        );
+    }
+
+    #[test]
+    fn merge_synthesis_fills_narrative() {
+        let mut result = make_minimal_result();
+        let synthesis = make_synthesis_response();
+        merge_synthesis(&mut result, &synthesis);
+        assert_eq!(
+            result.current_state.unwrap().narrative.unwrap(),
+            "You built a multi-provider ingestion system."
+        );
+    }
+
+    #[test]
+    fn merge_synthesis_fills_cluster_names_and_interpretations() {
+        let mut result = make_minimal_result();
+        let synthesis = make_synthesis_response();
+        merge_synthesis(&mut result, &synthesis);
+        assert_eq!(result.work_clusters[0].name.as_deref(), Some("Auth Pipeline"));
+        assert_eq!(result.work_clusters[1].name.as_deref(), Some("Test Suite"));
+        assert_eq!(
+            result.work_clusters[0].interpretation.as_deref(),
+            Some("Core auth files that move together")
+        );
+    }
+
+    #[test]
+    fn merge_synthesis_fills_suggested_read_reasons() {
+        let mut result = make_minimal_result();
+        let synthesis = make_synthesis_response();
+        merge_synthesis(&mut result, &synthesis);
+        assert_eq!(
+            result.suggested_reads[0].reason.as_deref(),
+            Some("Start here for project overview")
+        );
+        assert_eq!(
+            result.suggested_reads[1].reason.as_deref(),
+            Some("Unexpected co-access pattern worth investigating")
+        );
+    }
+
+    #[test]
+    fn merge_synthesis_handles_mismatched_array_lengths() {
+        let mut result = make_minimal_result();
+        // Response has fewer names than clusters — should not panic
+        let synthesis = ContextSynthesisResponse {
+            one_liner: "test".to_string(),
+            narrative: "test".to_string(),
+            cluster_names: vec!["Only One".to_string()], // 1 name, 2 clusters
+            cluster_interpretations: vec![],              // 0 interps, 2 clusters
+            suggested_read_reasons: vec![],               // 0 reasons, 2 reads
+            model_used: "test".to_string(),
+        };
+        merge_synthesis(&mut result, &synthesis);
+        // First cluster gets name, second stays None
+        assert_eq!(result.work_clusters[0].name.as_deref(), Some("Only One"));
+        assert!(result.work_clusters[1].name.is_none());
+        // Interpretations stay None
+        assert!(result.work_clusters[0].interpretation.is_none());
+        // Reads stay None
+        assert!(result.suggested_reads[0].reason.is_none());
+    }
+
+    #[test]
+    fn merge_synthesis_handles_no_current_state() {
+        let mut result = make_minimal_result();
+        result.current_state = None; // No current state
+        let synthesis = make_synthesis_response();
+        // Should not panic — just skip narrative
+        merge_synthesis(&mut result, &synthesis);
+        assert!(result.current_state.is_none());
+        // one_liner still gets set
+        assert!(result.executive_summary.one_liner.is_some());
     }
 }

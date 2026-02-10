@@ -4,8 +4,8 @@ Context packages documenting active Tastematter development.
 
 ## Overview
 
-**Date Range:** 2026-01-05 to 2026-02-04
-**Package Count:** 33
+**Date Range:** 2026-01-05 to 2026-02-10
+**Package Count:** 37
 **Theme:** Rust port, performance optimization, HTTP transport, bug fixes, migration, CLI distribution, GTM strategy
 
 ## Narrative
@@ -56,11 +56,15 @@ This chain documents the Rust migration and refinement:
 | 31 | 2026-01-29 | **PUBLIC_REPO_AND_COPY_REWRITE** (tastesystems/tastematter, PAS copy, Calendly CTA) |
 | 32 | 2026-01-29 | **HIERARCHY_VISUAL_AND_MOBILE_FIXES** (HOW_IT_WORKS diagram, mobile overflow fixes) |
 | 33 | 2026-02-04 | **PRODUCT_VISION_SEQUENCING_AND_STATE_SYNC** (4-product model, multi-tenant architecture, 12-month sequencing, GTM docs synced) |
+| 34 | 2026-02-09 | **CONTEXT_RESTORE_API_AND_AUTO_INIT** (Phase 1 composed query shipped v0.1.0-alpha.20, fresh init CI tests, DB auto-init planned) |
+| 35 | 2026-02-09 | **DB_AUTO_INIT_COMPLETE** (`open_or_create_default()` implemented, fresh queries work without `daemon once`) |
+| 36 | 2026-02-10 | **CONTEXT_RESTORE_PHASE2_PLAN** (LLM synthesis for 5 Option<String> fields — 8-step plan, ~400 lines, parallelizable TS/Rust) |
+| 37 | 2026-02-10 | **CONTEXT_RESTORE_PHASE2_COMPLETE** (All 8 steps implemented with TDD, 35 new tests, CLAUDE.md updated) |
 
 ## Current State
 
-**Latest:** [[33_2026-02-04_PRODUCT_VISION_SEQUENCING_AND_STATE_SYNC]]
-**Status:** Product vision v2.0 documented. 4-product model established. GTM docs synced to current state (CLI shipped v0.1.0-alpha.15, intel 67%). Monetization model reopened (dq_002). Next: create test group, invite 10-20 believers.
+**Latest:** [[37_2026-02-10_CONTEXT_RESTORE_PHASE2_COMPLETE]]
+**Status:** Phase 2 shipped. LLM synthesis fills 5 `None` fields via single Haiku call. 35 new tests (16 TS, 19 Rust). Needs end-to-end verification with live intel service.
 
 ## Related
 
