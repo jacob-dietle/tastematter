@@ -282,6 +282,10 @@ jobs:
           claude -p "Run 'python src/main.py' and show the output." \
             --output-format json --allowedTools "Bash,Read" --max-turns 3 --model haiku || true
 
+          # Session 5: Emoji/unicode stress (6.1 - UTF-8 in real sessions)
+          claude -p "Add a comment to main.py with these emoji: 🚀🎉✨ and explain what the function does 🤖" \
+            --output-format json --allowedTools "Read,Write" --max-turns 3 --model haiku || true
+
       - name: Verify session data exists
         shell: bash
         run: |
@@ -335,6 +339,20 @@ jobs:
           tastematter query chains --format json > "$GITHUB_WORKSPACE/e2e-chains-output.json" || true
 
       # Stage 6: Hard assertions (release gate)
+      - name: Assert performance budget (6.8 - daemon < 5s)
+        shell: bash
+        run: |
+          DURATION=$(grep -o '"duration_ms": *[0-9]*' "$GITHUB_WORKSPACE/e2e-daemon-output.txt" | grep -o '[0-9]*')
+          echo "Daemon duration: ${DURATION:-unknown}ms"
+          if [ -z "$DURATION" ]; then
+            echo "::warning::Could not extract duration_ms from daemon output"
+          elif [ "$DURATION" -gt 5000 ]; then
+            echo "::error::Daemon exceeded 5s performance budget: ${DURATION}ms"
+            exit 1
+          else
+            echo "Performance budget OK: ${DURATION}ms < 5000ms"
+          fi
+
       - name: Assert no panics in daemon output
         shell: bash
         run: |
@@ -381,6 +399,111 @@ jobs:
             echo "::error::context output file not found"
             exit 1
           fi
+
+      # Stage 6b: Assertions on heat and chains output
+      - name: Assert heat has results (6.6)
+        shell: bash
+        run: |
+          if [ -f "$GITHUB_WORKSPACE/e2e-heat-output.json" ]; then
+            HEAT_COUNT=$(jq '.results | length' "$GITHUB_WORKSPACE/e2e-heat-output.json" 2>/dev/null || echo "0")
+            echo "Heat results count: $HEAT_COUNT"
+            if [ "$HEAT_COUNT" -lt 1 ]; then
+              echo "::error::Heat query returned 0 results"
+              cat "$GITHUB_WORKSPACE/e2e-heat-output.json"
+              exit 1
+            fi
+            echo "Heat pipeline OK: $HEAT_COUNT files with heat scores"
+          else
+            echo "::error::Heat output file not found"
+            exit 1
+          fi
+
+      - name: Assert chains has results (6.7)
+        shell: bash
+        run: |
+          if [ -f "$GITHUB_WORKSPACE/e2e-chains-output.json" ]; then
+            CHAIN_COUNT=$(jq '.total_chains // 0' "$GITHUB_WORKSPACE/e2e-chains-output.json" 2>/dev/null || echo "0")
+            echo "Chain count: $CHAIN_COUNT"
+            if [ "$CHAIN_COUNT" -lt 1 ]; then
+              echo "::error::Chains query returned 0 chains"
+              cat "$GITHUB_WORKSPACE/e2e-chains-output.json"
+              exit 1
+            fi
+            echo "Chain pipeline OK: $CHAIN_COUNT chains discovered"
+          else
+            echo "::error::Chains output file not found"
+            exit 1
+          fi
+
+      # Stage 6c: Stress scenarios (modify DB state — run after all first-run assertions)
+      - name: Assert idempotency - daemon twice (6.2)
+        shell: bash
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          # Extract first run session count
+          FIRST_COUNT=$(grep -o '"sessions_parsed": *[0-9]*' "$GITHUB_WORKSPACE/e2e-daemon-output.txt" | grep -o '[0-9]*')
+          echo "First daemon run: sessions_parsed=$FIRST_COUNT"
+
+          # Run daemon a second time
+          tastematter daemon once > "$GITHUB_WORKSPACE/e2e-daemon-output-2.txt" 2>&1 || true
+          SECOND_COUNT=$(grep -o '"sessions_parsed": *[0-9]*' "$GITHUB_WORKSPACE/e2e-daemon-output-2.txt" | grep -o '[0-9]*')
+          echo "Second daemon run: sessions_parsed=$SECOND_COUNT"
+
+          if [ "$FIRST_COUNT" != "$SECOND_COUNT" ]; then
+            echo "::error::Idempotency violation: first=$FIRST_COUNT second=$SECOND_COUNT"
+            exit 1
+          fi
+          echo "Idempotency OK: both runs returned $FIRST_COUNT sessions"
+
+      - name: Assert DB recovery (6.3)
+        shell: bash
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          # Delete the database
+          rm -rf ~/.context-os/context_os_events.db
+          echo "DB deleted"
+
+          # Re-run daemon — should recreate DB and re-parse all sessions
+          tastematter daemon once > "$GITHUB_WORKSPACE/e2e-daemon-recovery.txt" 2>&1 || true
+          RECOVERY_COUNT=$(grep -o '"sessions_parsed": *[0-9]*' "$GITHUB_WORKSPACE/e2e-daemon-recovery.txt" | grep -o '[0-9]*')
+          echo "Recovery run: sessions_parsed=$RECOVERY_COUNT"
+
+          if [ -z "$RECOVERY_COUNT" ] || [ "$RECOVERY_COUNT" -lt 1 ]; then
+            echo "::error::DB recovery failed: sessions_parsed=$RECOVERY_COUNT after DB delete + re-run"
+            cat "$GITHUB_WORKSPACE/e2e-daemon-recovery.txt"
+            exit 1
+          fi
+          echo "DB recovery OK: $RECOVERY_COUNT sessions recovered after DB deletion"
+
+      - name: Assert zero-width time query (6.4)
+        shell: bash
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          tastematter query flex --time 0d --format json > "$GITHUB_WORKSPACE/e2e-zero-time.json" 2>&1
+          ZERO_COUNT=$(jq '.result_count // -1' "$GITHUB_WORKSPACE/e2e-zero-time.json" 2>/dev/null || echo "-1")
+          echo "Zero-width time query result_count: $ZERO_COUNT"
+
+          if [ "$ZERO_COUNT" = "-1" ]; then
+            echo "::error::Zero-width time query failed to return valid JSON"
+            cat "$GITHUB_WORKSPACE/e2e-zero-time.json"
+            exit 1
+          fi
+          echo "Zero-width time query OK: returned $ZERO_COUNT results (expected 0)"
+
+      - name: Assert context on empty project (6.5)
+        shell: bash
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          tastematter context "nonexistent_project_xyz_12345" --format json > "$GITHUB_WORKSPACE/e2e-empty-project.json" 2>&1 || true
+          RECEIPT=$(jq -r '.receipt_id // empty' "$GITHUB_WORKSPACE/e2e-empty-project.json" 2>/dev/null)
+          echo "Empty project receipt_id: $RECEIPT"
+
+          if [ -z "$RECEIPT" ]; then
+            echo "::error::Context on empty project returned no receipt_id"
+            cat "$GITHUB_WORKSPACE/e2e-empty-project.json"
+            exit 1
+          fi
+          echo "Empty project context OK: receipt_id=$RECEIPT"
 
       # Stage 7: Agent quality evaluation (non-blocking, informational only)
       - name: Agent quality evaluation
@@ -438,10 +561,14 @@ jobs:
           name: e2e-results-${{ matrix.os }}
           path: |
             e2e-daemon-output.txt
+            e2e-daemon-output-2.txt
+            e2e-daemon-recovery.txt
             e2e-query-output.json
             e2e-context-output.json
             e2e-heat-output.json
             e2e-chains-output.json
+            e2e-zero-time.json
+            e2e-empty-project.json
             e2e-quality-report.md
             e2e-combined-output.txt
           retention-days: 7
