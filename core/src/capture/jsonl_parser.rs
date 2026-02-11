@@ -2205,7 +2205,11 @@ mod tests {
         let unicode_dir = temp_dir.path().join("\u{9879}\u{76EE}_data");
         std::fs::create_dir_all(&unicode_dir).unwrap();
         let line = make_user_jsonl_line("unicode path test", "2026-02-10T10:00:00Z");
-        let path = write_temp_jsonl(&unicode_dir, "\u{30C6}\u{30B9}\u{30C8}.jsonl", line.as_bytes());
+        let path = write_temp_jsonl(
+            &unicode_dir,
+            "\u{30C6}\u{30B9}\u{30C8}.jsonl",
+            line.as_bytes(),
+        );
 
         let result = parse_session_file(&path);
         assert!(result.is_ok(), "Unicode file path should work");

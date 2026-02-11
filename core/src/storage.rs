@@ -1089,12 +1089,11 @@ mod tests {
         let db2 = Database::open_rw(&db_path).await.unwrap();
 
         // Read from second connection
-        let count: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM claude_sessions WHERE session_id = 'from-conn-1'",
-        )
-        .fetch_one(db2.pool())
-        .await
-        .unwrap();
+        let count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM claude_sessions WHERE session_id = 'from-conn-1'")
+                .fetch_one(db2.pool())
+                .await
+                .unwrap();
         assert_eq!(count.0, 1, "Second connection should see data from first");
 
         // Write from second connection

@@ -15,8 +15,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use crate::intelligence::{
-    ClusterInput, ContextSynthesisResponse, SuggestedReadInput,
-    ContextSynthesisRequest,
+    ClusterInput, ContextSynthesisRequest, ContextSynthesisResponse, SuggestedReadInput,
 };
 use crate::types::*;
 
@@ -840,10 +839,7 @@ pub fn build_synthesis_request(
 ///
 /// Fills the 5 None fields using index-matched arrays from the response.
 /// Silently skips mismatched array lengths (graceful degradation).
-pub fn merge_synthesis(
-    result: &mut ContextRestoreResult,
-    synthesis: &ContextSynthesisResponse,
-) {
+pub fn merge_synthesis(result: &mut ContextRestoreResult, synthesis: &ContextSynthesisResponse) {
     // 1. one_liner
     result.executive_summary.one_liner = Some(synthesis.one_liner.clone());
 
@@ -1061,7 +1057,10 @@ mod tests {
         let mut result = make_minimal_result();
         let synthesis = make_synthesis_response();
         merge_synthesis(&mut result, &synthesis);
-        assert_eq!(result.work_clusters[0].name.as_deref(), Some("Auth Pipeline"));
+        assert_eq!(
+            result.work_clusters[0].name.as_deref(),
+            Some("Auth Pipeline")
+        );
         assert_eq!(result.work_clusters[1].name.as_deref(), Some("Test Suite"));
         assert_eq!(
             result.work_clusters[0].interpretation.as_deref(),
@@ -1092,8 +1091,8 @@ mod tests {
             one_liner: "test".to_string(),
             narrative: "test".to_string(),
             cluster_names: vec!["Only One".to_string()], // 1 name, 2 clusters
-            cluster_interpretations: vec![],              // 0 interps, 2 clusters
-            suggested_read_reasons: vec![],               // 0 reasons, 2 reads
+            cluster_interpretations: vec![],             // 0 interps, 2 clusters
+            suggested_read_reasons: vec![],              // 0 reasons, 2 reads
             model_used: "test".to_string(),
         };
         merge_synthesis(&mut result, &synthesis);
@@ -1256,7 +1255,7 @@ mod tests {
             name: None,
             files: vec![
                 "src/\u{9879}\u{76EE}/main.rs".to_string(), // CJK chars
-                "docs/\u{1F680}_launch.md".to_string(),       // Emoji in path
+                "docs/\u{1F680}_launch.md".to_string(),     // Emoji in path
             ],
             pmi_score: 1.0,
             interpretation: None,

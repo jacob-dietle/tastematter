@@ -685,7 +685,10 @@ mod tests {
             "model_used": "claude-haiku-4-5-20251001"
         }"#;
         let response: ContextSynthesisResponse = serde_json::from_str(json).unwrap();
-        assert_eq!(response.one_liner, "Nickel transcript worker is production-ready");
+        assert_eq!(
+            response.one_liner,
+            "Nickel transcript worker is production-ready"
+        );
         assert_eq!(response.cluster_names.len(), 2);
         assert_eq!(response.cluster_names[0], "Core Pipeline");
         assert_eq!(response.cluster_interpretations.len(), 2);

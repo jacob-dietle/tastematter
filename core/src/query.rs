@@ -2195,22 +2195,13 @@ mod tests {
             let session = crate::types::SessionInput {
                 session_id: format!("stress-session-{:04}", i),
                 project_path: Some(format!("/test/project-{}", i % 3)),
-                started_at: Some(format!(
-                    "2026-02-{:02}T10:00:00Z",
-                    (i % 28) + 1
-                )),
-                ended_at: Some(format!(
-                    "2026-02-{:02}T12:00:00Z",
-                    (i % 28) + 1
-                )),
+                started_at: Some(format!("2026-02-{:02}T10:00:00Z", (i % 28) + 1)),
+                ended_at: Some(format!("2026-02-{:02}T12:00:00Z", (i % 28) + 1)),
                 duration_seconds: Some(7200),
                 user_message_count: Some(10),
                 assistant_message_count: Some(15),
                 total_messages: Some(25),
-                files_read: Some(format!(
-                    "[\"src/file_{}.rs\", \"src/common.rs\"]",
-                    i
-                )),
+                files_read: Some(format!("[\"src/file_{}.rs\", \"src/common.rs\"]", i)),
                 files_written: Some(format!("[\"src/file_{}.rs\"]", i)),
                 tools_used: Some("{\"Read\": 5}".to_string()),
                 first_user_message: Some(format!("Help with task {}", i)),
@@ -2351,10 +2342,7 @@ mod tests {
         let (engine, _dir) = setup_stress_query_db(5).await;
 
         // With results
-        let result = engine
-            .query_flex(QueryFlexInput::default())
-            .await
-            .unwrap();
+        let result = engine.query_flex(QueryFlexInput::default()).await.unwrap();
         assert!(
             !result.receipt_id.is_empty(),
             "Receipt ID should always be present"

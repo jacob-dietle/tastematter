@@ -1300,7 +1300,10 @@ mod tests {
     #[test]
     fn stress_parse_time_range_no_suffix() {
         let result = parse_time_range("abc");
-        assert!(result.is_err(), "Non-numeric without 'd' suffix should error");
+        assert!(
+            result.is_err(),
+            "Non-numeric without 'd' suffix should error"
+        );
     }
 
     #[test]
@@ -1313,7 +1316,11 @@ mod tests {
     fn stress_parse_time_range_negative() {
         // Documents current behavior: "-7d" parses to -7 (no validation)
         let result = parse_time_range("-7d");
-        assert_eq!(result.unwrap(), -7, "Current behavior: negative parses without error");
+        assert_eq!(
+            result.unwrap(),
+            -7,
+            "Current behavior: negative parses without error"
+        );
     }
 
     #[test]
