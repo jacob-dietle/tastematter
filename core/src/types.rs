@@ -1278,4 +1278,59 @@ mod tests {
         assert_eq!(format!("{}", HeatLevel::Cool), "COOL");
         assert_eq!(format!("{}", HeatLevel::Cold), "COLD");
     }
+
+    // =========================================================================
+    // Phase 2: parse_time_range edge cases (Stress Tests)
+    // =========================================================================
+
+    #[test]
+    fn stress_parse_time_range_zero_days() {
+        let result = parse_time_range("0d");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0);
+    }
+
+    #[test]
+    fn stress_parse_time_range_huge_value() {
+        let result = parse_time_range("99999d");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 99999);
+    }
+
+    #[test]
+    fn stress_parse_time_range_no_suffix() {
+        let result = parse_time_range("abc");
+        assert!(result.is_err(), "Non-numeric without 'd' suffix should error");
+    }
+
+    #[test]
+    fn stress_parse_time_range_empty_string() {
+        let result = parse_time_range("");
+        assert!(result.is_err(), "Empty string should error");
+    }
+
+    #[test]
+    fn stress_parse_time_range_negative() {
+        // Documents current behavior: "-7d" parses to -7 (no validation)
+        let result = parse_time_range("-7d");
+        assert_eq!(result.unwrap(), -7, "Current behavior: negative parses without error");
+    }
+
+    #[test]
+    fn stress_parse_time_range_float() {
+        let result = parse_time_range("7.5d");
+        assert!(result.is_err(), "Float days should error (i64 parse)");
+    }
+
+    #[test]
+    fn stress_parse_time_range_overflow() {
+        let result = parse_time_range("99999999999999999999d");
+        assert!(result.is_err(), "Overflow should error");
+    }
+
+    #[test]
+    fn stress_parse_time_range_just_d() {
+        let result = parse_time_range("d");
+        assert!(result.is_err(), "Just 'd' with no number should error");
+    }
 }

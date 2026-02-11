@@ -274,4 +274,44 @@ mod tests {
         assert!(errors.iter().any(|e| e.contains("interval_minutes")));
         assert!(errors.iter().any(|e| e.contains("level")));
     }
+
+    // =========================================================================
+    // Phase 5: Input Resilience (Stress Tests)
+    // =========================================================================
+
+    #[test]
+    fn stress_config_with_empty_project_path() {
+        let mut config = DaemonConfig::default();
+        config.project.path = Some(String::new());
+        // Should not panic — empty string is a valid Option<String>
+        let errors = validate_config(&config);
+        // Whether this is flagged as error depends on validation logic
+        let _ = errors;
+    }
+
+    #[test]
+    fn stress_config_with_unicode_project_path() {
+        let mut config = DaemonConfig::default();
+        config.project.path = Some("/home/\u{30E6}\u{30FC}\u{30B6}\u{30FC}/project".to_string());
+        let errors = validate_config(&config);
+        // Unicode paths are valid on modern systems
+        assert!(
+            !errors.iter().any(|e| e.contains("project")),
+            "Unicode project paths should be valid"
+        );
+    }
+
+    #[test]
+    fn stress_load_config_malformed_yaml() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join("bad_config.yaml");
+        std::fs::write(&config_path, "{{{{not: valid: yaml}}}}").unwrap();
+
+        let result = load_config(Some(&config_path));
+        // Should either return defaults or an error, not panic
+        assert!(
+            result.is_ok() || result.is_err(),
+            "Malformed YAML should not panic"
+        );
+    }
 }

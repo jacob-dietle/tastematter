@@ -1117,4 +1117,209 @@ mod tests {
         // one_liner still gets set
         assert!(result.executive_summary.one_liner.is_some());
     }
+
+    // =========================================================================
+    // Phase 4: Context Restore Edge Cases (Stress Tests)
+    // =========================================================================
+
+    fn make_empty_heat() -> HeatResult {
+        HeatResult {
+            receipt_id: "q_heat".to_string(),
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            time_range: "30d".to_string(),
+            results: vec![],
+            summary: HeatSummary {
+                total_files: 0,
+                hot_count: 0,
+                warm_count: 0,
+                cool_count: 0,
+                cold_count: 0,
+            },
+        }
+    }
+
+    fn make_empty_session_summary() -> SessionSummary {
+        SessionSummary {
+            total_sessions: 0,
+            total_files: 0,
+            total_accesses: 0,
+            active_chains: 0,
+        }
+    }
+
+    fn make_test_session_data(session_id: &str, started_at: &str, file_count: u32) -> SessionData {
+        SessionData {
+            session_id: session_id.to_string(),
+            chain_id: None,
+            chain_name: None,
+            started_at: started_at.to_string(),
+            ended_at: None,
+            duration_seconds: Some(3600),
+            file_count,
+            total_accesses: file_count * 2,
+            files: vec![],
+            top_files: vec![],
+        }
+    }
+
+    #[test]
+    fn stress_executive_summary_zero_sessions() {
+        let sessions = SessionQueryResult {
+            time_range: "30d".to_string(),
+            sessions: vec![],
+            chains: vec![],
+            summary: make_empty_session_summary(),
+        };
+        let heat = make_empty_heat();
+        let summary = build_executive_summary(&sessions, &heat);
+        assert_eq!(summary.status, "unknown", "0 sessions → unknown status");
+        assert_eq!(summary.work_tempo, "dormant", "0 sessions → dormant tempo");
+        assert!(summary.last_meaningful_session.is_none());
+    }
+
+    #[test]
+    fn stress_executive_summary_stale_sessions() {
+        // Session from 1 year ago
+        let old_ts = (chrono::Utc::now() - chrono::Duration::days(365)).to_rfc3339();
+        let sessions = SessionQueryResult {
+            time_range: "30d".to_string(),
+            sessions: vec![make_test_session_data("old-session", &old_ts, 10)],
+            chains: vec![],
+            summary: make_empty_session_summary(),
+        };
+        let heat = make_empty_heat();
+        let summary = build_executive_summary(&sessions, &heat);
+        assert_eq!(summary.status, "stale", "1-year-old session → stale");
+    }
+
+    #[test]
+    fn stress_executive_summary_fresh_sessions() {
+        // Session from 1 hour ago
+        let fresh_ts = (chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
+        let sessions = SessionQueryResult {
+            time_range: "30d".to_string(),
+            sessions: vec![make_test_session_data("fresh-session", &fresh_ts, 10)],
+            chains: vec![],
+            summary: make_empty_session_summary(),
+        };
+        let heat = make_empty_heat();
+        let summary = build_executive_summary(&sessions, &heat);
+        assert_eq!(summary.status, "healthy", "1-hour-old session → healthy");
+    }
+
+    #[test]
+    fn stress_build_work_clusters_single_file() {
+        let flex = QueryResult {
+            receipt_id: "q_test".to_string(),
+            timestamp: "2026-02-10".to_string(),
+            result_count: 1,
+            results: vec![FileResult {
+                file_path: "src/main.rs".to_string(),
+                access_count: 5,
+                last_access: Some("2026-02-10".to_string()),
+                session_count: Some(3),
+                sessions: None,
+                chains: None,
+            }],
+            aggregations: Aggregations {
+                count: None,
+                recency: None,
+            },
+        };
+        let co_access: Vec<CoAccessResult> = vec![];
+        let clusters = build_work_clusters(&flex, &co_access);
+        // Should produce at least 1 cluster (the single file itself)
+        // or 0 if co-access is required — either way, no panic
+        assert!(clusters.len() <= 1);
+    }
+
+    #[test]
+    fn stress_merge_synthesis_empty_response() {
+        let mut result = make_minimal_result();
+        let empty_synthesis = ContextSynthesisResponse {
+            one_liner: String::new(),
+            narrative: String::new(),
+            cluster_names: vec![],
+            cluster_interpretations: vec![],
+            suggested_read_reasons: vec![],
+            model_used: String::new(),
+        };
+        merge_synthesis(&mut result, &empty_synthesis);
+        // Empty strings should still be set (they're valid, just empty)
+        assert_eq!(result.executive_summary.one_liner.as_deref(), Some(""));
+    }
+
+    #[test]
+    fn stress_build_synthesis_request_unicode_file_paths() {
+        let mut result = make_minimal_result();
+        result.work_clusters = vec![WorkCluster {
+            name: None,
+            files: vec![
+                "src/\u{9879}\u{76EE}/main.rs".to_string(), // CJK chars
+                "docs/\u{1F680}_launch.md".to_string(),       // Emoji in path
+            ],
+            pmi_score: 1.0,
+            interpretation: None,
+            access_pattern: "mixed".to_string(),
+        }];
+        result.suggested_reads = vec![SuggestedRead {
+            path: "src/\u{0410}\u{0411}\u{0412}.rs".to_string(), // Cyrillic
+            reason: None,
+            priority: 1,
+            surprise: false,
+        }];
+        let req = build_synthesis_request(&result, &[]);
+        // Should not panic and unicode should survive
+        assert!(req.clusters[0].files[0].contains('\u{9879}'));
+        assert!(req.suggested_reads[0].path.contains('\u{0410}'));
+    }
+
+    #[test]
+    fn stress_discover_project_context_empty_directory() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let results = discover_project_context("test", temp_dir.path());
+        assert!(
+            results.is_empty(),
+            "Empty directory should return no context files"
+        );
+    }
+
+    #[test]
+    fn stress_discover_project_context_nonexistent_directory() {
+        let results = discover_project_context("test", std::path::Path::new("/nonexistent/path"));
+        assert!(
+            results.is_empty(),
+            "Nonexistent directory should return empty, not error"
+        );
+    }
+
+    #[test]
+    fn stress_merge_synthesis_more_names_than_clusters() {
+        let mut result = make_minimal_result();
+        // Response has MORE names than clusters (opposite of existing test)
+        let synthesis = ContextSynthesisResponse {
+            one_liner: "test".to_string(),
+            narrative: "test".to_string(),
+            cluster_names: vec![
+                "A".to_string(),
+                "B".to_string(),
+                "C".to_string(),
+                "D".to_string(),
+            ], // 4 names, 2 clusters
+            cluster_interpretations: vec!["I1".to_string(), "I2".to_string(), "I3".to_string()], // 3 interps
+            suggested_read_reasons: vec!["R1".to_string(), "R2".to_string(), "R3".to_string()], // 3 reasons
+            model_used: "test".to_string(),
+        };
+        merge_synthesis(&mut result, &synthesis);
+        // First 2 clusters get names/interps, extras ignored
+        assert_eq!(result.work_clusters[0].name.as_deref(), Some("A"));
+        assert_eq!(result.work_clusters[1].name.as_deref(), Some("B"));
+        assert_eq!(
+            result.work_clusters[0].interpretation.as_deref(),
+            Some("I1")
+        );
+        // First 2 reads get reasons, extras ignored
+        assert_eq!(result.suggested_reads[0].reason.as_deref(), Some("R1"));
+        assert_eq!(result.suggested_reads[1].reason.as_deref(), Some("R2"));
+    }
 }

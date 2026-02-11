@@ -873,6 +873,98 @@ mod tests {
         );
     }
 
+    // =========================================================================
+    // Phase 3: Sync Orchestration (Stress Tests)
+    // =========================================================================
+
+    #[test]
+    fn stress_sync_result_default_is_zeroed() {
+        let result = SyncResult::default();
+        assert_eq!(result.git_commits_synced, 0);
+        assert_eq!(result.sessions_parsed, 0);
+        assert_eq!(result.chains_built, 0);
+        assert_eq!(result.files_indexed, 0);
+        assert_eq!(result.duration_ms, 0);
+        assert!(result.errors.is_empty());
+    }
+
+    #[test]
+    fn stress_sync_result_round_trips_json_with_errors() {
+        let result = SyncResult {
+            git_commits_synced: 5,
+            sessions_parsed: 100,
+            chains_built: 10,
+            files_indexed: 250,
+            duration_ms: 5000,
+            errors: vec![
+                "Git sync error: not a git repository".to_string(),
+                "Intel: Service unavailable".to_string(),
+                "Unicode error: \u{1F680} emoji in path".to_string(),
+            ],
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        let parsed: SyncResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.errors.len(), 3);
+        assert!(parsed.errors[2].contains('\u{1F680}'));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn stress_sync_sessions_phase_with_empty_claude_dir() {
+        // .claude exists but has zero JSONL files
+        let temp_home = tempfile::TempDir::new().unwrap();
+        let claude_dir = temp_home.path().join(".claude");
+        let projects_dir = claude_dir.join("projects");
+        fs::create_dir_all(&projects_dir).unwrap();
+
+        // Create an empty project subdirectory
+        let proj_dir = projects_dir.join("empty-project");
+        fs::create_dir_all(&proj_dir).unwrap();
+
+        let db_dir = temp_home.path().join(".context-os");
+        fs::create_dir_all(&db_dir).unwrap();
+        let db = Database::open_rw(db_dir.join("test.db")).await.unwrap();
+        db.ensure_schema().await.unwrap();
+        let engine = QueryEngine::new(db);
+
+        let mut result = SyncResult::default();
+        let config = DaemonConfig::default();
+        let session_ids =
+            sync_sessions_phase(&claude_dir, &config, &mut result, Some(&engine)).await;
+
+        assert_eq!(result.sessions_parsed, 0);
+        assert!(session_ids.is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn stress_chain_building_with_zero_sessions() {
+        let temp_home = tempfile::TempDir::new().unwrap();
+        let claude_dir = temp_home.path().join(".claude");
+        let projects_dir = claude_dir.join("projects");
+        fs::create_dir_all(&projects_dir).unwrap();
+
+        let db_dir = temp_home.path().join(".context-os");
+        fs::create_dir_all(&db_dir).unwrap();
+        let db = Database::open_rw(db_dir.join("test.db")).await.unwrap();
+        db.ensure_schema().await.unwrap();
+        let engine = QueryEngine::new(db);
+
+        let mut result = SyncResult::default();
+        let chains = build_chains_phase(&claude_dir, &mut result, Some(&engine)).await;
+
+        assert_eq!(result.chains_built, 0, "Zero sessions → zero chains");
+        if let Some(chains_map) = chains {
+            assert!(chains_map.is_empty());
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn stress_enrich_chains_with_empty_map() {
+        let chains: HashMap<String, Chain> = HashMap::new();
+        let mut result = SyncResult::default();
+        let enriched = enrich_chains_phase(&chains, &mut result).await;
+        assert_eq!(enriched, 0, "Empty chains → 0 enriched");
+    }
+
     #[test]
     fn test_load_workstreams_returns_empty_for_missing_file() {
         // load_workstreams returns empty Vec if file doesn't exist (graceful)

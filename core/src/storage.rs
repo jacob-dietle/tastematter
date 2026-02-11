@@ -890,6 +890,271 @@ mod tests {
         assert!(result.is_ok(), "chain_summaries INSERT should succeed");
     }
 
+    // =========================================================================
+    // Phase 1: Storage Hardening (Stress Tests)
+    // =========================================================================
+
+    #[tokio::test]
+    async fn stress_open_empty_db_file() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("empty.db");
+        // Create a 0-byte file
+        std::fs::File::create(&db_path).unwrap();
+
+        let result = Database::open(&db_path).await;
+        assert!(result.is_err());
+        if let Err(CoreError::Config(msg)) = result {
+            assert!(
+                msg.contains("empty"),
+                "Error should mention empty file: {}",
+                msg
+            );
+        } else {
+            panic!("Expected Config error for empty database file");
+        }
+    }
+
+    #[tokio::test]
+    async fn stress_upsert_duplicate_session() {
+        use crate::query::QueryEngine;
+        use crate::types::SessionInput;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("upsert.db");
+        let db = Database::open_rw(&db_path).await.unwrap();
+        db.ensure_schema().await.unwrap();
+        let engine = QueryEngine::new(db);
+
+        let session = SessionInput {
+            session_id: "duplicate-id-123".to_string(),
+            project_path: Some("/project/v1".to_string()),
+            started_at: Some("2026-01-01T00:00:00Z".to_string()),
+            ended_at: None,
+            duration_seconds: Some(100),
+            user_message_count: Some(5),
+            assistant_message_count: Some(5),
+            total_messages: Some(10),
+            files_read: None,
+            files_written: None,
+            tools_used: None,
+            first_user_message: Some("First version".to_string()),
+            conversation_excerpt: None,
+            file_size_bytes: None,
+        };
+
+        // First upsert
+        engine.upsert_session(&session).await.unwrap();
+
+        // Second upsert with different data
+        let updated = SessionInput {
+            session_id: "duplicate-id-123".to_string(),
+            project_path: Some("/project/v2".to_string()),
+            started_at: Some("2026-01-01T00:00:00Z".to_string()),
+            ended_at: Some("2026-01-01T01:00:00Z".to_string()),
+            duration_seconds: Some(3600),
+            user_message_count: Some(20),
+            assistant_message_count: Some(25),
+            total_messages: Some(45),
+            files_read: None,
+            files_written: None,
+            tools_used: None,
+            first_user_message: Some("Updated version".to_string()),
+            conversation_excerpt: None,
+            file_size_bytes: None,
+        };
+
+        engine.upsert_session(&updated).await.unwrap();
+
+        // Verify only 1 row exists
+        let count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM claude_sessions WHERE session_id = 'duplicate-id-123'",
+        )
+        .fetch_one(engine.database().pool())
+        .await
+        .unwrap();
+        assert_eq!(count.0, 1, "Upsert should not create duplicates");
+
+        // Verify it has the updated data
+        let row: (String,) = sqlx::query_as(
+            "SELECT project_path FROM claude_sessions WHERE session_id = 'duplicate-id-123'",
+        )
+        .fetch_one(engine.database().pool())
+        .await
+        .unwrap();
+        assert_eq!(row.0, "/project/v2", "Upsert should update existing row");
+    }
+
+    #[tokio::test]
+    async fn stress_session_all_null_optional_fields() {
+        use crate::query::QueryEngine;
+        use crate::types::SessionInput;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("nulls.db");
+        let db = Database::open_rw(&db_path).await.unwrap();
+        db.ensure_schema().await.unwrap();
+        let engine = QueryEngine::new(db);
+
+        let session = SessionInput {
+            session_id: "minimal-session".to_string(),
+            project_path: None,
+            started_at: None,
+            ended_at: None,
+            duration_seconds: None,
+            user_message_count: None,
+            assistant_message_count: None,
+            total_messages: None,
+            files_read: None,
+            files_written: None,
+            tools_used: None,
+            first_user_message: None,
+            conversation_excerpt: None,
+            file_size_bytes: None,
+        };
+
+        let result = engine.upsert_session(&session).await;
+        assert!(
+            result.is_ok(),
+            "Session with all NULL optional fields should succeed"
+        );
+
+        let count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM claude_sessions WHERE session_id = 'minimal-session'",
+        )
+        .fetch_one(engine.database().pool())
+        .await
+        .unwrap();
+        assert_eq!(count.0, 1);
+    }
+
+    #[tokio::test]
+    async fn stress_session_large_conversation_excerpt() {
+        use crate::query::QueryEngine;
+        use crate::types::SessionInput;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("large.db");
+        let db = Database::open_rw(&db_path).await.unwrap();
+        db.ensure_schema().await.unwrap();
+        let engine = QueryEngine::new(db);
+
+        // 10KB conversation excerpt
+        let large_excerpt = "x".repeat(10_000);
+
+        let session = SessionInput {
+            session_id: "large-excerpt-session".to_string(),
+            project_path: Some("/test".to_string()),
+            started_at: Some("2026-01-01T00:00:00Z".to_string()),
+            ended_at: None,
+            duration_seconds: None,
+            user_message_count: None,
+            assistant_message_count: None,
+            total_messages: None,
+            files_read: None,
+            files_written: None,
+            tools_used: None,
+            first_user_message: None,
+            conversation_excerpt: Some(large_excerpt.clone()),
+            file_size_bytes: None,
+        };
+
+        let result = engine.upsert_session(&session).await;
+        assert!(result.is_ok(), "10KB excerpt should be storable");
+
+        let row: (String,) = sqlx::query_as(
+            "SELECT conversation_excerpt FROM claude_sessions WHERE session_id = 'large-excerpt-session'",
+        )
+        .fetch_one(engine.database().pool())
+        .await
+        .unwrap();
+        assert_eq!(row.0.len(), 10_000, "Full 10KB excerpt should round-trip");
+    }
+
+    #[tokio::test]
+    async fn stress_two_connections_same_db() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("concurrent.db");
+
+        // Open first connection, create schema
+        let db1 = Database::open_rw(&db_path).await.unwrap();
+        db1.ensure_schema().await.unwrap();
+
+        // Insert data via first connection
+        sqlx::query("INSERT INTO claude_sessions (session_id) VALUES ('from-conn-1')")
+            .execute(db1.pool())
+            .await
+            .unwrap();
+
+        // Open second connection to same DB
+        let db2 = Database::open_rw(&db_path).await.unwrap();
+
+        // Read from second connection
+        let count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM claude_sessions WHERE session_id = 'from-conn-1'",
+        )
+        .fetch_one(db2.pool())
+        .await
+        .unwrap();
+        assert_eq!(count.0, 1, "Second connection should see data from first");
+
+        // Write from second connection
+        sqlx::query("INSERT INTO claude_sessions (session_id) VALUES ('from-conn-2')")
+            .execute(db2.pool())
+            .await
+            .unwrap();
+
+        // Read from first connection should see both
+        let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM claude_sessions")
+            .fetch_one(db1.pool())
+            .await
+            .unwrap();
+        assert_eq!(total.0, 2, "Both connections should see all data");
+    }
+
+    #[tokio::test]
+    async fn stress_db_path_with_spaces() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let spaced_dir = temp_dir.path().join("path with spaces");
+        std::fs::create_dir_all(&spaced_dir).unwrap();
+        let db_path = spaced_dir.join("test database.db");
+
+        let db = Database::open_rw(&db_path).await.unwrap();
+        db.ensure_schema().await.unwrap();
+
+        sqlx::query("INSERT INTO claude_sessions (session_id) VALUES ('space-test')")
+            .execute(db.pool())
+            .await
+            .unwrap();
+
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM claude_sessions")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+        assert_eq!(count.0, 1, "DB with spaces in path should work");
+    }
+
+    #[tokio::test]
+    async fn stress_db_path_with_unicode() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let unicode_dir = temp_dir.path().join("data_\u{9879}\u{76EE}");
+        std::fs::create_dir_all(&unicode_dir).unwrap();
+        let db_path = unicode_dir.join("test_db.db");
+
+        let db = Database::open_rw(&db_path).await.unwrap();
+        db.ensure_schema().await.unwrap();
+
+        sqlx::query("INSERT INTO claude_sessions (session_id) VALUES ('unicode-test')")
+            .execute(db.pool())
+            .await
+            .unwrap();
+
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM claude_sessions")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+        assert_eq!(count.0, 1, "DB with unicode path should work");
+    }
+
     /// Test: ensure_schema() doesn't destroy existing data
     #[tokio::test]
     async fn test_ensure_schema_preserves_existing_data() {

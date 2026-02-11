@@ -2178,4 +2178,249 @@ mod tests {
             "empty input should clear all chain_graph entries"
         );
     }
+
+    // =========================================================================
+    // Phase 2: Query Engine Adversarial (Stress Tests)
+    // =========================================================================
+
+    /// Helper: create a test database with sessions for query stress tests
+    async fn setup_stress_query_db(session_count: usize) -> (QueryEngine, tempfile::TempDir) {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("query_stress.db");
+        let db = crate::storage::Database::open_rw(&db_path).await.unwrap();
+        db.ensure_schema().await.unwrap();
+        let engine = QueryEngine::new(db);
+
+        for i in 0..session_count {
+            let session = crate::types::SessionInput {
+                session_id: format!("stress-session-{:04}", i),
+                project_path: Some(format!("/test/project-{}", i % 3)),
+                started_at: Some(format!(
+                    "2026-02-{:02}T10:00:00Z",
+                    (i % 28) + 1
+                )),
+                ended_at: Some(format!(
+                    "2026-02-{:02}T12:00:00Z",
+                    (i % 28) + 1
+                )),
+                duration_seconds: Some(7200),
+                user_message_count: Some(10),
+                assistant_message_count: Some(15),
+                total_messages: Some(25),
+                files_read: Some(format!(
+                    "[\"src/file_{}.rs\", \"src/common.rs\"]",
+                    i
+                )),
+                files_written: Some(format!("[\"src/file_{}.rs\"]", i)),
+                tools_used: Some("{\"Read\": 5}".to_string()),
+                first_user_message: Some(format!("Help with task {}", i)),
+                conversation_excerpt: Some(format!("[User]: Help with task {}", i)),
+                file_size_bytes: Some(42000),
+            };
+            engine.upsert_session(&session).await.unwrap();
+        }
+
+        (engine, temp_dir)
+    }
+
+    #[tokio::test]
+    async fn stress_query_flex_zero_day_window() {
+        let (engine, _dir) = setup_stress_query_db(5).await;
+        let result = engine
+            .query_flex(QueryFlexInput {
+                time: Some("0d".to_string()),
+                ..Default::default()
+            })
+            .await;
+        assert!(result.is_ok());
+        assert_eq!(
+            result.unwrap().result_count,
+            0,
+            "0-day window should return no results"
+        );
+    }
+
+    #[tokio::test]
+    async fn stress_query_flex_huge_time_window() {
+        let (engine, _dir) = setup_stress_query_db(5).await;
+        let result = engine
+            .query_flex(QueryFlexInput {
+                time: Some("99999d".to_string()),
+                ..Default::default()
+            })
+            .await;
+        assert!(result.is_ok(), "99999-day window should not overflow");
+    }
+
+    #[tokio::test]
+    async fn stress_query_flex_invalid_time() {
+        let (engine, _dir) = setup_stress_query_db(1).await;
+        let result = engine
+            .query_flex(QueryFlexInput {
+                time: Some("abc".to_string()),
+                ..Default::default()
+            })
+            .await;
+        assert!(result.is_err(), "Invalid time string should error");
+    }
+
+    #[tokio::test]
+    async fn stress_query_flex_negative_time() {
+        let (engine, _dir) = setup_stress_query_db(1).await;
+        // "-7d" parses to -7 via i64::parse — documents current behavior
+        let result = engine
+            .query_flex(QueryFlexInput {
+                time: Some("-7d".to_string()),
+                ..Default::default()
+            })
+            .await;
+        // Currently succeeds (SQL: datetime('now', '--7 days'))
+        // This documents the behavior — negative time is not validated
+        assert!(
+            result.is_ok() || result.is_err(),
+            "Negative time should not panic"
+        );
+    }
+
+    #[tokio::test]
+    async fn stress_query_flex_limit_zero() {
+        let (engine, _dir) = setup_stress_query_db(5).await;
+        let result = engine
+            .query_flex(QueryFlexInput {
+                limit: Some(0),
+                ..Default::default()
+            })
+            .await;
+        assert!(result.is_ok());
+        assert_eq!(
+            result.unwrap().result_count,
+            0,
+            "Limit 0 should return 0 results"
+        );
+    }
+
+    #[tokio::test]
+    async fn stress_query_flex_limit_huge() {
+        let (engine, _dir) = setup_stress_query_db(5).await;
+        let result = engine
+            .query_flex(QueryFlexInput {
+                limit: Some(1_000_000),
+                ..Default::default()
+            })
+            .await;
+        assert!(result.is_ok(), "Huge limit should not crash");
+    }
+
+    #[tokio::test]
+    async fn stress_query_chains_no_chain_data() {
+        let (engine, _dir) = setup_stress_query_db(5).await;
+        // Sessions exist but no chains built
+        let result = engine
+            .query_chains(QueryChainsInput { limit: Some(20) })
+            .await;
+        assert!(
+            result.is_ok(),
+            "Query chains with no chain data should not error"
+        );
+        assert_eq!(
+            result.unwrap().chains.len(),
+            0,
+            "Should return empty chains list"
+        );
+    }
+
+    #[tokio::test]
+    async fn stress_query_flex_filter_matches_nothing() {
+        let (engine, _dir) = setup_stress_query_db(5).await;
+        let result = engine
+            .query_flex(QueryFlexInput {
+                files: Some("nonexistent_path_*.xyz".to_string()),
+                ..Default::default()
+            })
+            .await;
+        assert!(result.is_ok());
+        assert_eq!(
+            result.unwrap().result_count,
+            0,
+            "Nonexistent filter should return 0 results"
+        );
+    }
+
+    #[tokio::test]
+    async fn stress_query_flex_receipt_always_present() {
+        let (engine, _dir) = setup_stress_query_db(5).await;
+
+        // With results
+        let result = engine
+            .query_flex(QueryFlexInput::default())
+            .await
+            .unwrap();
+        assert!(
+            !result.receipt_id.is_empty(),
+            "Receipt ID should always be present"
+        );
+
+        // With no results (impossible filter)
+        let result = engine
+            .query_flex(QueryFlexInput {
+                files: Some("ZZZZZ_nonexistent".to_string()),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert!(
+            !result.receipt_id.is_empty(),
+            "Receipt ID should be present even on empty results"
+        );
+    }
+
+    #[tokio::test]
+    async fn stress_query_flex_sql_injection_in_file_filter() {
+        let (engine, _dir) = setup_stress_query_db(5).await;
+
+        // Attempt SQL injection via file filter
+        let result = engine
+            .query_flex(QueryFlexInput {
+                files: Some("'; DROP TABLE claude_sessions; --".to_string()),
+                ..Default::default()
+            })
+            .await;
+
+        // Should not error (parameterized queries)
+        assert!(
+            result.is_ok(),
+            "SQL injection attempt should be safely handled"
+        );
+
+        // Verify table still exists and has data
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM claude_sessions")
+            .fetch_one(engine.database().pool())
+            .await
+            .unwrap();
+        assert!(count.0 > 0, "Table should not be dropped by injection");
+    }
+
+    #[test]
+    fn stress_compute_display_name_10kb_message() {
+        let large_msg = "x".repeat(10_000);
+        let result = compute_display_name("chain123", None, Some(&large_msg));
+        assert!(
+            result.len() <= 63,
+            "Should truncate to ~60 chars, got {}",
+            result.len()
+        );
+        assert!(result.ends_with("..."), "Should end with ellipsis");
+    }
+
+    #[test]
+    fn stress_compute_display_name_unicode_near_boundary() {
+        // Emoji at exactly the 57-byte boundary
+        let msg = format!("{}🚀 after emoji", "A".repeat(53));
+        let result = compute_display_name("chain123", None, Some(&msg));
+        // Should not panic and should be valid UTF-8
+        assert!(result.len() <= 67); // 60 + "..." + possible multi-byte
+        for c in result.chars() {
+            assert!(c.len_utf8() <= 4); // All valid UTF-8
+        }
+    }
 }

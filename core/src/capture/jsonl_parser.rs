@@ -1991,4 +1991,292 @@ mod tests {
         assert!(summary.conversation_excerpt.is_some());
         assert!(summary.user_message_count >= 2); // at least first two messages counted
     }
+
+    // =========================================================================
+    // Phase 5: Input Resilience (Stress Tests)
+    // =========================================================================
+
+    /// Helper: write content to a temp JSONL file and return the path
+    fn write_temp_jsonl(dir: &std::path::Path, name: &str, content: &[u8]) -> PathBuf {
+        let path = dir.join(name);
+        std::fs::write(&path, content).unwrap();
+        path
+    }
+
+    /// Helper: make a valid JSONL line for a user message
+    fn make_user_jsonl_line(content: &str, timestamp: &str) -> String {
+        serde_json::json!({
+            "type": "user",
+            "timestamp": timestamp,
+            "message": {
+                "role": "user",
+                "content": content
+            }
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn stress_parse_jsonl_line_empty_string() {
+        assert!(parse_jsonl_line("").is_none());
+    }
+
+    #[test]
+    fn stress_parse_jsonl_line_whitespace_only() {
+        assert!(parse_jsonl_line("   ").is_none());
+        assert!(parse_jsonl_line("\t\n").is_none());
+    }
+
+    #[test]
+    fn stress_parse_jsonl_line_invalid_json() {
+        assert!(parse_jsonl_line("{not json}").is_none());
+        assert!(parse_jsonl_line("hello world").is_none());
+        assert!(parse_jsonl_line("{\"incomplete\": ").is_none());
+    }
+
+    #[test]
+    fn stress_parse_jsonl_line_missing_type_field() {
+        // Valid JSON but missing required "type" field
+        let line = r#"{"message": {"role": "user", "content": "hello"}}"#;
+        assert!(
+            parse_jsonl_line(line).is_none(),
+            "Missing type field should return None"
+        );
+    }
+
+    #[test]
+    fn stress_parse_jsonl_line_content_as_array() {
+        // Claude Code sends content as array for tool results:
+        // content: [{type: "text", text: "..."}]
+        let line = serde_json::json!({
+            "type": "assistant",
+            "timestamp": "2026-02-10T10:00:00Z",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "Here is the result"},
+                    {"type": "tool_use", "name": "Read", "input": {"file_path": "/test.rs"}}
+                ]
+            }
+        })
+        .to_string();
+        let result = parse_jsonl_line(&line);
+        // Should parse without panic — content may be stored as Value::Array
+        assert!(result.is_some(), "Array content should not crash parser");
+    }
+
+    #[test]
+    fn stress_parse_jsonl_line_null_timestamp() {
+        let line = serde_json::json!({
+            "type": "user",
+            "timestamp": null,
+            "message": {"role": "user", "content": "test"}
+        })
+        .to_string();
+        let result = parse_jsonl_line(&line);
+        assert!(result.is_some(), "Null timestamp should fallback to now()");
+    }
+
+    #[test]
+    fn stress_parse_jsonl_line_empty_timestamp() {
+        let line = serde_json::json!({
+            "type": "user",
+            "timestamp": "",
+            "message": {"role": "user", "content": "test"}
+        })
+        .to_string();
+        let result = parse_jsonl_line(&line);
+        assert!(result.is_some(), "Empty timestamp should fallback to now()");
+    }
+
+    #[test]
+    fn stress_parse_jsonl_line_tool_use_null_file_path() {
+        let line = serde_json::json!({
+            "type": "assistant",
+            "timestamp": "2026-02-10T10:00:00Z",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "name": "Read",
+                        "input": {"file_path": null}
+                    }
+                ]
+            }
+        })
+        .to_string();
+        let result = parse_jsonl_line(&line);
+        // Should parse without panic — null file_path is valid
+        assert!(
+            result.is_some(),
+            "Null file_path in tool_use should not crash"
+        );
+    }
+
+    #[test]
+    fn stress_parse_session_file_with_bom() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let line = make_user_jsonl_line("Hello after BOM", "2026-02-10T10:00:00Z");
+        // UTF-8 BOM: EF BB BF
+        let mut content = vec![0xEF, 0xBB, 0xBF];
+        content.extend_from_slice(line.as_bytes());
+        let path = write_temp_jsonl(temp_dir.path(), "bom_test.jsonl", &content);
+
+        let result = parse_session_file(&path);
+        // BOM may cause first line to fail JSON parse (BOM prefixed)
+        // but should not panic
+        assert!(result.is_ok(), "BOM file should not crash parser");
+    }
+
+    #[test]
+    fn stress_parse_session_file_with_crlf() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let line1 = make_user_jsonl_line("Line 1", "2026-02-10T10:00:00Z");
+        let line2 = make_user_jsonl_line("Line 2", "2026-02-10T10:01:00Z");
+        // Use CRLF line endings
+        let content = format!("{}\r\n{}\r\n", line1, line2);
+        let path = write_temp_jsonl(temp_dir.path(), "crlf_test.jsonl", content.as_bytes());
+
+        let result = parse_session_file(&path);
+        assert!(result.is_ok(), "CRLF file should parse successfully");
+        let (messages, _size, _cwd) = result.unwrap();
+        assert_eq!(messages.len(), 2, "Both CRLF-separated lines should parse");
+    }
+
+    #[test]
+    fn stress_parse_session_file_empty_file() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let path = write_temp_jsonl(temp_dir.path(), "empty.jsonl", b"");
+
+        let result = parse_session_file(&path);
+        assert!(result.is_ok(), "Empty file should not error");
+        let (messages, size, _cwd) = result.unwrap();
+        assert_eq!(messages.len(), 0, "Empty file → 0 messages");
+        assert_eq!(size, 0, "Empty file → 0 bytes");
+    }
+
+    #[test]
+    fn stress_parse_session_file_null_bytes_in_content() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        // Null byte inside JSON string value — JSON spec allows \u0000
+        let line = serde_json::json!({
+            "type": "user",
+            "timestamp": "2026-02-10T10:00:00Z",
+            "message": {"role": "user", "content": "before\u{0000}after"}
+        })
+        .to_string();
+        let path = write_temp_jsonl(temp_dir.path(), "null_bytes.jsonl", line.as_bytes());
+
+        let result = parse_session_file(&path);
+        assert!(result.is_ok(), "Null byte in JSON content should not crash");
+    }
+
+    #[test]
+    fn stress_parse_session_file_large_single_line() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        // 1MB content (not 10MB to keep test fast)
+        let large_content = "x".repeat(1_000_000);
+        let line = make_user_jsonl_line(&large_content, "2026-02-10T10:00:00Z");
+        let path = write_temp_jsonl(temp_dir.path(), "large_line.jsonl", line.as_bytes());
+
+        let result = parse_session_file(&path);
+        assert!(result.is_ok(), "1MB line should parse without crash");
+        let (messages, _size, _cwd) = result.unwrap();
+        assert_eq!(messages.len(), 1, "Should parse the large message");
+    }
+
+    #[test]
+    fn stress_parse_session_file_path_with_spaces() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let spaced_dir = temp_dir.path().join("path with spaces");
+        std::fs::create_dir_all(&spaced_dir).unwrap();
+        let line = make_user_jsonl_line("test", "2026-02-10T10:00:00Z");
+        let path = write_temp_jsonl(&spaced_dir, "session file.jsonl", line.as_bytes());
+
+        let result = parse_session_file(&path);
+        assert!(result.is_ok(), "File path with spaces should work");
+        assert_eq!(result.unwrap().0.len(), 1);
+    }
+
+    #[test]
+    fn stress_parse_session_file_path_with_unicode() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let unicode_dir = temp_dir.path().join("\u{9879}\u{76EE}_data");
+        std::fs::create_dir_all(&unicode_dir).unwrap();
+        let line = make_user_jsonl_line("unicode path test", "2026-02-10T10:00:00Z");
+        let path = write_temp_jsonl(&unicode_dir, "\u{30C6}\u{30B9}\u{30C8}.jsonl", line.as_bytes());
+
+        let result = parse_session_file(&path);
+        assert!(result.is_ok(), "Unicode file path should work");
+        assert_eq!(result.unwrap().0.len(), 1);
+    }
+
+    #[test]
+    fn stress_extract_session_id_with_spaces() {
+        let path = Path::new("/home/user/.claude/my session file.jsonl");
+        let id = extract_session_id(path);
+        assert_eq!(id.as_deref(), Some("my session file"));
+    }
+
+    #[test]
+    fn stress_extract_session_id_with_unicode() {
+        let path = Path::new("/tmp/\u{30C6}\u{30B9}\u{30C8}.jsonl");
+        let id = extract_session_id(path);
+        assert_eq!(id.as_deref(), Some("\u{30C6}\u{30B9}\u{30C8}"));
+    }
+
+    #[test]
+    fn stress_parse_session_file_mixed_valid_and_invalid_lines() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let valid_line = make_user_jsonl_line("valid", "2026-02-10T10:00:00Z");
+        let invalid_line = "{bad json}";
+        let valid_line2 = make_user_jsonl_line("also valid", "2026-02-10T10:01:00Z");
+        let content = format!(
+            "{}\n{}\n\n{}\nnot even close\n",
+            valid_line, invalid_line, valid_line2
+        );
+        let path = write_temp_jsonl(temp_dir.path(), "mixed.jsonl", content.as_bytes());
+
+        let result = parse_session_file(&path);
+        assert!(result.is_ok(), "Mixed valid/invalid should not crash");
+        let (messages, _size, _cwd) = result.unwrap();
+        assert_eq!(
+            messages.len(),
+            2,
+            "Should parse 2 valid lines, skip 3 invalid"
+        );
+    }
+
+    #[test]
+    fn stress_parse_session_file_only_invalid_json() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let content = "not json\nalso not json\n{\"missing\": \"type field\"}\n";
+        let path = write_temp_jsonl(temp_dir.path(), "all_invalid.jsonl", content.as_bytes());
+
+        let result = parse_session_file(&path);
+        assert!(result.is_ok(), "All-invalid file should not error");
+        let (messages, _size, _cwd) = result.unwrap();
+        assert_eq!(messages.len(), 0, "All invalid → 0 messages");
+    }
+
+    #[test]
+    fn stress_parse_jsonl_line_extremely_nested_json() {
+        // Deeply nested JSON — should not stack overflow
+        let nested = "{".repeat(50) + "\"type\":\"user\"" + &"}".repeat(50);
+        // This may not parse as valid typed message, but should not panic
+        let _result = parse_jsonl_line(&nested);
+    }
+
+    #[test]
+    fn stress_aggregate_session_with_zero_messages() {
+        let messages: Vec<ParsedMessage> = vec![];
+        let summary = aggregate_session("empty-session", "/project", &messages, 0);
+        assert_eq!(summary.session_id, "empty-session");
+        assert_eq!(summary.user_message_count, 0);
+        assert_eq!(summary.assistant_message_count, 0);
+        assert_eq!(summary.total_messages, 0);
+        assert!(summary.files_read.is_empty());
+        assert!(summary.files_written.is_empty());
+    }
 }
