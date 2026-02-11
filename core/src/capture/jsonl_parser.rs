@@ -664,9 +664,14 @@ pub fn aggregate_session(
                 excerpt.push_str("\n---\n");
             }
             excerpt.push_str(&format!("[User {}]: {}", i + 1, msg));
-            // Truncate if exceeding max length
+            // Truncate if exceeding max length (UTF-8 safe)
             if excerpt.len() > MAX_EXCERPT_CHARS {
-                excerpt.truncate(MAX_EXCERPT_CHARS);
+                // Find last valid UTF-8 character boundary at or before MAX_EXCERPT_CHARS
+                let mut truncate_at = MAX_EXCERPT_CHARS;
+                while truncate_at > 0 && !excerpt.is_char_boundary(truncate_at) {
+                    truncate_at -= 1;
+                }
+                excerpt.truncate(truncate_at);
                 excerpt.push_str("...[truncated]");
                 break;
             }
@@ -917,10 +922,22 @@ pub fn sync_sessions(
         let session_tool_uses: i64 = messages.iter().map(|m| m.tool_uses.len() as i64).sum();
         total_tool_uses += session_tool_uses;
 
-        // Aggregate into summary
-        let summary = aggregate_session(&session_id, &project_path, &messages, file_size);
-        summaries.push(summary);
-        result.sessions_parsed += 1;
+        // Aggregate into summary (with panic recovery so one bad session doesn't crash the batch)
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            aggregate_session(&session_id, &project_path, &messages, file_size)
+        })) {
+            Ok(summary) => {
+                summaries.push(summary);
+                result.sessions_parsed += 1;
+            }
+            Err(_) => {
+                result.errors.push(format!(
+                    "Panic in aggregate_session for session {}, skipping",
+                    session_id
+                ));
+                continue;
+            }
+        }
     }
 
     result.total_tool_uses = total_tool_uses;
@@ -1862,5 +1879,116 @@ mod tests {
         // Both paths should normalize to "foo.md", so only 1 entry
         assert_eq!(summary.files_read.len(), 1);
         assert!(summary.files_read.contains(&"foo.md".to_string()));
+    }
+
+    // =========================================================================
+    // Cycle: UTF-8 Safe Truncation (regression tests for is_char_boundary panic)
+    // =========================================================================
+
+    #[test]
+    fn test_truncate_multibyte_utf8_does_not_panic() {
+        // Simulate a conversation excerpt with multi-byte chars near the truncation boundary.
+        // Previously, excerpt.truncate(MAX_EXCERPT_CHARS) would panic at a mid-character byte.
+        let ts = test_timestamp();
+
+        // Build a user message that places a 4-byte emoji right at the MAX_EXCERPT_CHARS boundary
+        // MAX_EXCERPT_CHARS = 8000, so we need content that exceeds 8000 bytes with
+        // multi-byte characters spanning the boundary
+        let prefix = "[User 1]: ";
+        let padding_len = 8000 - prefix.len() - 2; // -2 to place emoji right at boundary
+        let mut long_msg = "a".repeat(padding_len);
+        long_msg.push_str("\u{1F389}\u{1F389}\u{1F389}"); // 3 party popper emoji (4 bytes each)
+
+        let messages = vec![ParsedMessage {
+            msg_type: "user".to_string(),
+            role: Some("user".to_string()),
+            content: serde_json::Value::String(long_msg),
+            timestamp: ts,
+            tool_uses: vec![],
+        }];
+
+        // This used to panic with "is not a char boundary" — now it should succeed
+        let summary = aggregate_session("test-utf8", "/project", &messages, 1000);
+        assert!(summary.conversation_excerpt.is_some());
+        let excerpt = summary.conversation_excerpt.unwrap();
+        assert!(excerpt.ends_with("...[truncated]"));
+        assert!(excerpt.len() <= 8000 + "...[truncated]".len() + 20); // some margin
+    }
+
+    #[test]
+    fn test_truncate_with_cjk_characters() {
+        // CJK characters are 3 bytes each in UTF-8. Truncating mid-character would panic.
+        let ts = test_timestamp();
+        let cjk_msg = "\u{4e16}\u{754c}".repeat(3000); // "世界" repeated, 6 bytes per pair
+
+        let messages = vec![ParsedMessage {
+            msg_type: "user".to_string(),
+            role: Some("user".to_string()),
+            content: serde_json::Value::String(cjk_msg),
+            timestamp: ts,
+            tool_uses: vec![],
+        }];
+
+        let summary = aggregate_session("test-cjk", "/project", &messages, 1000);
+        assert!(summary.conversation_excerpt.is_some());
+        let excerpt = summary.conversation_excerpt.unwrap();
+        // Verify the excerpt is valid UTF-8 (it is if we got here without panic)
+        assert!(excerpt.is_char_boundary(excerpt.len()));
+    }
+
+    #[test]
+    fn test_truncate_with_cyrillic_near_boundary() {
+        // Cyrillic characters are 2 bytes each. Tests 2-byte boundary case.
+        let ts = test_timestamp();
+        let cyrillic_msg = "\u{041f}\u{0440}\u{0438}\u{0432}\u{0435}\u{0442}".repeat(800); // "Привет" ~4800 bytes per rep
+
+        let messages = vec![ParsedMessage {
+            msg_type: "user".to_string(),
+            role: Some("user".to_string()),
+            content: serde_json::Value::String(cyrillic_msg),
+            timestamp: ts,
+            tool_uses: vec![],
+        }];
+
+        let summary = aggregate_session("test-cyrillic", "/project", &messages, 1000);
+        assert!(summary.conversation_excerpt.is_some());
+    }
+
+    #[test]
+    fn test_aggregate_session_with_mixed_unicode_messages() {
+        // Multiple user messages with emoji, CJK, and ASCII near truncation boundary
+        let ts = test_timestamp();
+        let msg1 = "Hello world! ".repeat(200); // ~2600 bytes
+        let msg2 = "\u{1F680}\u{1F4BB}\u{2728} ".repeat(500); // emoji-heavy ~5500 bytes
+        let msg3 = "Final message with \u{4e16}\u{754c}".to_string(); // won't fit, but tests graceful handling
+
+        let messages = vec![
+            ParsedMessage {
+                msg_type: "user".to_string(),
+                role: Some("user".to_string()),
+                content: serde_json::Value::String(msg1),
+                timestamp: ts,
+                tool_uses: vec![],
+            },
+            ParsedMessage {
+                msg_type: "user".to_string(),
+                role: Some("user".to_string()),
+                content: serde_json::Value::String(msg2),
+                timestamp: ts,
+                tool_uses: vec![],
+            },
+            ParsedMessage {
+                msg_type: "user".to_string(),
+                role: Some("user".to_string()),
+                content: serde_json::Value::String(msg3),
+                timestamp: ts,
+                tool_uses: vec![],
+            },
+        ];
+
+        // Should not panic, should produce valid truncated excerpt
+        let summary = aggregate_session("test-mixed-unicode", "/project", &messages, 1000);
+        assert!(summary.conversation_excerpt.is_some());
+        assert!(summary.user_message_count >= 2); // at least first two messages counted
     }
 }
