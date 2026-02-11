@@ -440,20 +440,26 @@ jobs:
         shell: bash
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          # Extract first run session count
-          FIRST_COUNT=$(grep -o '"sessions_parsed": *[0-9]*' "$GITHUB_WORKSPACE/e2e-daemon-output.txt" | grep -o '[0-9]*')
-          echo "First daemon run: sessions_parsed=$FIRST_COUNT"
+          # Query DB after first daemon run
+          FIRST_QUERY=$(tastematter query flex --time 30d --format json 2>/dev/null)
+          FIRST_COUNT=$(echo "$FIRST_QUERY" | jq '.result_count // 0')
+          echo "After first daemon: query result_count=$FIRST_COUNT"
 
-          # Run daemon a second time
+          # Run daemon a second time (incremental — should parse 0 new, DB unchanged)
           tastematter daemon once > "$GITHUB_WORKSPACE/e2e-daemon-output-2.txt" 2>&1 || true
-          SECOND_COUNT=$(grep -o '"sessions_parsed": *[0-9]*' "$GITHUB_WORKSPACE/e2e-daemon-output-2.txt" | grep -o '[0-9]*')
-          echo "Second daemon run: sessions_parsed=$SECOND_COUNT"
+          REPARSED=$(grep -o '"sessions_parsed": *[0-9]*' "$GITHUB_WORKSPACE/e2e-daemon-output-2.txt" | grep -o '[0-9]*')
+          echo "Second daemon run: sessions_parsed=$REPARSED (expected 0 — incremental skip)"
+
+          # Query DB again — result count must match
+          SECOND_QUERY=$(tastematter query flex --time 30d --format json 2>/dev/null)
+          SECOND_COUNT=$(echo "$SECOND_QUERY" | jq '.result_count // 0')
+          echo "After second daemon: query result_count=$SECOND_COUNT"
 
           if [ "$FIRST_COUNT" != "$SECOND_COUNT" ]; then
-            echo "::error::Idempotency violation: first=$FIRST_COUNT second=$SECOND_COUNT"
+            echo "::error::Idempotency violation: DB had $FIRST_COUNT results before, $SECOND_COUNT after second daemon run"
             exit 1
           fi
-          echo "Idempotency OK: both runs returned $FIRST_COUNT sessions"
+          echo "Idempotency OK: DB stable at $FIRST_COUNT results across both daemon runs"
 
       - name: Assert DB recovery (6.3)
         shell: bash
