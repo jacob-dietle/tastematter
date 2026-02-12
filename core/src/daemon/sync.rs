@@ -276,11 +276,9 @@ async fn enrich_chains_phase(chains: &HashMap<String, Chain>, result: &mut SyncR
 
     let client = IntelClient::default();
 
-    // Check if service is available
+    // Check if service is available — silently skip if not running
+    // Intel enrichment is opt-in; users don't need to know it exists until enabled
     if !client.health_check().await {
-        result
-            .errors
-            .push("Intel: Service unavailable - skipping enrichment".to_string());
         return 0;
     }
 
@@ -740,19 +738,27 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    async fn test_enrich_chains_adds_message_to_errors_on_service_unavailable() {
-        // When Intel service is unavailable, enrich_chains_phase() should add an info message
-        // to result.errors (using errors as a message log for now)
+    async fn test_enrich_chains_silently_skips_when_service_unavailable() {
+        // When Intel service is unavailable, enrich_chains_phase() should silently
+        // return 0 without adding error messages (Intel is opt-in, not user-facing)
         let chains: HashMap<String, Chain> = HashMap::new();
         let mut result = SyncResult::default();
 
-        let _ = enrich_chains_phase(&chains, &mut result).await;
+        let enriched = enrich_chains_phase(&chains, &mut result).await;
 
-        // Should have some message about Intel service status
-        // (either "unavailable" or "enriched X chains")
-        // Empty chains = no enrichment attempted, but we check the pattern works
-        // Function should complete without panicking
-        let _ = result.errors.len();
+        // Should complete without panicking and return 0
+        assert_eq!(enriched, 0);
+        // Should NOT add any Intel-related messages to errors
+        let intel_errors: Vec<_> = result
+            .errors
+            .iter()
+            .filter(|e| e.contains("Intel"))
+            .collect();
+        assert!(
+            intel_errors.is_empty(),
+            "Intel unavailable should be silent, found: {:?}",
+            intel_errors
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -898,7 +904,6 @@ mod tests {
             duration_ms: 5000,
             errors: vec![
                 "Git sync error: not a git repository".to_string(),
-                "Intel: Service unavailable".to_string(),
                 "Unicode error: \u{1F680} emoji in path".to_string(),
             ],
         };
@@ -1267,12 +1272,8 @@ mod tests {
             assert!(chains.is_empty(), "Chain map should be empty");
         }
 
-        // 6. Verify no critical errors (Intel unavailable is expected)
-        let critical_errors: Vec<_> = result
-            .errors
-            .iter()
-            .filter(|e| !e.contains("Intel") && !e.contains("Service unavailable"))
-            .collect();
+        // 6. Verify no critical errors (Intel is silently skipped when unavailable)
+        let critical_errors: Vec<_> = result.errors.iter().collect();
         assert!(
             critical_errors.is_empty(),
             "Should have no critical errors for zero sessions. Errors: {:?}",
