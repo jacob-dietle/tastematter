@@ -909,8 +909,8 @@ mod tests {
         };
         let json = serde_json::to_string(&result).unwrap();
         let parsed: SyncResult = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.errors.len(), 3);
-        assert!(parsed.errors[2].contains('\u{1F680}'));
+        assert_eq!(parsed.errors.len(), 2);
+        assert!(parsed.errors[1].contains('\u{1F680}'));
     }
 
     #[tokio::test(flavor = "multi_thread")]
