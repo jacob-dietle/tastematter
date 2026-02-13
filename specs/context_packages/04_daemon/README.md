@@ -4,8 +4,8 @@ Context packages documenting the indexer/daemon investigation and Claude Code da
 
 ## Overview
 
-**Date Range:** 2026-01-12 to 2026-02-11
-**Package Count:** 62
+**Date Range:** 2026-01-12 to 2026-02-12
+**Package Count:** 65
 **Theme:** Chain linking bug, data model, Intel Layer priority, CLI fix, daemon, **FULL RUST PORT COMPLETE (All 9 Phases)**, **GLOB BUG FOUND**, **CANONICAL SPEC COMPLETE**, **TDD FIX APPLIED**, **TEST ALIGNMENT COMPLETE**, **PARSER GAP FIX COMPLETE**, **TYPE CONTRACTS COMPLETE**, **PHASE 3 GIT SYNC COMPLETE**, **PHASE 4 JSONL PARSER COMPLETE**, **PHASE 5 CHAIN GRAPH COMPLETE**, **PHASE 6 INVERTED INDEX COMPLETE**, **PHASE 7 FILE WATCHER COMPLETE**, **PHASE 8 DAEMON RUNNER COMPLETE**, **PARITY TEST SUITE COMPLETE**, **CLI DISTRIBUTION ARCHITECTURE**, **DAEMON AUTO-SETUP COMPLETE**, **TELEMETRY INSTRUMENTATION COMPLETE**, **INTEL SERVICE PHASE 1 COMPLETE**, **PHASE 3+4 PARALLEL COMPLETE**
 
 ## Narrative
@@ -82,6 +82,9 @@ This chain documents investigating and fixing the chain linking bug:
 | 59 | 2026-02-06 | **ALL_FOUNDATION_FIXES_IMPLEMENTED** (All 5 specs implemented: path normalization, schema unification, non-destructive chains, chain names CLI, files_written queries. 1,071 insertions, 307 tests, UTF-8 bug fix) |
 | 60 | 2026-02-07 | **CWD_FIX_HEAT_FIX_RELEASE_ALPHA19** (Path normalization was no-op: lossy decode_project_path bypassed by reading cwd from JSONL. Heat returned wrong files: SQL LIMIT before Rust sort. Full UX eval of all CLI commands. v0.1.0-alpha.18 + alpha.19 released) |
 | 61 | 2026-02-11 | **E2E_PIPELINE_AND_PARSER_FIX** (UTF-8 is_char_boundary panic fix, catch_unwind recovery, E2E CI pipeline on 3 platforms, 6-phase stress testing spec, test density audit: storage 0.2/100L + query 0.2/100L = critical gaps) |
+| 62 | 2026-02-11 | **STRESS_TESTING_PHASES_1_5** (65 net-new stress tests across 6 modules: storage idempotency + SQL injection + input resilience + time range fuzzing + unicode paths + BOM/CRLF/null bytes. All pass in 2.89s. Phase 6 E2E next) |
+| 63 | 2026-02-11 | **PHASE6_E2E_AND_INTEL_SILENT** (8 E2E scenarios in staging.yml: emoji, idempotency, DB recovery, zero-time, empty project, heat/chains assertions, perf budget. Intel "Service unavailable" silenced. Stress testing spec 100% COMPLETE) |
+| 64 | 2026-02-12 | **HEAT_FORMULA_REDESIGN_RELEASE_ALPHA23** (RCR→specificity, step→exponential decay, percentile classification, git sync error fix, default aggregations, context integration. 3-agent parallel team. v0.1.0-alpha.23 released, all staging E2E green) |
 
 ## Key Findings
 
@@ -103,7 +106,7 @@ This chain documents investigating and fixing the chain linking bug:
 
 ## Current State
 
-**Latest package:** [[61_2026-02-11_E2E_PIPELINE_AND_PARSER_FIX]]
+**Latest package:** [[63_2026-02-11_PHASE6_E2E_AND_INTEL_SILENT]]
 **Canonical specs:**
 - [[canonical/07_CLAUDE_CODE_DATA_MODEL.md]]
 - [[canonical/08_PYTHON_PORT_INVENTORY.md]]

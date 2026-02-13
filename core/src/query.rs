@@ -1955,7 +1955,10 @@ mod tests {
         }];
         // Empty agg_types — should still get count
         let aggs = compute_aggregations(&results, &vec![]);
-        assert!(aggs.count.is_some(), "Default aggregations should include count");
+        assert!(
+            aggs.count.is_some(),
+            "Default aggregations should include count"
+        );
         assert_eq!(aggs.count.as_ref().unwrap().total_files, 1);
         assert_eq!(aggs.count.as_ref().unwrap().total_accesses, 10);
     }

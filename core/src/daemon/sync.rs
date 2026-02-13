@@ -903,9 +903,7 @@ mod tests {
             chains_built: 10,
             files_indexed: 250,
             duration_ms: 5000,
-            errors: vec![
-                "Unicode error: \u{1F680} emoji in path".to_string(),
-            ],
+            errors: vec!["Unicode error: \u{1F680} emoji in path".to_string()],
         };
         let json = serde_json::to_string(&result).unwrap();
         let parsed: SyncResult = serde_json::from_str(&json).unwrap();
