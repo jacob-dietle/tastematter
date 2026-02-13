@@ -1421,12 +1421,26 @@ mod tests {
         );
 
         // Top 10% (2 items) should be Hot
-        let hot_count = items.iter().filter(|i| i.heat_level == HeatLevel::Hot).count();
-        assert_eq!(hot_count, 2, "Top 10% (2 of 20) should be Hot, got {}", hot_count);
+        let hot_count = items
+            .iter()
+            .filter(|i| i.heat_level == HeatLevel::Hot)
+            .count();
+        assert_eq!(
+            hot_count, 2,
+            "Top 10% (2 of 20) should be Hot, got {}",
+            hot_count
+        );
 
         // Bottom 40% (8 items) should be Cold
-        let cold_count = items.iter().filter(|i| i.heat_level == HeatLevel::Cold).count();
-        assert_eq!(cold_count, 8, "Bottom 40% (8 of 20) should be Cold, got {}", cold_count);
+        let cold_count = items
+            .iter()
+            .filter(|i| i.heat_level == HeatLevel::Cold)
+            .count();
+        assert_eq!(
+            cold_count, 8,
+            "Bottom 40% (8 of 20) should be Cold, got {}",
+            cold_count
+        );
     }
 
     // =========================================================================
