@@ -42,37 +42,42 @@ When exact paths are unknown, use these substring strategies:
 
 ```bash
 # Discovery
-context-os query search <pattern>     # Find files by substring
-context-os query recent --weeks N     # Weekly activity summary
+tastematter query flex --files "*pattern*" --format json  # Find files by path pattern
+tastematter query flex --time 7d --format json            # Recent activity
 
 # File Intelligence
-context-os query file <path>          # Sessions that touched file
-context-os query co-access <path>     # Files accessed together
+tastematter query file <path> --format json               # Sessions that touched file
+tastematter query co-access <path> --format json          # Files accessed together
 
 # Session Intelligence
-context-os query session <id>         # Files touched by session
-context-os query chains --limit N     # Conversation chains
+tastematter query session <id> --format json              # Files touched by session
+tastematter query chains --limit N --format json          # Conversation chains
 
-# Meta
-context-os query log                  # View query history
+# Verification
+tastematter query verify <receipt_id>                     # Verify a previous result
 ```
 
 ## Example Workflow: "What am I working on for Pixee?"
 
 ```bash
-# Step 1: Find Pixee files
-context-os query search pixee --limit 20
-# Result: 147 files, top ones are social_media_automation, hubspot
+# Step 1: Find Pixee files (CLI narrows)
+tastematter query flex --files "*pixee*" --agg count,recency,sessions,chains --format json
+# Result: 147 files, receipt [q_abc123]
 
-# Step 2: Drill into top file
-context-os query file social_media_automation --limit 5
-# Result: 6 sessions, most recent Dec 19
+# Step 2: Read hot files (understand content)
+Read: <top_file_from_results>
+# Result: This is the social media CLI implementation
 
-# Step 3: Get session details
-context-os query session 61cabe92 --limit 20
-# Result: 35 files touched, architecture docs present
+# Step 3: Search for specific concepts (grep for content)
+Grep: pattern="hubspot|integration" path=apps/clients/pixee/
+# Result: Found references in 3 files
 
-# Synthesis:
-# - HubSpot mid-funnel automation just started (new architecture doc)
-# - Social Media Automation is active focus (6 sessions, recent)
+# Step 4: Check git for evolution
+git log --oneline -5 -- apps/clients/pixee/
+# Result: Recent commits show active development
+
+# Synthesis with citation:
+# Working on 147 Pixee files [q_abc123]. Main areas:
+# - Social Media CLI (active development)
+# - HubSpot integration (3 files mention it)
 ```
