@@ -91,7 +91,8 @@ pub async fn run_sync(config: &DaemonConfig) -> Result<SyncResult, String> {
     // 1. Git sync
     let git_result = sync_git(config, &mut result);
     if let Err(e) = git_result {
-        result.errors.push(format!("Git sync error: {}", e));
+        log::info!("Git sync skipped: {}", e);
+        // Not pushed to result.errors — git sync is optional enhancement
     }
 
     // 2. Session parsing WITH PERSISTENCE
@@ -903,14 +904,13 @@ mod tests {
             files_indexed: 250,
             duration_ms: 5000,
             errors: vec![
-                "Git sync error: not a git repository".to_string(),
                 "Unicode error: \u{1F680} emoji in path".to_string(),
             ],
         };
         let json = serde_json::to_string(&result).unwrap();
         let parsed: SyncResult = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.errors.len(), 2);
-        assert!(parsed.errors[1].contains('\u{1F680}'));
+        assert_eq!(parsed.errors.len(), 1);
+        assert!(parsed.errors[0].contains('\u{1F680}'));
     }
 
     #[tokio::test(flavor = "multi_thread")]

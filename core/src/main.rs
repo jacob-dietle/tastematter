@@ -367,7 +367,7 @@ enum QueryCommands {
         format: String,
     },
 
-    /// Show file heat metrics (RCR, velocity, composite score)
+    /// Show file heat metrics (specificity, velocity, composite score)
     Heat {
         /// Long window time range: 30d (default), 14d, 60d, 90d
         #[arg(short, long, default_value = "30d")]
@@ -381,7 +381,7 @@ enum QueryCommands {
         #[arg(short, long, default_value = "50")]
         limit: u32,
 
-        /// Sort by: heat (default), rcr, velocity, name
+        /// Sort by: heat (default), specificity, velocity, name
         #[arg(short, long, default_value = "heat")]
         sort: String,
 
@@ -742,7 +742,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 format,
             } => {
                 let sort_by = match sort.as_str() {
-                    "rcr" => HeatSortBy::Rcr,
+                    "specificity" => HeatSortBy::Specificity,
                     "velocity" => HeatSortBy::Velocity,
                     "name" => HeatSortBy::Name,
                     _ => HeatSortBy::Heat,
@@ -1379,7 +1379,7 @@ fn output_heat_table(result: &tastematter::HeatResult) {
     // Header
     println!(
         "{:<60} {:>6} {:>6} {:>5} {:>7} {:>6} {:>4}",
-        "FILE", "7D", "TOTAL", "RCR", "VEL", "SCORE", "HEAT"
+        "FILE", "7D", "TOTAL", "SPEC", "VEL", "SCORE", "HEAT"
     );
     println!("{}", "-".repeat(100));
 
@@ -1397,7 +1397,7 @@ fn output_heat_table(result: &tastematter::HeatResult) {
             display_path,
             item.count_7d,
             item.count_long,
-            item.rcr,
+            item.specificity,
             item.velocity,
             item.heat_score,
             item.heat_level,
@@ -1519,7 +1519,7 @@ fn output_context_table(result: &tastematter::ContextRestoreResult) {
 /// Output heat results as CSV
 fn output_heat_csv(result: &tastematter::HeatResult) {
     println!(
-        "file_path,count_7d,count_long,rcr,velocity,heat_score,heat_level,first_access,last_access"
+        "file_path,count_7d,count_long,specificity,velocity,heat_score,heat_level,first_access,last_access"
     );
     for item in &result.results {
         println!(
@@ -1527,7 +1527,7 @@ fn output_heat_csv(result: &tastematter::HeatResult) {
             item.file_path,
             item.count_7d,
             item.count_long,
-            item.rcr,
+            item.specificity,
             item.velocity,
             item.heat_score,
             item.heat_level,

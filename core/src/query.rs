@@ -1033,7 +1033,7 @@ impl QueryEngine {
     /// Query file heat metrics with composite scoring
     ///
     /// Uses a single CTE query to fetch 7-day and long-window access counts,
-    /// then computes RCR, velocity, and composite heat score in Rust.
+    /// then computes specificity (IDF), velocity, and composite heat score in Rust.
     ///
     /// Target: <100ms latency
     pub async fn query_heat(&self, input: QueryHeatInput) -> Result<HeatResult, CoreError> {
@@ -1049,6 +1049,16 @@ impl QueryEngine {
         } else {
             ""
         };
+
+        // Get total sessions in window for specificity calculation
+        let total_sessions_sql = format!(
+            "SELECT COUNT(DISTINCT session_id) as total_sessions FROM claude_sessions WHERE started_at >= datetime('now', '-{days} days')",
+            days = days,
+        );
+        let total_sessions_row = sqlx::query(&total_sessions_sql)
+            .fetch_one(self.db.pool())
+            .await?;
+        let total_sessions = total_sessions_row.get::<i64, _>("total_sessions").max(1) as f64;
 
         // FIX BUG-06: Include files_written via CTE
         let sql = format!(
@@ -1066,6 +1076,7 @@ impl QueryEngine {
             SELECT af.file_path,
                     SUM(CASE WHEN af.started_at >= datetime('now', '-7 days') THEN 1 ELSE 0 END) as count_7d,
                     COUNT(*) as count_long,
+                    COUNT(DISTINCT af.session_id) as session_count,
                     MIN(af.started_at) as first_access,
                     MAX(af.started_at) as last_access
              FROM all_files af
@@ -1099,22 +1110,22 @@ impl QueryEngine {
                     .get::<Option<String>, _>("last_access")
                     .unwrap_or_default();
 
-                // RCR = count_7d / count_long (safe division)
-                let rcr = if count_long > 0 {
-                    count_7d as f64 / count_long as f64
-                } else {
-                    0.0
-                };
+                let session_count = row.get::<i64, _>("session_count") as f64;
+
+                // Specificity = 1.0 - session_spread (IDF-like)
+                // Files touched in many sessions have low specificity
+                let session_spread = session_count / total_sessions;
+                let specificity = 1.0 - session_spread;
 
                 let velocity = compute_velocity(count_long, &first_access, &last_access);
-                let heat_score = compute_heat_score(velocity, rcr, &last_access);
+                let heat_score = compute_heat_score(velocity, specificity, &last_access);
                 let heat_level = classify_heat(heat_score);
 
                 HeatItem {
                     file_path,
                     count_7d,
                     count_long,
-                    rcr,
+                    specificity,
                     velocity,
                     heat_score,
                     heat_level,
@@ -1131,9 +1142,9 @@ impl QueryEngine {
                     .partial_cmp(&a.heat_score)
                     .unwrap_or(std::cmp::Ordering::Equal)
             }),
-            HeatSortBy::Rcr => items.sort_by(|a, b| {
-                b.rcr
-                    .partial_cmp(&a.rcr)
+            HeatSortBy::Specificity => items.sort_by(|a, b| {
+                b.specificity
+                    .partial_cmp(&a.specificity)
                     .unwrap_or(std::cmp::Ordering::Equal)
             }),
             HeatSortBy::Velocity => items.sort_by(|a, b| {
@@ -1147,7 +1158,10 @@ impl QueryEngine {
         // Apply limit AFTER sort (not in SQL, where it truncates before scoring)
         items.truncate(limit as usize);
 
-        // Compute summary
+        // Reclassify by percentile rank (overrides absolute threshold classification)
+        classify_heat_percentile(&mut items);
+
+        // Compute summary AFTER percentile reclassification
         let total_files = items.len() as u32;
         let hot_count = items
             .iter()
@@ -1840,16 +1854,17 @@ impl QueryEngine {
 pub fn compute_aggregations(results: &[FileResult], agg_types: &[String]) -> Aggregations {
     let mut aggregations = Aggregations::default();
 
+    // Always include count (cheap, prevents confusing empty {})
+    let total_files = results.len() as u32;
+    let total_accesses: u32 = results.iter().map(|r| r.access_count).sum();
+    aggregations.count = Some(CountAgg {
+        total_files,
+        total_accesses,
+    });
+
     for agg in agg_types {
         match agg.as_str() {
-            "count" => {
-                let total_files = results.len() as u32;
-                let total_accesses: u32 = results.iter().map(|r| r.access_count).sum();
-                aggregations.count = Some(CountAgg {
-                    total_files,
-                    total_accesses,
-                });
-            }
+            "count" => {} // already computed above
             "recency" => {
                 if let (Some(newest), Some(oldest)) = (
                     results.iter().filter_map(|r| r.last_access.as_ref()).max(),
@@ -1926,6 +1941,23 @@ mod tests {
         let recency = agg.recency.unwrap();
         assert_eq!(recency.newest, "2026-01-08");
         assert_eq!(recency.oldest, "2026-01-05");
+    }
+
+    #[test]
+    fn test_default_aggregations_include_count() {
+        let results = vec![FileResult {
+            file_path: "a.rs".to_string(),
+            access_count: 10,
+            last_access: Some("2026-01-08".to_string()),
+            session_count: None,
+            sessions: None,
+            chains: None,
+        }];
+        // Empty agg_types — should still get count
+        let aggs = compute_aggregations(&results, &vec![]);
+        assert!(aggs.count.is_some(), "Default aggregations should include count");
+        assert_eq!(aggs.count.as_ref().unwrap().total_files, 1);
+        assert_eq!(aggs.count.as_ref().unwrap().total_accesses, 10);
     }
 
     // =========================================================================

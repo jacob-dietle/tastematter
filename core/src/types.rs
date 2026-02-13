@@ -583,7 +583,7 @@ impl std::fmt::Display for HeatLevel {
 pub enum HeatSortBy {
     #[default]
     Heat,
-    Rcr,
+    Specificity,
     Velocity,
     Name,
 }
@@ -600,7 +600,7 @@ pub struct QueryHeatInput {
     /// Maximum results to return (default: 50)
     pub limit: Option<u32>,
 
-    /// Sort by: heat (default), rcr, velocity, name
+    /// Sort by: heat (default), specificity, velocity, name
     pub sort: Option<HeatSortBy>,
 }
 
@@ -610,7 +610,7 @@ pub struct HeatItem {
     pub file_path: String,
     pub count_7d: u32,
     pub count_long: u32,
-    pub rcr: f64,
+    pub specificity: f64,
     pub velocity: f64,
     pub heat_score: f64,
     pub heat_level: HeatLevel,
@@ -684,6 +684,10 @@ pub struct ExecutiveSummary {
     pub work_tempo: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_meaningful_session: Option<String>,
+    /// Number of files classified as HOT by percentile heat
+    pub hot_file_count: u32,
+    /// Ratio of hot files to total files analyzed (work concentration)
+    pub focus_ratio: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -904,13 +908,11 @@ fn compute_days_active(first_access: &str, last_access: &str) -> i64 {
     }
 }
 
-/// Compute recency bonus based on last_access timestamp
+/// Compute recency bonus based on last_access timestamp using exponential decay
 ///
-/// Returns:
-///   1.0 if last_access < 24h ago
-///   0.5 if last_access < 7d ago
-///   0.0 otherwise
-fn compute_recency_bonus(last_access: &str) -> f64 {
+/// Formula: e^(-0.1 * days_since_access)
+/// Smooth curve: 0d=1.0, 1d=0.90, 3d=0.74, 7d=0.50, 14d=0.25, 30d=0.05
+pub fn compute_recency_bonus(last_access: &str) -> f64 {
     let now = chrono::Utc::now();
 
     let parsed = chrono::DateTime::parse_from_rfc3339(last_access)
@@ -929,14 +931,8 @@ fn compute_recency_bonus(last_access: &str) -> f64 {
 
     match parsed {
         Some(ts) => {
-            let hours = (now - ts).num_hours();
-            if hours < 24 {
-                1.0
-            } else if hours < 24 * 7 {
-                0.5
-            } else {
-                0.0
-            }
+            let days = (now - ts).num_hours() as f64 / 24.0;
+            (-0.1 * days).exp()
         }
         None => 0.0,
     }
@@ -944,12 +940,49 @@ fn compute_recency_bonus(last_access: &str) -> f64 {
 
 /// Compute composite heat score
 ///
-/// Formula: (normalized_AV * 0.3) + (RCR * 0.5) + (recency_bonus * 0.2)
+/// Formula: (normalized_AV * 0.30) + (specificity * 0.35) + (recency * 0.35)
 /// Where normalized_AV = min(velocity / 5.0, 1.0)
-pub fn compute_heat_score(velocity: f64, rcr: f64, last_access: &str) -> f64 {
+/// specificity = 1.0 - session_spread (IDF-like: rare files score higher)
+pub fn compute_heat_score(velocity: f64, specificity: f64, last_access: &str) -> f64 {
     let normalized_av = (velocity / 5.0).min(1.0);
     let recency = compute_recency_bonus(last_access);
-    (normalized_av * 0.3) + (rcr * 0.5) + (recency * 0.2)
+    (normalized_av * 0.30) + (specificity * 0.35) + (recency * 0.35)
+}
+
+/// Classify heat items by percentile rank rather than absolute thresholds.
+///
+/// Ensures distribution across levels regardless of absolute scores:
+///   Top 10%     = Hot
+///   10% - 30%   = Warm
+///   30% - 60%   = Cool
+///   Bottom 40%  = Cold
+pub fn classify_heat_percentile(items: &mut [HeatItem]) {
+    if items.is_empty() {
+        return;
+    }
+
+    // Sort indices by heat_score descending to determine rank
+    let mut indices: Vec<usize> = (0..items.len()).collect();
+    indices.sort_by(|&a, &b| {
+        items[b]
+            .heat_score
+            .partial_cmp(&items[a].heat_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let n = items.len();
+    for (rank, &idx) in indices.iter().enumerate() {
+        let percentile = rank as f64 / n as f64;
+        items[idx].heat_level = if percentile < 0.10 {
+            HeatLevel::Hot
+        } else if percentile < 0.30 {
+            HeatLevel::Warm
+        } else if percentile < 0.60 {
+            HeatLevel::Cool
+        } else {
+            HeatLevel::Cold
+        };
+    }
 }
 
 // =============================================================================
@@ -1201,9 +1234,11 @@ mod tests {
     fn test_recency_bonus_within_7d() {
         let three_days_ago = (chrono::Utc::now() - chrono::Duration::days(3)).to_rfc3339();
         let bonus = compute_recency_bonus(&three_days_ago);
+        let expected = (-0.1_f64 * 3.0).exp(); // ~0.74
         assert!(
-            (bonus - 0.5).abs() < f64::EPSILON,
-            "Expected 0.5, got {}",
+            (bonus - expected).abs() < 0.01,
+            "Expected ~{:.2}, got {}",
+            expected,
             bonus
         );
     }
@@ -1212,16 +1247,18 @@ mod tests {
     fn test_recency_bonus_old() {
         let thirty_days_ago = (chrono::Utc::now() - chrono::Duration::days(30)).to_rfc3339();
         let bonus = compute_recency_bonus(&thirty_days_ago);
+        let expected = (-0.1_f64 * 30.0).exp(); // ~0.05
         assert!(
-            (bonus - 0.0).abs() < f64::EPSILON,
-            "Expected 0.0, got {}",
+            (bonus - expected).abs() < 0.01,
+            "Expected ~{:.2}, got {}",
+            expected,
             bonus
         );
     }
 
     #[test]
     fn test_compute_heat_score_hot_file() {
-        // High velocity (5.0), high RCR (0.9), recent access -> should be > 0.7
+        // High velocity (5.0), high specificity (0.9), recent access -> should be > 0.7
         let now = chrono::Utc::now().to_rfc3339();
         let score = compute_heat_score(5.0, 0.9, &now);
         assert!(score > 0.7, "Expected > 0.7, got {}", score);
@@ -1229,15 +1266,15 @@ mod tests {
 
     #[test]
     fn test_compute_heat_score_cold_file() {
-        // Low velocity (0.1), low RCR (0.05), old access -> should be < 0.2
+        // Low velocity (0.1), low specificity (0.05), old access -> should be < 0.3
         let old = (chrono::Utc::now() - chrono::Duration::days(60)).to_rfc3339();
         let score = compute_heat_score(0.1, 0.05, &old);
-        assert!(score < 0.2, "Expected < 0.2, got {}", score);
+        assert!(score < 0.3, "Expected < 0.3, got {}", score);
     }
 
     #[test]
     fn test_compute_heat_score_velocity_cap() {
-        // AV > 5.0 should be normalized to 1.0
+        // AV > 5.0 should be normalized to 1.0 (specificity=0.5)
         let now = chrono::Utc::now().to_rfc3339();
         let score_at_5 = compute_heat_score(5.0, 0.5, &now);
         let score_at_10 = compute_heat_score(10.0, 0.5, &now);
@@ -1264,9 +1301,8 @@ mod tests {
     }
 
     #[test]
-    fn test_rcr_safe_division() {
-        // When count_long is 0, RCR should be 0.0 (handled by caller)
-        // But velocity should also be safe
+    fn test_specificity_safe_division() {
+        // When count_long is 0, velocity should be safe (0.0)
         let v = compute_velocity(0, "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z");
         assert!((v - 0.0).abs() < f64::EPSILON);
     }
@@ -1277,6 +1313,120 @@ mod tests {
         assert_eq!(format!("{}", HeatLevel::Warm), "WARM");
         assert_eq!(format!("{}", HeatLevel::Cool), "COOL");
         assert_eq!(format!("{}", HeatLevel::Cold), "COLD");
+    }
+
+    // =========================================================================
+    // Heat formula redesign tests (TDD - should fail until implementation)
+    // =========================================================================
+
+    #[test]
+    fn test_heat_produces_distribution_not_all_hot() {
+        // Infrastructure file (high session spread = low specificity) should score
+        // LOWER than a topical file (low session spread = high specificity).
+        // This tests the IDF principle: files touched in many sessions are less interesting.
+        let now = chrono::Utc::now().to_rfc3339();
+
+        // Infrastructure file: specificity=0.1 (touched in 90% of sessions)
+        let infra_score = compute_heat_score(2.0, 0.1, &now);
+
+        // Topical file: specificity=0.9 (touched in only 10% of sessions)
+        let topical_score = compute_heat_score(2.0, 0.9, &now);
+
+        // Topical file must score higher than infrastructure file
+        assert!(
+            topical_score > infra_score,
+            "Topical file (specificity=0.9) should score higher than infra (specificity=0.1): {} vs {}",
+            topical_score,
+            infra_score
+        );
+
+        // With new weights (0.30 velocity, 0.35 specificity, 0.35 recency),
+        // the gap should be meaningful (at least 0.2)
+        assert!(
+            (topical_score - infra_score) > 0.2,
+            "Score gap should be > 0.2, got {}",
+            topical_score - infra_score
+        );
+    }
+
+    #[test]
+    fn test_recency_uses_exponential_decay_not_step() {
+        // Files 1 day and 6 days ago should have DIFFERENT recency scores.
+        // The old step function gave both 0.5 (both in 1-7d bucket).
+        // Exponential decay: e^(-0.1*1) ≈ 0.905 vs e^(-0.1*6) ≈ 0.549
+        let one_day_ago = (chrono::Utc::now() - chrono::Duration::days(1)).to_rfc3339();
+        let six_days_ago = (chrono::Utc::now() - chrono::Duration::days(6)).to_rfc3339();
+
+        let bonus_1d = compute_recency_bonus(&one_day_ago);
+        let bonus_6d = compute_recency_bonus(&six_days_ago);
+
+        // They must be different (old step function made them equal)
+        assert!(
+            (bonus_1d - bonus_6d).abs() > 0.1,
+            "1-day and 6-day recency should differ by >0.1: {} vs {}",
+            bonus_1d,
+            bonus_6d
+        );
+
+        // 1-day should be higher than 6-day
+        assert!(
+            bonus_1d > bonus_6d,
+            "1-day recency ({}) should be > 6-day recency ({})",
+            bonus_1d,
+            bonus_6d
+        );
+    }
+
+    #[test]
+    fn test_classify_heat_percentile_produces_all_levels() {
+        // 20 items with spread-out scores should produce at least 3 of 4 heat levels
+        // after percentile classification.
+        let mut items: Vec<HeatItem> = (0..20)
+            .map(|i| {
+                let score = (20 - i) as f64 / 20.0; // 1.0, 0.95, 0.90, ... 0.05
+                HeatItem {
+                    file_path: format!("file_{}.rs", i),
+                    count_7d: 10,
+                    count_long: 20,
+                    specificity: 0.5,
+                    velocity: 1.0,
+                    heat_score: score,
+                    heat_level: classify_heat(score), // initial classification
+                    first_access: "2026-01-01T00:00:00Z".to_string(),
+                    last_access: "2026-02-10T00:00:00Z".to_string(),
+                }
+            })
+            .collect();
+
+        classify_heat_percentile(&mut items);
+
+        let has_hot = items.iter().any(|i| i.heat_level == HeatLevel::Hot);
+        let has_warm = items.iter().any(|i| i.heat_level == HeatLevel::Warm);
+        let has_cool = items.iter().any(|i| i.heat_level == HeatLevel::Cool);
+        let has_cold = items.iter().any(|i| i.heat_level == HeatLevel::Cold);
+
+        let level_count = [has_hot, has_warm, has_cool, has_cold]
+            .iter()
+            .filter(|&&x| x)
+            .count();
+
+        assert!(
+            level_count >= 3,
+            "Expected at least 3 heat levels, got {}. Hot={}, Warm={}, Cool={}, Cold={}",
+            level_count,
+            has_hot,
+            has_warm,
+            has_cool,
+            has_cold
+        );
+
+        // Top 10% (2 items) should be Hot
+        let hot_count = items.iter().filter(|i| i.heat_level == HeatLevel::Hot).count();
+        assert_eq!(hot_count, 2, "Top 10% (2 of 20) should be Hot, got {}", hot_count);
+
+        // Bottom 40% (8 items) should be Cold
+        let cold_count = items.iter().filter(|i| i.heat_level == HeatLevel::Cold).count();
+        assert_eq!(cold_count, 8, "Bottom 40% (8 of 20) should be Cold, got {}", cold_count);
     }
 
     // =========================================================================

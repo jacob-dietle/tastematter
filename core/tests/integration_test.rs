@@ -387,8 +387,8 @@ async fn test_query_heat_basic() {
     // Print top 5 for manual validation
     for item in result.results.iter().take(5) {
         println!(
-            "  {} | RCR={:.2} VEL={:.2} SCORE={:.3} HEAT={}",
-            item.file_path, item.rcr, item.velocity, item.heat_score, item.heat_level,
+            "  {} | SPEC={:.2} VEL={:.2} SCORE={:.3} HEAT={}",
+            item.file_path, item.specificity, item.velocity, item.heat_score, item.heat_level,
         );
     }
 }

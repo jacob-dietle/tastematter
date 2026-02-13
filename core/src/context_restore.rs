@@ -30,7 +30,7 @@ use crate::types::*;
 /// - last_meaningful_session: most recent session with >5 files
 pub fn build_executive_summary(
     sessions: &SessionQueryResult,
-    _heat: &HeatResult,
+    heat: &HeatResult,
 ) -> ExecutiveSummary {
     // Find the most recent session timestamp
     let last_session_ts = sessions.sessions.first().map(|s| s.started_at.clone());
@@ -84,11 +84,22 @@ pub fn build_executive_summary(
         .find(|s| s.file_count > 5)
         .map(|s| s.started_at.clone());
 
+    // Heat distribution metrics
+    let hot_file_count = heat.summary.hot_count;
+    let total = heat.summary.total_files;
+    let focus_ratio = if total > 0 {
+        hot_file_count as f64 / total as f64
+    } else {
+        0.0
+    };
+
     ExecutiveSummary {
         one_liner: None, // Phase 2
         status,
         work_tempo,
         last_meaningful_session,
+        hot_file_count,
+        focus_ratio,
     }
 }
 
@@ -880,6 +891,8 @@ mod tests {
                 status: "healthy".to_string(),
                 work_tempo: "active".to_string(),
                 last_meaningful_session: None,
+                hot_file_count: 5,
+                focus_ratio: 0.1,
             },
             current_state: Some(CurrentState {
                 narrative: None,
