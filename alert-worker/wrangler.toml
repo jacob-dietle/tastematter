@@ -1,0 +1,26 @@
+name = "tastematter-alert-worker"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+account_id = "4c8353a21e0bfc69a1e036e223cba4d8"
+
+[triggers]
+crons = ["0 */4 * * *"]
+
+[[d1_databases]]
+binding = "ALERTS_DB"
+database_name = "tastematter-alerts"
+database_id = "TODO"
+
+[vars]
+OWNER_ID = "founder"
+
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+head_sampling_rate = 1
+
+# Secrets (set via `printf "value" | wrangler secret put NAME`):
+# KNOCK_API_KEY - Knock API key for triggering workflows

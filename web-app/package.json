@@ -1,0 +1,29 @@
+{
+  "name": "tastematter-web-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@knocklabs/client": "^0.10",
+    "@sveltejs/adapter-cloudflare": "^4",
+    "@sveltejs/kit": "^2",
+    "svelte": "^5"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^4",
+    "@testing-library/svelte": "^5",
+    "happy-dom": "^16",
+    "typescript": "^5",
+    "vite": "^6",
+    "vitest": "^3",
+    "svelte-check": "^4"
+  }
+}
