@@ -4,8 +4,8 @@ Context packages documenting the indexer/daemon investigation and Claude Code da
 
 ## Overview
 
-**Date Range:** 2026-01-12 to 2026-02-12
-**Package Count:** 65
+**Date Range:** 2026-01-12 to 2026-02-16
+**Package Count:** 67
 **Theme:** Chain linking bug, data model, Intel Layer priority, CLI fix, daemon, **FULL RUST PORT COMPLETE (All 9 Phases)**, **GLOB BUG FOUND**, **CANONICAL SPEC COMPLETE**, **TDD FIX APPLIED**, **TEST ALIGNMENT COMPLETE**, **PARSER GAP FIX COMPLETE**, **TYPE CONTRACTS COMPLETE**, **PHASE 3 GIT SYNC COMPLETE**, **PHASE 4 JSONL PARSER COMPLETE**, **PHASE 5 CHAIN GRAPH COMPLETE**, **PHASE 6 INVERTED INDEX COMPLETE**, **PHASE 7 FILE WATCHER COMPLETE**, **PHASE 8 DAEMON RUNNER COMPLETE**, **PARITY TEST SUITE COMPLETE**, **CLI DISTRIBUTION ARCHITECTURE**, **DAEMON AUTO-SETUP COMPLETE**, **TELEMETRY INSTRUMENTATION COMPLETE**, **INTEL SERVICE PHASE 1 COMPLETE**, **PHASE 3+4 PARALLEL COMPLETE**
 
 ## Narrative
@@ -85,6 +85,9 @@ This chain documents investigating and fixing the chain linking bug:
 | 62 | 2026-02-11 | **STRESS_TESTING_PHASES_1_5** (65 net-new stress tests across 6 modules: storage idempotency + SQL injection + input resilience + time range fuzzing + unicode paths + BOM/CRLF/null bytes. All pass in 2.89s. Phase 6 E2E next) |
 | 63 | 2026-02-11 | **PHASE6_E2E_AND_INTEL_SILENT** (8 E2E scenarios in staging.yml: emoji, idempotency, DB recovery, zero-time, empty project, heat/chains assertions, perf budget. Intel "Service unavailable" silenced. Stress testing spec 100% COMPLETE) |
 | 64 | 2026-02-12 | **HEAT_FORMULA_REDESIGN_RELEASE_ALPHA23** (RCR→specificity, step→exponential decay, percentile classification, git sync error fix, default aggregations, context integration. 3-agent parallel team. v0.1.0-alpha.23 released, all staging E2E green) |
+| 65 | 2026-02-13 | **VALIDATION_SKILL_UPDATE_DOWNLOAD_ALERTS_PLAN** (Production heat validation: perfect 10/20/30/40% distribution. Context-query skill v4.0: added 6 missing CLI commands. Both repos pushed + dev merged. Download alert Worker plan designed: CF Worker proxy → R2 + Slack webhook) |
+| 66 | 2026-02-16 | **DOWNLOAD_ALERTS_DEPLOYED_INTEL_PORT_APPROVED** (CF Worker deployed with ntfy.sh, context-query skill synced to public repo, architecture decision: port all agents to Rust, spec 18 written) |
+| 67 | 2026-02-16 | **INTEL_RUST_PORT_PHASE1_COMPLETE** (anthropic.rs + context_synthesis agent ported, IntelClient::from_env(), 65 intel tests passing, sidecar fallback preserved) |
 
 ## Key Findings
 
@@ -106,7 +109,7 @@ This chain documents investigating and fixing the chain linking bug:
 
 ## Current State
 
-**Latest package:** [[63_2026-02-11_PHASE6_E2E_AND_INTEL_SILENT]]
+**Latest package:** [[67_2026-02-16_INTEL_RUST_PORT_PHASE1_COMPLETE]]
 **Canonical specs:**
 - [[canonical/07_CLAUDE_CODE_DATA_MODEL.md]]
 - [[canonical/08_PYTHON_PORT_INVENTORY.md]]
@@ -126,23 +129,16 @@ This chain documents investigating and fixing the chain linking bug:
 - **The port is functionally complete and formally verified at parity!**
 - **Intelligence module ready:** Rust IntelClient + SQLite cache + TypeScript agents
 
-### Intelligence Service
-- **Phase 1 Complete:** TypeScript + Bun + Elysia foundation
-- **Phase 2 Complete:** Chain Naming Agent with Claude Haiku
-- **Phase 3 Complete:** Rust IntelClient with reqwest + SQLite cache
-- **Phase 4 Complete:** 3 remaining TypeScript agents (commit-analysis, session-summary, insights)
-- **Location:** `apps/tastematter/intel/` (TypeScript), `core/src/intelligence/` (Rust)
-- **Tests:** ~78 TypeScript + 17 Rust intelligence tests
-- **Ports:** localhost:3001 (Rust core), localhost:3002 (TypeScript intel)
-- **Endpoints:**
-  - POST `/api/intel/name-chain` (Haiku)
-  - POST `/api/intel/analyze-commit` (Sonnet)
-  - POST `/api/intel/summarize-session` (Haiku)
-  - POST `/api/intel/generate-insights` (Sonnet)
-- **Pattern:** `tool_choice` for guaranteed structured JSON
-- **Next Steps:**
-  - **Phase 5:** Build Pipeline (Bun compile for cross-platform)
-  - **Phase 6:** Parity Tests (Rust JSON fixtures → TypeScript validation)
+### Intelligence Service — Rust Port In Progress
+- **Architecture decision:** Port ALL agents from TypeScript sidecar to embedded Rust
+- **Spec:** [[specs/canonical/18_INTEL_RUST_PORT_SPEC.md]]
+- **Phase 1 COMPLETE:** `anthropic.rs` (generic API caller) + `context_synthesis` agent ported
+- **IntelClient::from_env():** ANTHROPIC_API_KEY → direct API; no key → no intel
+- **Sidecar fallback:** name_chain, summarize_chain still use localhost:3002 until ported
+- **Location:** `core/src/intelligence/` (Rust), `apps/tastematter/intel/` (TypeScript, being replaced)
+- **Tests:** 65 Rust intelligence tests passing
+- **Pattern:** `call_anthropic()` generic function, each agent = ~80 lines Rust
+- **Next:** Port chain-naming (Phase 2), chain-summary (Phase 3), remaining agents (Phase 4), delete TS sidecar (Phase 5)
 
 ### Optional Phase 8.5 Enhancements
 - File watcher integration into daemon loop

@@ -98,6 +98,14 @@ impl Default for LoggingConfig {
     }
 }
 
+/// Intelligence service configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct IntelligenceConfig {
+    /// Anthropic API key for direct LLM synthesis (set via `tastematter intel setup`)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+}
+
 /// Complete daemon configuration (mirrors Python DaemonConfig).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DaemonConfig {
@@ -116,6 +124,9 @@ pub struct DaemonConfig {
     /// Logging configuration
     #[serde(default)]
     pub logging: LoggingConfig,
+    /// Intelligence service configuration
+    #[serde(default)]
+    pub intelligence: IntelligenceConfig,
 }
 
 fn default_version() -> u32 {
@@ -130,6 +141,7 @@ impl Default for DaemonConfig {
             watch: WatchConfig::default(),
             project: ProjectConfig::default(),
             logging: LoggingConfig::default(),
+            intelligence: IntelligenceConfig::default(),
         }
     }
 }
@@ -180,6 +192,30 @@ pub fn load_config(path: Option<&Path>) -> Result<DaemonConfig, String> {
         .map_err(|e| format!("Failed to parse config file: {}", e))?;
 
     Ok(config)
+}
+
+/// Save configuration to a YAML file.
+///
+/// Writes the config to the same path `load_config` reads from.
+pub fn save_config(config: &DaemonConfig, path: Option<&Path>) -> Result<(), String> {
+    let config_path = match path {
+        Some(p) => p.to_path_buf(),
+        None => {
+            let home = dirs::home_dir().ok_or("Could not find home directory")?;
+            home.join(".context-os").join("config.yaml")
+        }
+    };
+
+    if let Some(parent) = config_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create config directory: {}", e))?;
+    }
+
+    let yaml =
+        serde_yaml::to_string(config).map_err(|e| format!("Failed to serialize config: {}", e))?;
+    std::fs::write(&config_path, yaml).map_err(|e| format!("Failed to write config: {}", e))?;
+
+    Ok(())
 }
 
 /// Validate configuration values.

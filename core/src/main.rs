@@ -221,6 +221,12 @@ enum DaemonCommands {
 enum IntelCommands {
     /// Check intel service health
     Health,
+    /// Set up Anthropic API key for LLM-powered synthesis
+    Setup {
+        /// API key (sk-ant-...). If omitted, reads from stdin.
+        #[arg(long)]
+        key: Option<String>,
+    },
     /// Name a chain using AI
     #[command(name = "name-chain")]
     NameChain {
@@ -465,6 +471,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         Commands::Intel { intel_cmd } => match intel_cmd {
             IntelCommands::Health => "intel_health",
+            IntelCommands::Setup { .. } => "intel_setup",
             IntelCommands::NameChain { .. } => "intel_name_chain",
         },
         Commands::Context { ref time, .. } => {
@@ -625,7 +632,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Database::open_or_create_default().await?
     };
 
-    let engine = QueryEngine::new(db).with_intel(IntelClient::default());
+    let engine = match IntelClient::from_env() {
+        Some(client) => {
+            if client.has_api_key() {
+                log::info!(target: "intelligence", "ANTHROPIC_API_KEY set — direct API synthesis enabled");
+            }
+            QueryEngine::new(db).with_intel(client)
+        }
+        None => {
+            log::debug!(target: "intelligence", "No ANTHROPIC_API_KEY — intelligence features disabled");
+            QueryEngine::new(db)
+        }
+    };
 
     match cli.command {
         // Daemon commands already handled above
@@ -1261,22 +1279,66 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!("Events debounced: {}", final_stats.events_debounced);
         }
         Commands::Intel { intel_cmd } => {
-            let client = IntelClient::default();
-
             match intel_cmd {
+                IntelCommands::Setup { key } => {
+                    use tastematter::daemon::{load_config, save_config};
+
+                    // Get key from --key flag or stdin
+                    let api_key = match key {
+                        Some(k) => k,
+                        None => {
+                            eprint!("Enter your Anthropic API key (sk-ant-...): ");
+                            let mut input = String::new();
+                            std::io::stdin()
+                                .read_line(&mut input)
+                                .expect("Failed to read input");
+                            input.trim().to_string()
+                        }
+                    };
+
+                    if api_key.is_empty() {
+                        eprintln!("Error: API key cannot be empty");
+                        std::process::exit(1);
+                    }
+
+                    if !api_key.starts_with("sk-ant-") {
+                        eprintln!("Warning: Key doesn't start with 'sk-ant-' — are you sure this is correct?");
+                    }
+
+                    // Load existing config, set key, save
+                    let mut config = load_config(None).unwrap_or_default();
+                    config.intelligence.api_key = Some(api_key);
+                    match save_config(&config, None) {
+                        Ok(()) => {
+                            println!("API key saved to ~/.context-os/config.yaml");
+                            println!("LLM synthesis is now enabled for `tastematter context`");
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to save config: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
                 IntelCommands::Health => {
-                    // Check the health endpoint
+                    let client = IntelClient::from_env().unwrap_or_default();
+
+                    // Check direct API availability
+                    if client.has_api_key() {
+                        println!("Direct API: CONFIGURED (ANTHROPIC_API_KEY found)");
+                        println!("LLM synthesis will use direct Anthropic API calls");
+                    } else {
+                        println!("Direct API: NOT CONFIGURED");
+                        println!("Run `tastematter intel setup` to enable LLM synthesis");
+                    }
+
+                    // Check sidecar availability
                     let url = format!("{}/api/intel/health", client.base_url);
                     match client.health_check().await {
                         true => {
-                            println!("Intel service: OK");
-                            println!("URL: {}", url);
+                            println!("Sidecar: OK ({})", url);
                         }
                         false => {
-                            println!("Intel service: UNAVAILABLE");
-                            println!("URL: {}", url);
-                            println!("\nStart the service with: cd apps/tastematter/intel && bun run dev");
-                            std::process::exit(1);
+                            println!("Sidecar: UNAVAILABLE ({})", url);
                         }
                     }
                 }
@@ -1285,6 +1347,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     files,
                     session_count,
                 } => {
+                    let client = IntelClient::from_env().unwrap_or_default();
+
                     // Parse files from comma-separated string
                     let files_touched: Vec<String> = files
                         .map(|f| f.split(',').map(|s| s.trim().to_string()).collect())

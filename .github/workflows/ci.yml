@@ -30,4 +30,4 @@ jobs:
         run: cargo clippy --manifest-path core/Cargo.toml -- -D warnings
 
       - name: Run tests
-        run: cargo test --manifest-path core/Cargo.toml
+        run: cargo test --manifest-path core/Cargo.toml -- --test-threads=2

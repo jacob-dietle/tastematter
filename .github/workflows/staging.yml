@@ -400,6 +400,33 @@ jobs:
             exit 1
           fi
 
+      - name: Assert context synthesis fields populated (intel direct API)
+        shell: bash
+        run: |
+          if [ -f "$GITHUB_WORKSPACE/e2e-context-output.json" ]; then
+            ONE_LINER=$(jq -r '.executive_summary.one_liner // empty' "$GITHUB_WORKSPACE/e2e-context-output.json" 2>/dev/null)
+            NARRATIVE=$(jq -r '.current_state.narrative // empty' "$GITHUB_WORKSPACE/e2e-context-output.json" 2>/dev/null)
+
+            if [ -z "$ONE_LINER" ]; then
+              echo "::error::Context synthesis failed: executive_summary.one_liner is null/missing"
+              echo "This means the direct Anthropic API call did not work."
+              jq '.executive_summary' "$GITHUB_WORKSPACE/e2e-context-output.json"
+              exit 1
+            fi
+
+            if [ -z "$NARRATIVE" ]; then
+              echo "::error::Context synthesis failed: current_state.narrative is null/missing"
+              jq '.current_state' "$GITHUB_WORKSPACE/e2e-context-output.json"
+              exit 1
+            fi
+
+            echo "Synthesis OK: one_liner='${ONE_LINER:0:80}...'"
+            echo "Synthesis OK: narrative='${NARRATIVE:0:80}...'"
+          else
+            echo "::error::context output file not found"
+            exit 1
+          fi
+
       # Stage 6b: Assertions on heat and chains output
       - name: Assert heat has results (6.6)
         shell: bash
