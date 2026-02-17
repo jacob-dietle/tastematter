@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 const POSTHOG_API_KEY: &str = "phc_viCzBS9wW3iaNF0jG0j9mR6IApVnTc62jDkfxPNGUIP";
+const POSTHOG_CAPTURE_URL: &str = "https://us.i.posthog.com/capture/";
 
 /// Telemetry configuration stored in ~/.context-os/telemetry.yaml
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,10 +52,13 @@ impl Default for TelemetryConfig {
     }
 }
 
-/// Telemetry client - fire-and-forget event capture
+/// Telemetry client - fire-and-forget async event capture via PostHog HTTP API.
+///
+/// Uses raw `reqwest::Client` POST instead of `posthog-rs` crate, which panics
+/// inside tokio due to its internal `reqwest::blocking::Client`.
 pub struct TelemetryClient {
     config: TelemetryConfig,
-    client: Option<posthog_rs::Client>,
+    client: reqwest::Client,
 }
 
 impl TelemetryClient {
@@ -68,31 +72,17 @@ impl TelemetryClient {
                     enabled: false,
                     ..Default::default()
                 },
-                client: None,
+                client: reqwest::Client::new(),
             };
         }
 
         // Load or create config
         let config = Self::load_or_create_config();
 
-        // Initialize PostHog client if enabled (blocking mode)
-        // NOTE: posthog_rs::client() creates a blocking runtime internally.
-        // If we're inside a tokio async context, this will panic.
-        // Use try_current() to detect and skip PostHog init in async context.
-        let client = if config.enabled {
-            // Check if we're in an async context - if so, skip PostHog init
-            // (the blocking client creates its own runtime which conflicts)
-            if tokio::runtime::Handle::try_current().is_ok() {
-                // We're inside async context - defer client creation
-                None
-            } else {
-                Some(posthog_rs::client(POSTHOG_API_KEY))
-            }
-        } else {
-            None
-        };
-
-        Self { config, client }
+        Self {
+            config,
+            client: reqwest::Client::new(),
+        }
     }
 
     fn load_or_create_config() -> TelemetryConfig {
@@ -128,78 +118,87 @@ impl TelemetryClient {
             .join("telemetry.yaml")
     }
 
-    /// Fire-and-forget event capture
+    /// Fire-and-forget event capture via PostHog HTTP API
     /// NEVER blocks CLI, NEVER panics, NEVER fails user operation
     /// Set TASTEMATTER_TELEMETRY_DEBUG=1 for verbose logging
-    pub fn capture(&self, event: &str, properties: serde_json::Value) {
+    pub async fn capture(&self, event: &str, properties: serde_json::Value) {
         let debug = std::env::var("TASTEMATTER_TELEMETRY_DEBUG").is_ok();
 
-        if let Some(client) = &self.client {
+        if !self.config.enabled {
             if debug {
-                eprintln!(
-                    "[telemetry] {}: {}",
-                    event,
-                    serde_json::to_string(&properties).unwrap_or_default()
-                );
+                eprintln!("[telemetry] Client not initialized (telemetry disabled)");
             }
+            return;
+        }
 
-            let mut ev = posthog_rs::Event::new(event, &self.config.uuid);
+        // Build properties with standard fields
+        let mut props = match properties {
+            serde_json::Value::Object(map) => map,
+            _ => serde_json::Map::new(),
+        };
+        props.insert("$lib".into(), serde_json::json!("tastematter-cli"));
+        props.insert("platform".into(), serde_json::json!(std::env::consts::OS));
+        props.insert("version".into(), serde_json::json!(env!("CARGO_PKG_VERSION")));
 
-            // Add standard properties (ignore errors)
-            let _ = ev.insert_prop("$lib", "tastematter-cli");
-            let _ = ev.insert_prop("platform", std::env::consts::OS);
-            let _ = ev.insert_prop("version", env!("CARGO_PKG_VERSION"));
+        let body = serde_json::json!({
+            "api_key": POSTHOG_API_KEY,
+            "event": event,
+            "distinct_id": self.config.uuid,
+            "properties": props,
+        });
 
-            // Add custom properties
-            if let serde_json::Value::Object(map) = properties {
-                for (k, v) in map {
-                    let _ = ev.insert_prop(k, v);
+        if debug {
+            eprintln!(
+                "[telemetry] {}: {}",
+                event,
+                serde_json::to_string(&props).unwrap_or_default()
+            );
+        }
+
+        match self.client.post(POSTHOG_CAPTURE_URL).json(&body).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                if debug {
+                    eprintln!("[telemetry] ✓ Event sent successfully");
                 }
             }
-
-            // Capture with debug output
-            match client.capture(ev) {
-                Ok(_) => {
-                    if debug {
-                        eprintln!("[telemetry] ✓ Event sent successfully");
-                    }
-                }
-                Err(e) => {
-                    if debug {
-                        eprintln!("[telemetry] ✗ Event failed: {:?}", e);
-                    }
+            Ok(resp) => {
+                if debug {
+                    eprintln!("[telemetry] ✗ Event failed: HTTP {}", resp.status());
                 }
             }
-        } else if debug {
-            eprintln!("[telemetry] Client not initialized (telemetry disabled)");
+            Err(e) => {
+                if debug {
+                    eprintln!("[telemetry] ✗ Event failed: {:?}", e);
+                }
+            }
         }
     }
 
     /// Check if telemetry is enabled
     pub fn is_enabled(&self) -> bool {
-        self.config.enabled && self.client.is_some()
+        self.config.enabled
     }
 
     // ========== Typed Event Helpers ==========
 
     /// Capture a command execution event
-    pub fn capture_command(&self, event: CommandExecutedEvent) {
-        self.capture("command_executed", event.to_properties());
+    pub async fn capture_command(&self, event: CommandExecutedEvent) {
+        self.capture("command_executed", event.to_properties()).await;
     }
 
     /// Capture a sync completion event
-    pub fn capture_sync(&self, event: SyncCompletedEvent) {
-        self.capture("sync_completed", event.to_properties());
+    pub async fn capture_sync(&self, event: SyncCompletedEvent) {
+        self.capture("sync_completed", event.to_properties()).await;
     }
 
     /// Capture an error event (codes only, never messages)
-    pub fn capture_error(&self, event: ErrorOccurredEvent) {
-        self.capture("error_occurred", event.to_properties());
+    pub async fn capture_error(&self, event: ErrorOccurredEvent) {
+        self.capture("error_occurred", event.to_properties()).await;
     }
 
     /// Capture a feature usage event
-    pub fn capture_feature(&self, event: FeatureUsedEvent) {
-        self.capture("feature_used", event.to_properties());
+    pub async fn capture_feature(&self, event: FeatureUsedEvent) {
+        self.capture("feature_used", event.to_properties()).await;
     }
 }
 

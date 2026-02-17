@@ -620,7 +620,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(bucket) = time_range_bucket {
             event = event.with_time_range(bucket);
         }
-        telemetry.capture_command(event);
+        telemetry.capture_command(event).await;
 
         return daemon_result;
     }
@@ -1423,7 +1423,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         event = event.with_time_range(bucket);
     }
 
-    telemetry.capture_command(event);
+    telemetry.capture_command(event).await;
 
     Ok(())
 }
