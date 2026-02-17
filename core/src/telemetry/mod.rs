@@ -138,7 +138,10 @@ impl TelemetryClient {
         };
         props.insert("$lib".into(), serde_json::json!("tastematter-cli"));
         props.insert("platform".into(), serde_json::json!(std::env::consts::OS));
-        props.insert("version".into(), serde_json::json!(env!("CARGO_PKG_VERSION")));
+        props.insert(
+            "version".into(),
+            serde_json::json!(env!("CARGO_PKG_VERSION")),
+        );
 
         let body = serde_json::json!({
             "api_key": POSTHOG_API_KEY,
@@ -155,7 +158,13 @@ impl TelemetryClient {
             );
         }
 
-        match self.client.post(POSTHOG_CAPTURE_URL).json(&body).send().await {
+        match self
+            .client
+            .post(POSTHOG_CAPTURE_URL)
+            .json(&body)
+            .send()
+            .await
+        {
             Ok(resp) if resp.status().is_success() => {
                 if debug {
                     eprintln!("[telemetry] ✓ Event sent successfully");
@@ -183,7 +192,8 @@ impl TelemetryClient {
 
     /// Capture a command execution event
     pub async fn capture_command(&self, event: CommandExecutedEvent) {
-        self.capture("command_executed", event.to_properties()).await;
+        self.capture("command_executed", event.to_properties())
+            .await;
     }
 
     /// Capture a sync completion event
