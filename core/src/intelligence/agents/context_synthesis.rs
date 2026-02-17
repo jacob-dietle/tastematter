@@ -201,18 +201,20 @@ pub async fn synthesize_context(
     let user_msg = build_user_message(request);
     let tool = tool_definition();
 
-    let input = call_anthropic(http_client, api_key, MODEL, MAX_TOKENS, &system, &user_msg, &tool)
-        .await?;
+    let input = call_anthropic(
+        http_client,
+        api_key,
+        MODEL,
+        MAX_TOKENS,
+        &system,
+        &user_msg,
+        &tool,
+    )
+    .await?;
 
     // Parse tool input into response type
-    let one_liner = input["one_liner"]
-        .as_str()
-        .unwrap_or("")
-        .to_string();
-    let narrative = input["narrative"]
-        .as_str()
-        .unwrap_or("")
-        .to_string();
+    let one_liner = input["one_liner"].as_str().unwrap_or("").to_string();
+    let narrative = input["narrative"].as_str().unwrap_or("").to_string();
     let cluster_names = input["cluster_names"]
         .as_array()
         .map(|a| {
@@ -419,10 +421,7 @@ mod tests {
             .filter_map(|v| v.as_str().map(String::from))
             .collect();
 
-        assert_eq!(
-            one_liner,
-            "Nickel transcript worker is production-ready"
-        );
+        assert_eq!(one_liner, "Nickel transcript worker is production-ready");
         assert_eq!(cluster_names.len(), 2);
         assert_eq!(cluster_names[0], "Core Pipeline");
         assert_eq!(cluster_interpretations.len(), 2);
