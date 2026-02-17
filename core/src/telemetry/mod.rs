@@ -65,8 +65,8 @@ impl TelemetryClient {
     /// Initialize telemetry client
     /// Checks env var and config file for opt-out
     pub fn init() -> Self {
-        // Check env var opt-out first
-        if std::env::var("TASTEMATTER_NO_TELEMETRY").is_ok() {
+        // Check env var opt-out first (also skip in CI environments)
+        if std::env::var("TASTEMATTER_NO_TELEMETRY").is_ok() || std::env::var("CI").is_ok() {
             return Self {
                 config: TelemetryConfig {
                     enabled: false,
