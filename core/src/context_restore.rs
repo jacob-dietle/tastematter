@@ -797,6 +797,7 @@ pub fn build_quick_start(context_files: &[ProjectContextFile]) -> Option<QuickSt
 /// 1. Entry points: files that are source in read_before/read_then_edit but rarely target
 /// 2. Work targets: files that are target in read_then_edit edges
 /// 3. Typical sequence: topological sort of read_before within cluster
+///
 /// Returns None if no entry_points and no work_targets
 pub fn build_work_patterns(
     cluster_files: &[String],

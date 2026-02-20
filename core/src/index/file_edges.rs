@@ -160,7 +160,7 @@ pub async fn extract_file_edges(
                 .or_default()
                 .push(event.clone());
         }
-        for (_sid, session_events) in &by_session {
+        for session_events in by_session.values() {
             let filtered = filter_explore_bursts(session_events);
             let candidates = extract_session_edges(&filtered);
             all_candidates.extend(candidates);
@@ -381,7 +381,7 @@ fn extract_session_edges(events: &[&FileAccessEvent]) -> Vec<EdgeCandidate> {
                 let delta = (w_occ.earliest_timestamp - r_occ.earliest_timestamp).num_milliseconds()
                     as f64
                     / 1000.0;
-                if delta >= 0.0 && delta <= MAX_TIME_DELTA_SECONDS {
+                if (0.0..=MAX_TIME_DELTA_SECONDS).contains(&delta) {
                     candidates.push(EdgeCandidate {
                         source_file: r_file.to_string(),
                         target_file: w_file.to_string(),
@@ -406,7 +406,7 @@ fn extract_session_edges(events: &[&FileAccessEvent]) -> Vec<EdgeCandidate> {
                 let delta = (b_occ.earliest_timestamp - a_occ.earliest_timestamp).num_milliseconds()
                     as f64
                     / 1000.0;
-                if delta >= 0.0 && delta <= MAX_TIME_DELTA_SECONDS {
+                if (0.0..=MAX_TIME_DELTA_SECONDS).contains(&delta) {
                     candidates.push(EdgeCandidate {
                         source_file: a_file.to_string(),
                         target_file: b_file.to_string(),
@@ -439,12 +439,12 @@ fn extract_session_edges(events: &[&FileAccessEvent]) -> Vec<EdgeCandidate> {
     // File read after a Bash tool call (unchanged — already O(n) linear scan)
     for (i, event) in events.iter().enumerate() {
         if event.tool_name == "Bash" || event.tool_name == "bash" {
-            // Look at next events for reads
-            for next in events.iter().skip(i + 1) {
+            // Check the immediately next event for a read
+            if let Some(next) = events.get(i + 1) {
                 if next.access_type == "read" {
                     let delta =
                         (next.timestamp - event.timestamp).num_milliseconds() as f64 / 1000.0;
-                    if delta >= 0.0 && delta <= MAX_TIME_DELTA_SECONDS {
+                    if (0.0..=MAX_TIME_DELTA_SECONDS).contains(&delta) {
                         candidates.push(EdgeCandidate {
                             source_file: event.file_path.clone(),
                             target_file: next.file_path.clone(),
@@ -453,9 +453,6 @@ fn extract_session_edges(events: &[&FileAccessEvent]) -> Vec<EdgeCandidate> {
                             time_delta_seconds: Some(delta),
                         });
                     }
-                    break; // Only the first read after bash
-                } else {
-                    break; // Non-read after bash — stop looking
                 }
             }
         }
