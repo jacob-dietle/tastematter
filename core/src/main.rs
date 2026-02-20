@@ -936,10 +936,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
 
                     // Extract summaries for output
-                    let summaries: Vec<SessionSummary> = parsed_sessions
-                        .into_iter()
-                        .map(|p| p.summary)
-                        .collect();
+                    let summaries: Vec<SessionSummary> =
+                        parsed_sessions.into_iter().map(|p| p.summary).collect();
 
                     // Output based on format
                     match format.as_str() {

@@ -953,10 +953,7 @@ pub fn sync_sessions(
             aggregate_session(&session_id, &project_path, &messages, file_size)
         })) {
             Ok(summary) => {
-                parsed_sessions.push(ParsedSessionData {
-                    summary,
-                    tool_uses,
-                });
+                parsed_sessions.push(ParsedSessionData { summary, tool_uses });
                 result.sessions_parsed += 1;
             }
             Err(_) => {

@@ -1445,11 +1445,8 @@ impl QueryEngine {
             // Pick the root where stripping it from edge paths produces paths
             // that match cluster files. Test with the first edge + first cluster file.
             // Build a set of cluster files for efficient lookup
-            let cluster_files: std::collections::HashSet<&str> = flex
-                .results
-                .iter()
-                .map(|f| f.file_path.as_str())
-                .collect();
+            let cluster_files: std::collections::HashSet<&str> =
+                flex.results.iter().map(|f| f.file_path.as_str()).collect();
 
             // Find the candidate root that, when stripped from ANY edge path,
             // produces a path that matches ANY cluster file
@@ -1464,8 +1461,7 @@ impl QueryEngine {
                                 .to_lowercase()
                                 .starts_with(&root_norm.to_lowercase())
                             {
-                                let stripped =
-                                    edge_norm[root_norm.len()..].trim_start_matches('/');
+                                let stripped = edge_norm[root_norm.len()..].trim_start_matches('/');
                                 cluster_files.contains(stripped)
                             } else {
                                 false
@@ -2630,7 +2626,11 @@ mod tests {
         (0..count)
             .map(|i| crate::capture::jsonl_parser::ToolUse {
                 id: format!("toolu_{}", i),
-                name: if i % 3 == 2 { "Edit".to_string() } else { "Read".to_string() },
+                name: if i % 3 == 2 {
+                    "Edit".to_string()
+                } else {
+                    "Read".to_string()
+                },
                 input: serde_json::Value::Null,
                 timestamp: chrono::Utc
                     .with_ymd_and_hms(2026, 2, 17, 10, 0, i as u32 % 60)
@@ -2700,13 +2700,12 @@ mod tests {
             .unwrap();
 
         // Verify still only 3 rows
-        let count: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM file_access_events WHERE session_id = ?",
-        )
-        .bind("test-session-002")
-        .fetch_one(engine.database().pool())
-        .await
-        .unwrap();
+        let count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM file_access_events WHERE session_id = ?")
+                .bind("test-session-002")
+                .fetch_one(engine.database().pool())
+                .await
+                .unwrap();
 
         assert_eq!(count.0, 3, "Idempotent re-insert should not duplicate rows");
     }
@@ -2820,32 +2819,28 @@ mod tests {
             .unwrap();
 
         // Verify session A still has 3
-        let count_a: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM file_access_events WHERE session_id = ?",
-        )
-        .bind("session-a")
-        .fetch_one(engine.database().pool())
-        .await
-        .unwrap();
+        let count_a: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM file_access_events WHERE session_id = ?")
+                .bind("session-a")
+                .fetch_one(engine.database().pool())
+                .await
+                .unwrap();
         assert_eq!(count_a.0, 3);
 
         // Verify session B has 5
-        let count_b: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM file_access_events WHERE session_id = ?",
-        )
-        .bind("session-b")
-        .fetch_one(engine.database().pool())
-        .await
-        .unwrap();
+        let count_b: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM file_access_events WHERE session_id = ?")
+                .bind("session-b")
+                .fetch_one(engine.database().pool())
+                .await
+                .unwrap();
         assert_eq!(count_b.0, 5);
 
         // Total = 8
-        let total: (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM file_access_events",
-        )
-        .fetch_one(engine.database().pool())
-        .await
-        .unwrap();
+        let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM file_access_events")
+            .fetch_one(engine.database().pool())
+            .await
+            .unwrap();
         assert_eq!(total.0, 8);
     }
 }

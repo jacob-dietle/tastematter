@@ -825,10 +825,7 @@ pub fn build_work_patterns(
     let target_set: HashSet<&str> = normalized_edges
         .iter()
         .filter(|(_, _, e)| e.edge_type == "read_before" || e.edge_type == "read_then_edit")
-        .filter(|(src, tgt, _)| {
-            file_set.contains(src.as_str())
-                && file_set.contains(tgt.as_str())
-        })
+        .filter(|(src, tgt, _)| file_set.contains(src.as_str()) && file_set.contains(tgt.as_str()))
         .map(|(_, tgt, _)| tgt.as_str())
         .collect();
 
@@ -860,10 +857,7 @@ pub fn build_work_patterns(
     let read_before_pairs: Vec<(&str, &str)> = normalized_edges
         .iter()
         .filter(|(_, _, e)| e.edge_type == "read_before")
-        .filter(|(src, tgt, _)| {
-            file_set.contains(src.as_str())
-                && file_set.contains(tgt.as_str())
-        })
+        .filter(|(src, tgt, _)| file_set.contains(src.as_str()) && file_set.contains(tgt.as_str()))
         .map(|(src, tgt, _)| (src.as_str(), tgt.as_str()))
         .collect();
     let typical_sequence = topological_sort_pairs(&read_before_pairs);
@@ -1500,7 +1494,13 @@ mod tests {
     // Temporal Edges: build_work_patterns tests
     // =========================================================================
 
-    fn make_edge(source: &str, target: &str, edge_type: &str, session_count: i32, confidence: f64) -> FileEdge {
+    fn make_edge(
+        source: &str,
+        target: &str,
+        edge_type: &str,
+        session_count: i32,
+        confidence: f64,
+    ) -> FileEdge {
         FileEdge {
             source_file: source.to_string(),
             target_file: target.to_string(),
@@ -1654,12 +1654,13 @@ mod tests {
     fn test_build_work_patterns_co_edited_edges_ignored() {
         // co_edited edges should not contribute to entry points or work targets
         let cluster = vec!["A".to_string(), "B".to_string()];
-        let edges = vec![
-            make_edge("A", "B", "co_edited", 5, 0.8),
-        ];
+        let edges = vec![make_edge("A", "B", "co_edited", 5, 0.8)];
 
         let pattern = build_work_patterns(&cluster, &edges, "/any/project");
-        assert!(pattern.is_none(), "co_edited-only edges should produce None");
+        assert!(
+            pattern.is_none(),
+            "co_edited-only edges should produce None"
+        );
     }
 
     // =========================================================================
@@ -1677,11 +1678,16 @@ mod tests {
         let edges = vec![make_edge(
             r"C:\Users\dietl\VSCode Projects\taste_systems\gtm_operating_system\apps\tastematter\core\src\types.rs",
             r"C:\Users\dietl\VSCode Projects\taste_systems\gtm_operating_system\apps\tastematter\core\src\query.rs",
-            "read_before", 5, 0.6,
+            "read_before",
+            5,
+            0.6,
         )];
         let project_root = r"C:\Users\dietl\VSCode Projects\taste_systems\gtm_operating_system";
         let pattern = build_work_patterns(&cluster, &edges, project_root);
-        assert!(pattern.is_some(), "Should match after Windows path normalization");
+        assert!(
+            pattern.is_some(),
+            "Should match after Windows path normalization"
+        );
         let p = pattern.unwrap();
         assert!(!p.entry_points.is_empty(), "Should find entry points");
     }
@@ -1692,17 +1698,26 @@ mod tests {
         let edges = vec![make_edge(
             "/home/dev/project/src/types.rs",
             "/home/dev/project/src/query.rs",
-            "read_before", 5, 0.6,
+            "read_before",
+            5,
+            0.6,
         )];
         let pattern = build_work_patterns(&cluster, &edges, "/home/dev/project");
-        assert!(pattern.is_some(), "Should match after Unix path normalization");
+        assert!(
+            pattern.is_some(),
+            "Should match after Unix path normalization"
+        );
     }
 
     #[test]
     fn test_build_work_patterns_already_relative_still_works() {
         let cluster = vec!["src/types.rs".to_string(), "src/query.rs".to_string()];
         let edges = vec![make_edge(
-            "src/types.rs", "src/query.rs", "read_before", 5, 0.6,
+            "src/types.rs",
+            "src/query.rs",
+            "read_before",
+            5,
+            0.6,
         )];
         let pattern = build_work_patterns(&cluster, &edges, "/any/project");
         assert!(pattern.is_some(), "Relative paths should still work");
@@ -1714,7 +1729,9 @@ mod tests {
         let edges = vec![make_edge(
             "/Users/jake/projects/myapp/src/main.rs",
             "/Users/jake/projects/myapp/src/lib.rs",
-            "read_before", 3, 0.5,
+            "read_before",
+            3,
+            0.5,
         )];
         let pattern = build_work_patterns(&cluster, &edges, "/Users/jake/projects/myapp");
         assert!(pattern.is_some(), "Should match macOS absolute paths");

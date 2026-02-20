@@ -1626,7 +1626,11 @@ mod tests {
 
         let json = serde_json::to_string(&cluster).unwrap();
         // work_pattern: None should be omitted from JSON
-        assert!(!json.contains("work_pattern"), "work_pattern should be absent when None: {}", json);
+        assert!(
+            !json.contains("work_pattern"),
+            "work_pattern should be absent when None: {}",
+            json
+        );
         // name and interpretation also absent
         assert!(!json.contains("name"));
         assert!(!json.contains("interpretation"));
@@ -1665,7 +1669,10 @@ mod tests {
         };
 
         let json = serde_json::to_string(&continuity).unwrap();
-        assert!(!json.contains("incomplete_sequence"), "incomplete_sequence should be absent when None");
+        assert!(
+            !json.contains("incomplete_sequence"),
+            "incomplete_sequence should be absent when None"
+        );
     }
 
     #[test]

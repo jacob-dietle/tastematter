@@ -109,14 +109,13 @@ pub async fn run_sync(config: &DaemonConfig) -> Result<SyncResult, String> {
 
     // 3.7 Temporal edge extraction (incremental — only new sessions since last run)
     if let Some(ref engine) = engine {
-        let since: Option<String> = sqlx::query_as(
-            "SELECT value FROM _metadata WHERE key = 'last_edge_extraction'",
-        )
-        .fetch_optional(engine.database().pool())
-        .await
-        .ok()
-        .flatten()
-        .map(|(v,): (String,)| v);
+        let since: Option<String> =
+            sqlx::query_as("SELECT value FROM _metadata WHERE key = 'last_edge_extraction'")
+                .fetch_optional(engine.database().pool())
+                .await
+                .ok()
+                .flatten()
+                .map(|(v,): (String,)| v);
         match extract_file_edges(engine.database().pool(), since.as_deref()).await {
             Ok(edge_result) => {
                 debug!(
@@ -128,9 +127,7 @@ pub async fn run_sync(config: &DaemonConfig) -> Result<SyncResult, String> {
                 );
             }
             Err(e) => {
-                result
-                    .errors
-                    .push(format!("Edge extraction: {}", e));
+                result.errors.push(format!("Edge extraction: {}", e));
             }
         }
     }
@@ -200,8 +197,10 @@ async fn sync_sessions_phase(
                             // Log but don't fail - continue with other sessions
                             result.errors.push(format!(
                                 "Insert session {} ({}): {}",
-                                &parsed.summary.session_id[..8.min(parsed.summary.session_id.len())],
-                                parsed.summary
+                                &parsed.summary.session_id
+                                    [..8.min(parsed.summary.session_id.len())],
+                                parsed
+                                    .summary
                                     .project_path
                                     .split(['/', '\\'])
                                     .next_back()
@@ -231,7 +230,8 @@ async fn sync_sessions_phase(
                             Err(e) => {
                                 result.errors.push(format!(
                                     "File access events for {}: {}",
-                                    &parsed.summary.session_id[..8.min(parsed.summary.session_id.len())],
+                                    &parsed.summary.session_id
+                                        [..8.min(parsed.summary.session_id.len())],
                                     e
                                 ));
                             }
@@ -247,7 +247,10 @@ async fn sync_sessions_phase(
                 }
             }
 
-            parsed_sessions.iter().map(|p| p.summary.session_id.clone()).collect()
+            parsed_sessions
+                .iter()
+                .map(|p| p.summary.session_id.clone())
+                .collect()
         }
         Err(e) => {
             result.errors.push(format!("Session parse error: {}", e));

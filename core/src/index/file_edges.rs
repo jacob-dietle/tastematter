@@ -50,7 +50,6 @@ const EXPLORE_BURST_WINDOW_SECONDS: f64 = 30.0;
 /// Universal anchor threshold: file in >80% of sessions.
 const UNIVERSAL_ANCHOR_THRESHOLD: f64 = 0.80;
 
-
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -147,12 +146,19 @@ pub async fn extract_file_edges(
         for (sid, ts, fp, tn, at, sp) in rows {
             let timestamp = ts.parse::<DateTime<Utc>>().unwrap_or_else(|_| Utc::now());
             events.push(FileAccessEvent {
-                session_id: sid, timestamp, file_path: fp,
-                tool_name: tn, access_type: at, sequence_position: sp,
+                session_id: sid,
+                timestamp,
+                file_path: fp,
+                tool_name: tn,
+                access_type: at,
+                sequence_position: sp,
             });
         }
         for event in &events {
-            by_session.entry(event.session_id.as_str()).or_default().push(event.clone());
+            by_session
+                .entry(event.session_id.as_str())
+                .or_default()
+                .push(event.clone());
         }
         for (_sid, session_events) in &by_session {
             let filtered = filter_explore_bursts(session_events);
@@ -166,12 +172,11 @@ pub async fn extract_file_edges(
     all_candidates.extend(anchor_candidates);
 
     // 4. Get global session count for lift calculation
-    let total_sessions: (i64,) = sqlx::query_as(
-        "SELECT COUNT(DISTINCT session_id) FROM file_access_events",
-    )
-    .fetch_one(pool)
-    .await
-    .map_err(CoreError::Database)?;
+    let total_sessions: (i64,) =
+        sqlx::query_as("SELECT COUNT(DISTINCT session_id) FROM file_access_events")
+            .fetch_one(pool)
+            .await
+            .map_err(CoreError::Database)?;
 
     // 5. Aggregate candidates across sessions
     let edges = aggregate_edge_candidates(&all_candidates, total_sessions.0 as usize);
@@ -373,8 +378,8 @@ fn extract_session_edges(events: &[&FileAccessEvent]) -> Vec<EdgeCandidate> {
     for (r_file, r_occ) in &read_files {
         for (w_file, w_occ) in &write_files {
             if w_occ.earliest_seq > r_occ.earliest_seq && *r_file != *w_file {
-                let delta = (w_occ.earliest_timestamp - r_occ.earliest_timestamp)
-                    .num_milliseconds() as f64
+                let delta = (w_occ.earliest_timestamp - r_occ.earliest_timestamp).num_milliseconds()
+                    as f64
                     / 1000.0;
                 if delta >= 0.0 && delta <= MAX_TIME_DELTA_SECONDS {
                     candidates.push(EdgeCandidate {
@@ -398,8 +403,8 @@ fn extract_session_edges(events: &[&FileAccessEvent]) -> Vec<EdgeCandidate> {
     for (i, (a_file, a_occ)) in sorted_reads.iter().enumerate() {
         for (b_file, b_occ) in sorted_reads.iter().skip(i + 1) {
             if *a_file != *b_file {
-                let delta = (b_occ.earliest_timestamp - a_occ.earliest_timestamp)
-                    .num_milliseconds() as f64
+                let delta = (b_occ.earliest_timestamp - a_occ.earliest_timestamp).num_milliseconds()
+                    as f64
                     / 1000.0;
                 if delta >= 0.0 && delta <= MAX_TIME_DELTA_SECONDS {
                     candidates.push(EdgeCandidate {
@@ -437,8 +442,8 @@ fn extract_session_edges(events: &[&FileAccessEvent]) -> Vec<EdgeCandidate> {
             // Look at next events for reads
             for next in events.iter().skip(i + 1) {
                 if next.access_type == "read" {
-                    let delta = (next.timestamp - event.timestamp).num_milliseconds() as f64
-                        / 1000.0;
+                    let delta =
+                        (next.timestamp - event.timestamp).num_milliseconds() as f64 / 1000.0;
                     if delta >= 0.0 && delta <= MAX_TIME_DELTA_SECONDS {
                         candidates.push(EdgeCandidate {
                             source_file: event.file_path.clone(),
@@ -475,9 +480,7 @@ async fn extract_reference_anchors(pool: &SqlitePool) -> Result<Vec<EdgeCandidat
 
     let start_map: HashMap<String, DateTime<Utc>> = session_starts
         .into_iter()
-        .filter_map(|(sid, ts)| {
-            ts.parse::<DateTime<Utc>>().ok().map(|dt| (sid, dt))
-        })
+        .filter_map(|(sid, ts)| ts.parse::<DateTime<Utc>>().ok().map(|dt| (sid, dt)))
         .collect();
 
     // Get all read events
@@ -857,11 +860,7 @@ mod tests {
         ];
 
         let filtered = filter_explore_bursts(&events);
-        assert_eq!(
-            filtered.len(),
-            3,
-            "3 normal reads should all be preserved"
-        );
+        assert_eq!(filtered.len(), 3, "3 normal reads should all be preserved");
     }
 
     #[test]
@@ -953,8 +952,22 @@ mod tests {
     fn test_extract_session_edges_finds_co_edited() {
         // W(A) → W(B) → co_edited(A, B) where A < B lexically
         let events = vec![
-            make_event("s1", "2026-02-17T10:00:00.000Z", "z_file.rs", "Edit", "write", 0),
-            make_event("s1", "2026-02-17T10:01:00.000Z", "a_file.rs", "Edit", "write", 1),
+            make_event(
+                "s1",
+                "2026-02-17T10:00:00.000Z",
+                "z_file.rs",
+                "Edit",
+                "write",
+                0,
+            ),
+            make_event(
+                "s1",
+                "2026-02-17T10:01:00.000Z",
+                "a_file.rs",
+                "Edit",
+                "write",
+                1,
+            ),
         ];
 
         let refs: Vec<&FileAccessEvent> = events.iter().collect();
@@ -1009,10 +1022,7 @@ mod tests {
             .filter(|c| c.edge_type == "read_then_edit")
             .collect();
 
-        assert!(
-            rte.is_empty(),
-            "Should not create read_then_edit self-edge"
-        );
+        assert!(rte.is_empty(), "Should not create read_then_edit self-edge");
     }
 
     #[test]
@@ -1371,20 +1381,14 @@ mod tests {
         let result = extract_file_edges(&pool, None).await.unwrap();
 
         assert_eq!(result.sessions_processed, 5);
-        assert!(
-            result.edges_created > 0,
-            "Should have created some edges"
-        );
+        assert!(result.edges_created > 0, "Should have created some edges");
 
         // Verify edges in DB
         let edge_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM file_edges")
             .fetch_one(&pool)
             .await
             .unwrap();
-        assert!(
-            edge_count.0 > 0,
-            "file_edges table should have rows"
-        );
+        assert!(edge_count.0 > 0, "file_edges table should have rows");
 
         // Check for read_then_edit(types.rs → query.rs)
         let rte: Vec<(String, String, i32, f64)> = sqlx::query_as(
@@ -1397,7 +1401,11 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(rte.len(), 1, "Should have read_then_edit(types.rs → query.rs)");
+        assert_eq!(
+            rte.len(),
+            1,
+            "Should have read_then_edit(types.rs → query.rs)"
+        );
         assert_eq!(rte[0].2, 5, "Should appear in 5 sessions");
 
         // read_before(types.rs → storage.rs) should NOT exist because types.rs
@@ -1420,13 +1428,15 @@ mod tests {
         );
 
         // Verify extraction timestamp was recorded
-        let meta: (String,) = sqlx::query_as(
-            "SELECT value FROM _metadata WHERE key = 'last_edge_extraction'",
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        assert!(!meta.0.is_empty(), "Should have recorded extraction timestamp");
+        let meta: (String,) =
+            sqlx::query_as("SELECT value FROM _metadata WHERE key = 'last_edge_extraction'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(
+            !meta.0.is_empty(),
+            "Should have recorded extraction timestamp"
+        );
     }
 
     #[tokio::test]
@@ -1463,12 +1473,11 @@ mod tests {
         assert_eq!(result1.sessions_processed, 3);
 
         // Get the extraction timestamp
-        let ts: (String,) = sqlx::query_as(
-            "SELECT value FROM _metadata WHERE key = 'last_edge_extraction'",
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let ts: (String,) =
+            sqlx::query_as("SELECT value FROM _metadata WHERE key = 'last_edge_extraction'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
 
         // Phase 2: Add 2 more sessions with later timestamps
         for i in 3..5 {

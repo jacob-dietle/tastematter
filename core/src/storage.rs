@@ -1247,7 +1247,11 @@ mod tests {
         assert!(fae_names.contains(&"tool_name".to_string()));
         assert!(fae_names.contains(&"access_type".to_string()));
         assert!(fae_names.contains(&"sequence_position".to_string()));
-        assert_eq!(fae_names.len(), 7, "file_access_events should have 7 columns");
+        assert_eq!(
+            fae_names.len(),
+            7,
+            "file_access_events should have 7 columns"
+        );
 
         // Verify file_edges table exists with correct columns
         let fe_cols: Vec<(i32, String, String, i32, Option<String>, i32)> =
@@ -1352,11 +1356,10 @@ mod tests {
         .unwrap();
 
         // Should have exactly 1 row (not 2)
-        let count: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM file_edges")
-                .fetch_one(db.pool())
-                .await
-                .unwrap();
+        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM file_edges")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
         assert_eq!(count.0, 1, "UNIQUE index should prevent duplicates");
 
         // Verify it has the updated values
@@ -1401,19 +1404,23 @@ mod tests {
         db.ensure_schema().await.unwrap();
 
         // Verify data survived
-        let fae_count: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM file_access_events")
-                .fetch_one(db.pool())
-                .await
-                .unwrap();
-        assert_eq!(fae_count.0, 1, "file_access_events data should survive ensure_schema");
+        let fae_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM file_access_events")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+        assert_eq!(
+            fae_count.0, 1,
+            "file_access_events data should survive ensure_schema"
+        );
 
-        let fe_count: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM file_edges")
-                .fetch_one(db.pool())
-                .await
-                .unwrap();
-        assert_eq!(fe_count.0, 1, "file_edges data should survive ensure_schema");
+        let fe_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM file_edges")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+        assert_eq!(
+            fe_count.0, 1,
+            "file_edges data should survive ensure_schema"
+        );
     }
 
     #[tokio::test]
