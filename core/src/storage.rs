@@ -232,13 +232,49 @@ impl Database {
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
 
+            -- Layer 8: File Access Events (per-tool-call temporal data)
+            -- Preserves the per-tool-call ordering that aggregate_session() collapses
+            -- to deduplicated HashSets. ~190K rows from existing session history.
+            CREATE TABLE IF NOT EXISTS file_access_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                tool_name TEXT NOT NULL,
+                access_type TEXT NOT NULL,
+                sequence_position INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_fae_session ON file_access_events(session_id);
+            CREATE INDEX IF NOT EXISTS idx_fae_file ON file_access_events(file_path);
+            CREATE INDEX IF NOT EXISTS idx_fae_session_seq ON file_access_events(session_id, sequence_position);
+
+            -- Layer 9: File Edges (aggregated behavioral relationships)
+            -- Directed edges extracted deterministically from temporal ordering
+            -- of tool calls within sessions. Batch-computed during daemon sync.
+            CREATE TABLE IF NOT EXISTS file_edges (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_file TEXT NOT NULL,
+                target_file TEXT NOT NULL,
+                edge_type TEXT NOT NULL,
+                session_count INTEGER NOT NULL DEFAULT 0,
+                total_sessions_with_source INTEGER NOT NULL DEFAULT 0,
+                avg_time_delta_seconds REAL,
+                confidence REAL NOT NULL DEFAULT 0.0,
+                first_seen TEXT,
+                last_seen TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_fe_source ON file_edges(source_file, edge_type);
+            CREATE INDEX IF NOT EXISTS idx_fe_target ON file_edges(target_file, edge_type);
+            CREATE INDEX IF NOT EXISTS idx_fe_type_conf ON file_edges(edge_type, confidence DESC);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_fe_unique ON file_edges(source_file, target_file, edge_type);
+
             -- Metadata
             CREATE TABLE IF NOT EXISTS _metadata (
                 key TEXT PRIMARY KEY,
                 value TEXT,
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
-            INSERT OR IGNORE INTO _metadata (key, value) VALUES ('schema_version', '2.2');
+            INSERT OR IGNORE INTO _metadata (key, value) VALUES ('schema_version', '2.3');
         "#;
 
         // Execute schema SQL
@@ -264,6 +300,8 @@ impl Database {
             "ALTER TABLE chain_graph ADD COLUMN parent_session_id TEXT",
             "ALTER TABLE chain_graph ADD COLUMN is_root BOOLEAN",
             "ALTER TABLE chain_graph ADD COLUMN indexed_at TEXT",
+            // file_edges lift column (spec #20 quality refinement)
+            "ALTER TABLE file_edges ADD COLUMN lift REAL",
         ];
 
         for migration in migrations {
@@ -1182,5 +1220,214 @@ mod tests {
         .unwrap();
 
         assert_eq!(row.0, 1, "Existing data should be preserved");
+    }
+
+    // =========================================================================
+    // Phase 1: Temporal Edges Schema Tests
+    // =========================================================================
+
+    #[tokio::test]
+    async fn test_ensure_schema_creates_temporal_tables() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("temporal.db");
+        let db = Database::open_rw(&db_path).await.unwrap();
+        db.ensure_schema().await.unwrap();
+
+        // Verify file_access_events table exists with correct columns
+        let fae_cols: Vec<(i32, String, String, i32, Option<String>, i32)> =
+            sqlx::query_as("PRAGMA table_info(file_access_events)")
+                .fetch_all(db.pool())
+                .await
+                .unwrap();
+        let fae_names: Vec<String> = fae_cols.iter().map(|r| r.1.clone()).collect();
+        assert!(fae_names.contains(&"id".to_string()));
+        assert!(fae_names.contains(&"session_id".to_string()));
+        assert!(fae_names.contains(&"timestamp".to_string()));
+        assert!(fae_names.contains(&"file_path".to_string()));
+        assert!(fae_names.contains(&"tool_name".to_string()));
+        assert!(fae_names.contains(&"access_type".to_string()));
+        assert!(fae_names.contains(&"sequence_position".to_string()));
+        assert_eq!(fae_names.len(), 7, "file_access_events should have 7 columns");
+
+        // Verify file_edges table exists with correct columns
+        let fe_cols: Vec<(i32, String, String, i32, Option<String>, i32)> =
+            sqlx::query_as("PRAGMA table_info(file_edges)")
+                .fetch_all(db.pool())
+                .await
+                .unwrap();
+        let fe_names: Vec<String> = fe_cols.iter().map(|r| r.1.clone()).collect();
+        assert!(fe_names.contains(&"id".to_string()));
+        assert!(fe_names.contains(&"source_file".to_string()));
+        assert!(fe_names.contains(&"target_file".to_string()));
+        assert!(fe_names.contains(&"edge_type".to_string()));
+        assert!(fe_names.contains(&"session_count".to_string()));
+        assert!(fe_names.contains(&"total_sessions_with_source".to_string()));
+        assert!(fe_names.contains(&"avg_time_delta_seconds".to_string()));
+        assert!(fe_names.contains(&"confidence".to_string()));
+        assert!(fe_names.contains(&"first_seen".to_string()));
+        assert!(fe_names.contains(&"last_seen".to_string()));
+        assert_eq!(fe_names.len(), 10, "file_edges should have 10 columns");
+    }
+
+    #[tokio::test]
+    async fn test_file_access_events_insert_and_query() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("fae_insert.db");
+        let db = Database::open_rw(&db_path).await.unwrap();
+        db.ensure_schema().await.unwrap();
+
+        // Insert 5 events for a session
+        for i in 0..5 {
+            sqlx::query(
+                "INSERT INTO file_access_events \
+                 (session_id, timestamp, file_path, tool_name, access_type, sequence_position) \
+                 VALUES (?, ?, ?, ?, ?, ?)",
+            )
+            .bind("session-001")
+            .bind(format!("2026-02-17T10:00:{:02}.000Z", i))
+            .bind(format!("src/file{}.rs", i))
+            .bind(if i < 3 { "Read" } else { "Edit" })
+            .bind(if i < 3 { "read" } else { "write" })
+            .bind(i)
+            .execute(db.pool())
+            .await
+            .unwrap();
+        }
+
+        // Query back ordered by sequence_position
+        let rows: Vec<(String, String, String, i32)> = sqlx::query_as(
+            "SELECT file_path, tool_name, access_type, sequence_position \
+             FROM file_access_events WHERE session_id = ? \
+             ORDER BY sequence_position",
+        )
+        .bind("session-001")
+        .fetch_all(db.pool())
+        .await
+        .unwrap();
+
+        assert_eq!(rows.len(), 5);
+        assert_eq!(rows[0].0, "src/file0.rs");
+        assert_eq!(rows[0].2, "read");
+        assert_eq!(rows[0].3, 0);
+        assert_eq!(rows[4].0, "src/file4.rs");
+        assert_eq!(rows[4].2, "write");
+        assert_eq!(rows[4].3, 4);
+    }
+
+    #[tokio::test]
+    async fn test_file_edges_unique_constraint() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("fe_unique.db");
+        let db = Database::open_rw(&db_path).await.unwrap();
+        db.ensure_schema().await.unwrap();
+
+        // Insert an edge
+        sqlx::query(
+            "INSERT INTO file_edges \
+             (source_file, target_file, edge_type, session_count, confidence) \
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind("types.rs")
+        .bind("query.rs")
+        .bind("read_then_edit")
+        .bind(3)
+        .bind(0.6)
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+        // INSERT OR REPLACE with same (source, target, type) — should update, not duplicate
+        sqlx::query(
+            "INSERT OR REPLACE INTO file_edges \
+             (source_file, target_file, edge_type, session_count, confidence) \
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind("types.rs")
+        .bind("query.rs")
+        .bind("read_then_edit")
+        .bind(5)
+        .bind(0.8)
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+        // Should have exactly 1 row (not 2)
+        let count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM file_edges")
+                .fetch_one(db.pool())
+                .await
+                .unwrap();
+        assert_eq!(count.0, 1, "UNIQUE index should prevent duplicates");
+
+        // Verify it has the updated values
+        let row: (i32, f64) = sqlx::query_as(
+            "SELECT session_count, confidence FROM file_edges \
+             WHERE source_file = 'types.rs' AND target_file = 'query.rs'",
+        )
+        .fetch_one(db.pool())
+        .await
+        .unwrap();
+        assert_eq!(row.0, 5);
+        assert!((row.1 - 0.8).abs() < f64::EPSILON);
+    }
+
+    #[tokio::test]
+    async fn test_temporal_tables_preserved_across_ensure_schema() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("temporal_preserve.db");
+        let db = Database::open_rw(&db_path).await.unwrap();
+        db.ensure_schema().await.unwrap();
+
+        // Insert data into temporal tables
+        sqlx::query(
+            "INSERT INTO file_access_events \
+             (session_id, timestamp, file_path, tool_name, access_type, sequence_position) \
+             VALUES ('s1', '2026-02-17T10:00:00Z', 'file.rs', 'Read', 'read', 0)",
+        )
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO file_edges \
+             (source_file, target_file, edge_type, session_count, confidence) \
+             VALUES ('a.rs', 'b.rs', 'read_before', 5, 0.7)",
+        )
+        .execute(db.pool())
+        .await
+        .unwrap();
+
+        // Run ensure_schema again
+        db.ensure_schema().await.unwrap();
+
+        // Verify data survived
+        let fae_count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM file_access_events")
+                .fetch_one(db.pool())
+                .await
+                .unwrap();
+        assert_eq!(fae_count.0, 1, "file_access_events data should survive ensure_schema");
+
+        let fe_count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM file_edges")
+                .fetch_one(db.pool())
+                .await
+                .unwrap();
+        assert_eq!(fe_count.0, 1, "file_edges data should survive ensure_schema");
+    }
+
+    #[tokio::test]
+    async fn test_schema_version_updated_to_2_3() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("version.db");
+        let db = Database::open_rw(&db_path).await.unwrap();
+        db.ensure_schema().await.unwrap();
+
+        let version: (String,) =
+            sqlx::query_as("SELECT value FROM _metadata WHERE key = 'schema_version'")
+                .fetch_one(db.pool())
+                .await
+                .unwrap();
+        assert_eq!(version.0, "2.3", "Schema version should be 2.3");
     }
 }

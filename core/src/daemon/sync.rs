@@ -19,6 +19,7 @@ use super::config::DaemonConfig;
 use crate::capture::git_sync::{sync_commits, SyncOptions};
 use crate::capture::jsonl_parser::{sync_sessions, ParseOptions};
 use crate::index::chain_graph::{build_chain_graph, Chain};
+use crate::index::file_edges::extract_file_edges;
 use crate::index::inverted_index::build_inverted_index;
 use crate::intelligence::{ChainNamingRequest, ChainSummaryRequest, IntelClient, MetadataStore};
 use crate::query::QueryEngine;
@@ -106,6 +107,34 @@ pub async fn run_sync(config: &DaemonConfig) -> Result<SyncResult, String> {
         enrich_chains_phase(chains, &mut result).await;
     }
 
+    // 3.7 Temporal edge extraction (incremental — only new sessions since last run)
+    if let Some(ref engine) = engine {
+        let since: Option<String> = sqlx::query_as(
+            "SELECT value FROM _metadata WHERE key = 'last_edge_extraction'",
+        )
+        .fetch_optional(engine.database().pool())
+        .await
+        .ok()
+        .flatten()
+        .map(|(v,): (String,)| v);
+        match extract_file_edges(engine.database().pool(), since.as_deref()).await {
+            Ok(edge_result) => {
+                debug!(
+                    target: "daemon.sync",
+                    "Extracted {} edges from {} sessions in {}ms",
+                    edge_result.edges_created,
+                    edge_result.sessions_processed,
+                    edge_result.duration_ms,
+                );
+            }
+            Err(e) => {
+                result
+                    .errors
+                    .push(format!("Edge extraction: {}", e));
+            }
+        }
+    }
+
     // 4. Inverted index (uses chains for context)
     build_index_phase(&claude_dir, chains.as_ref(), &mut result);
 
@@ -157,22 +186,22 @@ async fn sync_sessions_phase(
     };
 
     match sync_sessions(claude_dir, &options, &existing_sessions) {
-        Ok((summaries, _parse_result)) => {
-            result.sessions_parsed = summaries.len() as i32;
+        Ok((parsed_sessions, _parse_result)) => {
+            result.sessions_parsed = parsed_sessions.len() as i32;
 
-            // NEW: Persist each session to database
+            // Persist each session to database
             if let Some(engine) = engine {
                 let mut persisted = 0;
-                for summary in &summaries {
-                    let input: SessionInput = summary.clone().into();
+                for parsed in &parsed_sessions {
+                    let input: SessionInput = parsed.summary.clone().into();
                     match engine.upsert_session(&input).await {
                         Ok(_) => persisted += 1,
                         Err(e) => {
                             // Log but don't fail - continue with other sessions
                             result.errors.push(format!(
                                 "Insert session {} ({}): {}",
-                                &summary.session_id[..8.min(summary.session_id.len())],
-                                summary
+                                &parsed.summary.session_id[..8.min(parsed.summary.session_id.len())],
+                                parsed.summary
                                     .project_path
                                     .split(['/', '\\'])
                                     .next_back()
@@ -181,17 +210,44 @@ async fn sync_sessions_phase(
                             ));
                         }
                     }
+
+                    // Persist file access events for temporal edge extraction
+                    if !parsed.tool_uses.is_empty() {
+                        match engine
+                            .insert_file_access_events(
+                                &parsed.summary.session_id,
+                                &parsed.tool_uses,
+                            )
+                            .await
+                        {
+                            Ok(count) => {
+                                debug!(
+                                    target: "daemon.sync",
+                                    "Persisted {} file access events for session {}",
+                                    count,
+                                    &parsed.summary.session_id[..8.min(parsed.summary.session_id.len())]
+                                );
+                            }
+                            Err(e) => {
+                                result.errors.push(format!(
+                                    "File access events for {}: {}",
+                                    &parsed.summary.session_id[..8.min(parsed.summary.session_id.len())],
+                                    e
+                                ));
+                            }
+                        }
+                    }
                 }
                 if persisted > 0 {
                     debug!(
                         target: "daemon.sync",
                         "Persisted {}/{} sessions to database",
-                        persisted, summaries.len()
+                        persisted, parsed_sessions.len()
                     );
                 }
             }
 
-            summaries.iter().map(|s| s.session_id.clone()).collect()
+            parsed_sessions.iter().map(|p| p.summary.session_id.clone()).collect()
         }
         Err(e) => {
             result.errors.push(format!("Session parse error: {}", e));
@@ -1211,7 +1267,7 @@ mod tests {
                 .fetch_one(db.pool())
                 .await
                 .expect("Schema version should exist");
-        assert_eq!(version.0, "2.2", "Schema version should be 2.2");
+        assert_eq!(version.0, "2.3", "Schema version should be 2.3");
     }
 
     /// Test 3: Zero Sessions Graceful Handling

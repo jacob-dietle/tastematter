@@ -1,9 +1,11 @@
-//! Index layer: Chain graph, inverted index.
+//! Index layer: Chain graph, inverted index, temporal edges.
 //!
 //! This module ports the Python `index/` layer to Rust for single-binary distribution.
 
 pub mod chain_graph;
+pub mod file_edges;
 pub mod inverted_index;
 
 pub use chain_graph::*;
+pub use file_edges::*;
 pub use inverted_index::*;

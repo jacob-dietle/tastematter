@@ -888,7 +888,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!("Incremental: {}", incremental);
 
             match sync_sessions(&claude_path, &options, &existing) {
-                Ok((summaries, result)) => {
+                Ok((parsed_sessions, result)) => {
                     eprintln!(
                         "Parsed {} sessions ({} skipped), {} total tool uses",
                         result.sessions_parsed, result.sessions_skipped, result.total_tool_uses
@@ -900,6 +900,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             eprintln!("  - {}", err);
                         }
                     }
+
+                    // Persist file_access_events to DB for temporal edge extraction
+                    let db = if let Some(ref path) = cli.db {
+                        Database::open_rw(path).await.ok()
+                    } else {
+                        let canonical = Database::canonical_path().ok();
+                        match canonical {
+                            Some(p) if p.exists() => Database::open_rw(p).await.ok(),
+                            _ => Database::open_or_create_default().await.ok(),
+                        }
+                    };
+                    if let Some(db) = db {
+                        let engine = QueryEngine::new(db);
+                        let mut events_persisted = 0u64;
+                        for parsed in &parsed_sessions {
+                            if !parsed.tool_uses.is_empty() {
+                                if let Err(e) = engine
+                                    .insert_file_access_events(
+                                        &parsed.summary.session_id,
+                                        &parsed.tool_uses,
+                                    )
+                                    .await
+                                {
+                                    eprintln!(
+                                        "Warning: failed to persist events for {}: {}",
+                                        parsed.summary.session_id, e
+                                    );
+                                } else {
+                                    events_persisted += parsed.tool_uses.len() as u64;
+                                }
+                            }
+                        }
+                        eprintln!("File access events persisted: {}", events_persisted);
+                    }
+
+                    // Extract summaries for output
+                    let summaries: Vec<SessionSummary> = parsed_sessions
+                        .into_iter()
+                        .map(|p| p.summary)
+                        .collect();
 
                     // Output based on format
                     match format.as_str() {

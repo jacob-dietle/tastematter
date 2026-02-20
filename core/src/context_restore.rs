@@ -11,9 +11,10 @@
 //! Ship and iterate based on real usage. May need per-project config or
 //! smarter filtering in future versions.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 
+use crate::capture::jsonl_parser::normalize_file_path;
 use crate::intelligence::{
     ClusterInput, ContextSynthesisRequest, ContextSynthesisResponse, SuggestedReadInput,
 };
@@ -110,6 +111,8 @@ pub fn build_executive_summary(
 pub fn build_work_clusters(
     flex: &QueryResult,
     co_access_results: &[CoAccessResult],
+    edges: &[FileEdge],
+    project_root: &str,
 ) -> Vec<WorkCluster> {
     let mut clusters = Vec::new();
 
@@ -174,12 +177,15 @@ pub fn build_work_clusters(
             .sum::<f64>()
             / co_result.results.len().clamp(1, 5) as f64;
 
+        let work_pattern = build_work_patterns(&files, edges, project_root);
+
         clusters.push(WorkCluster {
             name: None, // Phase 2
             files,
             pmi_score: avg_pmi,
             interpretation: None, // Phase 2
             access_pattern,
+            work_pattern,
         });
     }
 
@@ -756,6 +762,7 @@ pub fn build_continuity(
         left_off_at,
         pending_items,
         chain_context,
+        incomplete_sequence: None,
     })
 }
 
@@ -779,6 +786,156 @@ pub fn build_quick_start(context_files: &[ProjectContextFile]) -> Option<QuickSt
     } else {
         Some(QuickStart { commands })
     }
+}
+
+// =============================================================================
+// PHASE 4: Temporal Edge Builders
+// =============================================================================
+
+/// Extract work patterns from temporal edges for a set of cluster files.
+///
+/// 1. Entry points: files that are source in read_before/read_then_edit but rarely target
+/// 2. Work targets: files that are target in read_then_edit edges
+/// 3. Typical sequence: topological sort of read_before within cluster
+/// Returns None if no entry_points and no work_targets
+pub fn build_work_patterns(
+    cluster_files: &[String],
+    edges: &[FileEdge],
+    project_root: &str,
+) -> Option<WorkPattern> {
+    // Normalize cluster files and edge paths to the same format using
+    // the existing cross-platform normalizer from jsonl_parser
+    let file_set: HashSet<String> = cluster_files
+        .iter()
+        .map(|s| normalize_file_path(s, project_root))
+        .collect();
+
+    // Pre-normalize edge paths for comparison
+    let normalized_edges: Vec<(String, String, &FileEdge)> = edges
+        .iter()
+        .map(|e| {
+            let src = normalize_file_path(&e.source_file, project_root);
+            let tgt = normalize_file_path(&e.target_file, project_root);
+            (src, tgt, e)
+        })
+        .collect();
+
+    // Collect all targets in read_before/read_then_edit edges within the cluster
+    // Both source AND target must be in the cluster for the edge to count
+    let target_set: HashSet<&str> = normalized_edges
+        .iter()
+        .filter(|(_, _, e)| e.edge_type == "read_before" || e.edge_type == "read_then_edit")
+        .filter(|(src, tgt, _)| {
+            file_set.contains(src.as_str())
+                && file_set.contains(tgt.as_str())
+        })
+        .map(|(_, tgt, _)| tgt.as_str())
+        .collect();
+
+    // 1. Entry points: sources in read_before/read_then_edit that are NOT targets
+    let entry_points: Vec<String> = normalized_edges
+        .iter()
+        .filter(|(_, _, e)| e.edge_type == "read_before" || e.edge_type == "read_then_edit")
+        .filter(|(src, _, _)| file_set.contains(src.as_str()))
+        .map(|(src, _, _)| src.as_str())
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .filter(|s| !target_set.contains(s))
+        .map(|s| s.to_string())
+        .collect();
+
+    // 2. Work targets: files that are target in read_then_edit edges
+    let work_targets: Vec<String> = normalized_edges
+        .iter()
+        .filter(|(_, _, e)| e.edge_type == "read_then_edit")
+        .filter(|(_, tgt, _)| file_set.contains(tgt.as_str()))
+        .map(|(_, tgt, _)| tgt.clone())
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+
+    // 3. Typical sequence: topological sort of read_before within cluster
+    // Collect normalized (src, tgt) pairs for the sort so output uses
+    // relative paths, not raw absolute Windows paths from the DB.
+    let read_before_pairs: Vec<(&str, &str)> = normalized_edges
+        .iter()
+        .filter(|(_, _, e)| e.edge_type == "read_before")
+        .filter(|(src, tgt, _)| {
+            file_set.contains(src.as_str())
+                && file_set.contains(tgt.as_str())
+        })
+        .map(|(src, tgt, _)| (src.as_str(), tgt.as_str()))
+        .collect();
+    let typical_sequence = topological_sort_pairs(&read_before_pairs);
+
+    if entry_points.is_empty() && work_targets.is_empty() {
+        return None;
+    }
+
+    Some(WorkPattern {
+        entry_points,
+        work_targets,
+        typical_sequence,
+        incomplete_sequence: None, // Computed separately with last session data
+    })
+}
+
+/// Topological sort from normalized (source, target) pairs using Kahn's algorithm.
+/// Returns None if cycle detected or empty input.
+fn topological_sort_pairs(pairs: &[(&str, &str)]) -> Option<Vec<String>> {
+    if pairs.is_empty() {
+        return None;
+    }
+
+    let mut in_degree: HashMap<&str, usize> = HashMap::new();
+    let mut adj: HashMap<&str, Vec<&str>> = HashMap::new();
+
+    for (src, tgt) in pairs {
+        in_degree.entry(src).or_insert(0);
+        in_degree.entry(tgt).or_insert(0);
+        adj.entry(src).or_default();
+    }
+
+    for (src, tgt) in pairs {
+        adj.entry(src).or_default().push(tgt);
+        *in_degree.entry(tgt).or_insert(0) += 1;
+    }
+
+    let mut queue: VecDeque<&str> = VecDeque::new();
+    let mut sorted_init: Vec<&str> = in_degree
+        .iter()
+        .filter(|(_, &deg)| deg == 0)
+        .map(|(&node, _)| node)
+        .collect();
+    sorted_init.sort();
+    queue.extend(sorted_init);
+
+    let mut result: Vec<String> = Vec::new();
+
+    while let Some(node) = queue.pop_front() {
+        result.push(node.to_string());
+
+        if let Some(neighbors) = adj.get(node) {
+            let mut next_nodes: Vec<&str> = Vec::new();
+            for &neighbor in neighbors {
+                if let Some(deg) = in_degree.get_mut(neighbor) {
+                    *deg -= 1;
+                    if *deg == 0 {
+                        next_nodes.push(neighbor);
+                    }
+                }
+            }
+            next_nodes.sort();
+            queue.extend(next_nodes);
+        }
+    }
+
+    if result.len() != in_degree.len() {
+        // Cycle detected
+        return None;
+    }
+
+    Some(result)
 }
 
 // =============================================================================
@@ -910,6 +1067,7 @@ mod tests {
                     pmi_score: 2.5,
                     interpretation: None,
                     access_pattern: "high_access_high_session".to_string(),
+                    work_pattern: None,
                 },
                 WorkCluster {
                     name: None,
@@ -917,6 +1075,7 @@ mod tests {
                     pmi_score: 1.2,
                     interpretation: None,
                     access_pattern: "low_access_low_session".to_string(),
+                    work_pattern: None,
                 },
             ],
             suggested_reads: vec![
@@ -1239,7 +1398,8 @@ mod tests {
             },
         };
         let co_access: Vec<CoAccessResult> = vec![];
-        let clusters = build_work_clusters(&flex, &co_access);
+        let edges: Vec<FileEdge> = vec![];
+        let clusters = build_work_clusters(&flex, &co_access, &edges, "");
         // Should produce at least 1 cluster (the single file itself)
         // or 0 if co-access is required — either way, no panic
         assert!(clusters.len() <= 1);
@@ -1273,6 +1433,7 @@ mod tests {
             pmi_score: 1.0,
             interpretation: None,
             access_pattern: "mixed".to_string(),
+            work_pattern: None,
         }];
         result.suggested_reads = vec![SuggestedRead {
             path: "src/\u{0410}\u{0411}\u{0412}.rs".to_string(), // Cyrillic
@@ -1333,5 +1494,229 @@ mod tests {
         // First 2 reads get reasons, extras ignored
         assert_eq!(result.suggested_reads[0].reason.as_deref(), Some("R1"));
         assert_eq!(result.suggested_reads[1].reason.as_deref(), Some("R2"));
+    }
+
+    // =========================================================================
+    // Temporal Edges: build_work_patterns tests
+    // =========================================================================
+
+    fn make_edge(source: &str, target: &str, edge_type: &str, session_count: i32, confidence: f64) -> FileEdge {
+        FileEdge {
+            source_file: source.to_string(),
+            target_file: target.to_string(),
+            edge_type: edge_type.to_string(),
+            session_count,
+            confidence,
+            lift: None,
+        }
+    }
+
+    #[test]
+    fn test_build_work_patterns_finds_entry_points() {
+        // read_before edges: A->B, A->C => entry_point = [A]
+        let cluster = vec!["A".to_string(), "B".to_string(), "C".to_string()];
+        let edges = vec![
+            make_edge("A", "B", "read_before", 5, 0.8),
+            make_edge("A", "C", "read_before", 4, 0.7),
+        ];
+
+        let pattern = build_work_patterns(&cluster, &edges, "").unwrap();
+        assert_eq!(pattern.entry_points, vec!["A"]);
+    }
+
+    #[test]
+    fn test_build_work_patterns_finds_work_targets() {
+        // read_then_edit edges: A->C, B->C => work_target = [C]
+        let cluster = vec!["A".to_string(), "B".to_string(), "C".to_string()];
+        let edges = vec![
+            make_edge("A", "C", "read_then_edit", 5, 0.8),
+            make_edge("B", "C", "read_then_edit", 4, 0.7),
+        ];
+
+        let pattern = build_work_patterns(&cluster, &edges, "").unwrap();
+        assert_eq!(pattern.work_targets, vec!["C"]);
+    }
+
+    #[test]
+    fn test_build_work_patterns_topological_sort() {
+        // read_before: A->B, B->C => typical_sequence = [A, B, C]
+        let cluster = vec!["A".to_string(), "B".to_string(), "C".to_string()];
+        let edges = vec![
+            make_edge("A", "B", "read_before", 5, 0.8),
+            make_edge("B", "C", "read_before", 4, 0.7),
+        ];
+
+        let pattern = build_work_patterns(&cluster, &edges, "").unwrap();
+        assert_eq!(
+            pattern.typical_sequence,
+            Some(vec!["A".to_string(), "B".to_string(), "C".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_build_work_patterns_returns_none_when_no_edges() {
+        let cluster = vec!["A".to_string(), "B".to_string()];
+        let edges: Vec<FileEdge> = vec![];
+
+        let pattern = build_work_patterns(&cluster, &edges, "");
+        assert!(pattern.is_none(), "Empty edges should return None");
+    }
+
+    #[test]
+    fn test_build_work_patterns_handles_cycles() {
+        // A->B, B->A cycle in read_before: both files are targets, so no entry points.
+        // No read_then_edit edges, so no work targets.
+        // With both empty, build_work_patterns returns None.
+        let cluster = vec!["A".to_string(), "B".to_string()];
+        let edges = vec![
+            make_edge("A", "B", "read_before", 5, 0.8),
+            make_edge("B", "A", "read_before", 4, 0.7),
+        ];
+
+        // Pure cycle with no read_then_edit => None (no entry points, no work targets)
+        let pattern = build_work_patterns(&cluster, &edges, "");
+        assert!(
+            pattern.is_none(),
+            "Pure read_before cycle with no read_then_edit should return None"
+        );
+    }
+
+    #[test]
+    fn test_build_work_patterns_cycle_with_work_targets() {
+        // Cycle in read_before but read_then_edit provides work targets
+        let cluster = vec!["A".to_string(), "B".to_string(), "C".to_string()];
+        let edges = vec![
+            make_edge("A", "B", "read_before", 5, 0.8),
+            make_edge("B", "A", "read_before", 4, 0.7),
+            make_edge("A", "C", "read_then_edit", 3, 0.6),
+        ];
+
+        let pattern = build_work_patterns(&cluster, &edges, "").unwrap();
+        // C is a work target
+        assert!(pattern.work_targets.contains(&"C".to_string()));
+        // Topological sort of read_before has cycle => None
+        assert!(
+            pattern.typical_sequence.is_none(),
+            "Cycle in read_before should produce None typical_sequence"
+        );
+    }
+
+    #[test]
+    fn test_build_work_patterns_ignores_edges_outside_cluster() {
+        // Edge from D->A where D is NOT in cluster => should be ignored
+        let cluster = vec!["A".to_string(), "B".to_string()];
+        let edges = vec![
+            make_edge("D", "A", "read_before", 5, 0.8), // D not in cluster
+            make_edge("A", "B", "read_before", 4, 0.7),
+        ];
+
+        let pattern = build_work_patterns(&cluster, &edges, "").unwrap();
+        // A is entry point (source in A->B, not target within cluster)
+        assert_eq!(pattern.entry_points, vec!["A"]);
+        assert_eq!(
+            pattern.typical_sequence,
+            Some(vec!["A".to_string(), "B".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_build_work_patterns_mixed_edge_types() {
+        // Combine read_before and read_then_edit
+        let cluster = vec![
+            "types.rs".to_string(),
+            "storage.rs".to_string(),
+            "query.rs".to_string(),
+        ];
+        let edges = vec![
+            make_edge("types.rs", "storage.rs", "read_before", 5, 0.8),
+            make_edge("storage.rs", "query.rs", "read_before", 4, 0.7),
+            make_edge("types.rs", "query.rs", "read_then_edit", 6, 0.9),
+            make_edge("storage.rs", "query.rs", "read_then_edit", 3, 0.6),
+        ];
+
+        let pattern = build_work_patterns(&cluster, &edges, "").unwrap();
+        // types.rs is entry point (source in both read_before and read_then_edit, not target)
+        assert!(pattern.entry_points.contains(&"types.rs".to_string()));
+        // query.rs is work target (target of read_then_edit)
+        assert!(pattern.work_targets.contains(&"query.rs".to_string()));
+        // Typical sequence from read_before: types.rs -> storage.rs -> query.rs
+        assert_eq!(
+            pattern.typical_sequence,
+            Some(vec![
+                "types.rs".to_string(),
+                "storage.rs".to_string(),
+                "query.rs".to_string(),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_build_work_patterns_co_edited_edges_ignored() {
+        // co_edited edges should not contribute to entry points or work targets
+        let cluster = vec!["A".to_string(), "B".to_string()];
+        let edges = vec![
+            make_edge("A", "B", "co_edited", 5, 0.8),
+        ];
+
+        let pattern = build_work_patterns(&cluster, &edges, "/any/project");
+        assert!(pattern.is_none(), "co_edited-only edges should produce None");
+    }
+
+    // =========================================================================
+    // Fix 1: Path normalization — cross-platform edge matching
+    // =========================================================================
+
+    #[test]
+    fn test_build_work_patterns_absolute_windows_edge_paths() {
+        // Cluster files: relative (from session summary, already normalized)
+        let cluster = vec![
+            "apps/tastematter/core/src/types.rs".to_string(),
+            "apps/tastematter/core/src/query.rs".to_string(),
+        ];
+        // Edges: absolute Windows paths (from file_access_events, NOT normalized)
+        let edges = vec![make_edge(
+            r"C:\Users\dietl\VSCode Projects\taste_systems\gtm_operating_system\apps\tastematter\core\src\types.rs",
+            r"C:\Users\dietl\VSCode Projects\taste_systems\gtm_operating_system\apps\tastematter\core\src\query.rs",
+            "read_before", 5, 0.6,
+        )];
+        let project_root = r"C:\Users\dietl\VSCode Projects\taste_systems\gtm_operating_system";
+        let pattern = build_work_patterns(&cluster, &edges, project_root);
+        assert!(pattern.is_some(), "Should match after Windows path normalization");
+        let p = pattern.unwrap();
+        assert!(!p.entry_points.is_empty(), "Should find entry points");
+    }
+
+    #[test]
+    fn test_build_work_patterns_unix_absolute_edge_paths() {
+        let cluster = vec!["src/types.rs".to_string(), "src/query.rs".to_string()];
+        let edges = vec![make_edge(
+            "/home/dev/project/src/types.rs",
+            "/home/dev/project/src/query.rs",
+            "read_before", 5, 0.6,
+        )];
+        let pattern = build_work_patterns(&cluster, &edges, "/home/dev/project");
+        assert!(pattern.is_some(), "Should match after Unix path normalization");
+    }
+
+    #[test]
+    fn test_build_work_patterns_already_relative_still_works() {
+        let cluster = vec!["src/types.rs".to_string(), "src/query.rs".to_string()];
+        let edges = vec![make_edge(
+            "src/types.rs", "src/query.rs", "read_before", 5, 0.6,
+        )];
+        let pattern = build_work_patterns(&cluster, &edges, "/any/project");
+        assert!(pattern.is_some(), "Relative paths should still work");
+    }
+
+    #[test]
+    fn test_build_work_patterns_macos_absolute_paths() {
+        let cluster = vec!["src/main.rs".to_string(), "src/lib.rs".to_string()];
+        let edges = vec![make_edge(
+            "/Users/jake/projects/myapp/src/main.rs",
+            "/Users/jake/projects/myapp/src/lib.rs",
+            "read_before", 3, 0.5,
+        )];
+        let pattern = build_work_patterns(&cluster, &edges, "/Users/jake/projects/myapp");
+        assert!(pattern.is_some(), "Should match macOS absolute paths");
     }
 }

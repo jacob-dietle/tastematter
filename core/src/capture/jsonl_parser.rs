@@ -116,6 +116,16 @@ pub struct SessionSummary {
     pub conversation_excerpt: Option<String>,
 }
 
+/// A parsed session with both summary and raw tool uses for temporal storage.
+///
+/// The summary contains deduplicated file lists and aggregated counts.
+/// The tool_uses preserve the full ordered sequence for temporal edge extraction.
+#[derive(Debug, Clone)]
+pub struct ParsedSessionData {
+    pub summary: SessionSummary,
+    pub tool_uses: Vec<ToolUse>,
+}
+
 /// Options for parsing sessions.
 #[derive(Debug, Clone, Default)]
 pub struct ParseOptions {
@@ -850,19 +860,21 @@ pub fn parse_session_file(
     Ok((messages, file_size, cwd))
 }
 
-/// Main orchestration: Parse all sessions and return summaries.
+/// Main orchestration: Parse all sessions and return summaries with tool uses.
 ///
 /// This is the entry point for the JSONL parser module.
+/// Returns `ParsedSessionData` which pairs each session summary with its
+/// ordered tool uses for temporal edge extraction.
 pub fn sync_sessions(
     claude_dir: &Path,
     options: &ParseOptions,
     existing_sessions: &HashMap<String, i64>,
-) -> Result<(Vec<SessionSummary>, ParseResult), String> {
+) -> Result<(Vec<ParsedSessionData>, ParseResult), String> {
     // If project_filter is provided, use exact directory lookup (parity with Python)
     let project_path = options.project_filter.as_ref().map(Path::new);
     let files = find_session_files(claude_dir, project_path)?;
 
-    let mut summaries = Vec::new();
+    let mut parsed_sessions = Vec::new();
     let mut result = ParseResult::default();
     let mut total_tool_uses: i64 = 0;
 
@@ -922,12 +934,29 @@ pub fn sync_sessions(
         let session_tool_uses: i64 = messages.iter().map(|m| m.tool_uses.len() as i64).sum();
         total_tool_uses += session_tool_uses;
 
+        // Collect tool uses with file paths for temporal storage,
+        // excluding GREP:/GLOB: pseudo-paths
+        let tool_uses: Vec<ToolUse> = messages
+            .iter()
+            .flat_map(|m| m.tool_uses.iter().cloned())
+            .filter(|tu| tu.file_path.is_some())
+            .filter(|tu| {
+                tu.file_path
+                    .as_ref()
+                    .map(|p| !p.starts_with("GREP:") && !p.starts_with("GLOB:"))
+                    .unwrap_or(false)
+            })
+            .collect();
+
         // Aggregate into summary (with panic recovery so one bad session doesn't crash the batch)
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             aggregate_session(&session_id, &project_path, &messages, file_size)
         })) {
             Ok(summary) => {
-                summaries.push(summary);
+                parsed_sessions.push(ParsedSessionData {
+                    summary,
+                    tool_uses,
+                });
                 result.sessions_parsed += 1;
             }
             Err(_) => {
@@ -941,7 +970,7 @@ pub fn sync_sessions(
     }
 
     result.total_tool_uses = total_tool_uses;
-    Ok((summaries, result))
+    Ok((parsed_sessions, result))
 }
 
 // =============================================================================

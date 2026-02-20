@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::time::Instant;
 
+use crate::capture::jsonl_parser::ToolUse;
 use crate::error::CoreError;
 use crate::intelligence::IntelClient;
 use crate::storage::Database;
@@ -1410,9 +1411,72 @@ impl QueryEngine {
             }
         }
 
+        // Phase 2b: Query temporal edges for matching files
+        let edge_pattern = pattern.replace('*', "%").replace('?', "_");
+        let edges = self
+            .query_file_edges(&edge_pattern, 2, 0.3, 50)
+            .await
+            .unwrap_or_default();
+
         // Phase 3: Filesystem-based project context discovery
         let cwd = std::env::current_dir().unwrap_or_default();
         let context_files = crate::context_restore::discover_project_context(&input.query, &cwd);
+
+        // Detect the project root for path normalization.
+        // Cluster files (from files_read) are relative to the project root
+        // stored in claude_sessions.project_path. We infer it by checking
+        // the first cluster file's prefix against candidate roots.
+        let project_root = {
+            // Collect candidate roots: CWD + all ancestor dirs with .git
+            let mut candidates = Vec::new();
+            let mut dir = cwd.clone();
+            loop {
+                if dir.join(".git").exists() {
+                    candidates.push(dir.clone());
+                }
+                if !dir.pop() {
+                    break;
+                }
+            }
+            if candidates.is_empty() {
+                candidates.push(cwd.clone());
+            }
+
+            // Pick the root where stripping it from edge paths produces paths
+            // that match cluster files. Test with the first edge + first cluster file.
+            // Build a set of cluster files for efficient lookup
+            let cluster_files: std::collections::HashSet<&str> = flex
+                .results
+                .iter()
+                .map(|f| f.file_path.as_str())
+                .collect();
+
+            // Find the candidate root that, when stripped from ANY edge path,
+            // produces a path that matches ANY cluster file
+            if !cluster_files.is_empty() && !edges.is_empty() {
+                candidates
+                    .into_iter()
+                    .find(|root| {
+                        let root_norm = root.to_str().unwrap_or("").replace('\\', "/");
+                        edges.iter().any(|e| {
+                            let edge_norm = e.source_file.replace('\\', "/");
+                            if edge_norm
+                                .to_lowercase()
+                                .starts_with(&root_norm.to_lowercase())
+                            {
+                                let stripped =
+                                    edge_norm[root_norm.len()..].trim_start_matches('/');
+                                cluster_files.contains(stripped)
+                            } else {
+                                false
+                            }
+                        })
+                    })
+                    .unwrap_or(cwd.clone())
+            } else {
+                cwd.clone()
+            }
+        };
 
         // Phase 4: Assembly via builder functions
         let receipt_id = generate_receipt_id();
@@ -1424,7 +1488,12 @@ impl QueryEngine {
             executive_summary: crate::context_restore::build_executive_summary(&sessions, &heat),
             current_state: crate::context_restore::build_current_state(&context_files, &flex),
             continuity: crate::context_restore::build_continuity(&context_files, &chains),
-            work_clusters: crate::context_restore::build_work_clusters(&flex, &co_access_results),
+            work_clusters: crate::context_restore::build_work_clusters(
+                &flex,
+                &co_access_results,
+                &edges,
+                project_root.to_str().unwrap_or(""),
+            ),
             suggested_reads: crate::context_restore::build_suggested_reads(
                 &flex,
                 &co_access_results,
@@ -1726,6 +1795,100 @@ impl QueryEngine {
             map.insert(id, size);
         }
         Ok(map)
+    }
+
+    /// Query file edges matching a file pattern, filtered by minimum confidence.
+    ///
+    /// Returns edges where source_file or target_file matches the pattern,
+    /// ordered by session_count descending.
+    pub async fn query_file_edges(
+        &self,
+        pattern: &str,
+        min_session_count: i32,
+        min_confidence: f64,
+        limit: u32,
+    ) -> Result<Vec<FileEdge>, CoreError> {
+        let rows: Vec<FileEdge> = sqlx::query_as(
+            r#"SELECT source_file, target_file, edge_type, session_count, confidence, lift
+               FROM file_edges
+               WHERE (source_file LIKE ? OR target_file LIKE ?)
+                 AND session_count >= ?
+                 AND confidence >= ?
+               ORDER BY session_count DESC
+               LIMIT ?"#,
+        )
+        .bind(pattern)
+        .bind(pattern)
+        .bind(min_session_count)
+        .bind(min_confidence)
+        .bind(limit)
+        .fetch_all(self.db.pool())
+        .await
+        .map_err(CoreError::Database)?;
+
+        Ok(rows)
+    }
+
+    /// Insert file access events for a session (batch, transactional).
+    ///
+    /// Deletes existing events for the session first (idempotent re-sync),
+    /// then inserts all new events in a single transaction.
+    ///
+    /// # Arguments
+    /// * `session_id` - The session UUID
+    /// * `tool_uses` - Ordered tool uses with file paths (pre-filtered to exclude pseudo-paths)
+    ///
+    /// # Returns
+    /// * `Ok(usize)` - Number of events inserted
+    pub async fn insert_file_access_events(
+        &self,
+        session_id: &str,
+        tool_uses: &[ToolUse],
+    ) -> Result<usize, CoreError> {
+        let pool = self.db.pool();
+
+        // Delete existing events for this session (re-sync safe)
+        sqlx::query("DELETE FROM file_access_events WHERE session_id = ?")
+            .bind(session_id)
+            .execute(pool)
+            .await
+            .map_err(CoreError::Database)?;
+
+        // Batch insert with explicit transaction
+        let mut tx = pool.begin().await.map_err(CoreError::Database)?;
+
+        let real_tools: Vec<&ToolUse> = tool_uses
+            .iter()
+            .filter(|tu| !matches!(tu.name.as_str(), "file-history-snapshot" | "toolUseResult"))
+            .collect();
+
+        for (seq, tu) in real_tools.iter().enumerate() {
+            let access_type = if tu.is_write {
+                "write"
+            } else if tu.is_read {
+                "read"
+            } else {
+                "other"
+            };
+
+            sqlx::query(
+                "INSERT INTO file_access_events \
+                 (session_id, timestamp, file_path, tool_name, access_type, sequence_position) \
+                 VALUES (?, ?, ?, ?, ?, ?)",
+            )
+            .bind(session_id)
+            .bind(tu.timestamp.to_rfc3339())
+            .bind(tu.file_path.as_ref().unwrap())
+            .bind(&tu.name)
+            .bind(access_type)
+            .bind(seq as i32)
+            .execute(&mut *tx)
+            .await
+            .map_err(CoreError::Database)?;
+        }
+
+        tx.commit().await.map_err(CoreError::Database)?;
+        Ok(real_tools.len())
     }
 
     /// Persist chains to database (chains + chain_graph tables)
@@ -2445,5 +2608,244 @@ mod tests {
         for c in result.chars() {
             assert!(c.len_utf8() <= 4); // All valid UTF-8
         }
+    }
+
+    // =========================================================================
+    // Phase 2: insert_file_access_events Tests (Temporal Edges)
+    // =========================================================================
+
+    /// Helper: create a test database with schema for file access events tests
+    async fn setup_fae_test_db() -> (QueryEngine, tempfile::TempDir) {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("fae_test.db");
+        let db = crate::storage::Database::open_rw(&db_path).await.unwrap();
+        db.ensure_schema().await.unwrap();
+        let engine = QueryEngine::new(db);
+        (engine, temp_dir)
+    }
+
+    /// Helper: create test ToolUse instances
+    fn make_test_tool_uses(count: usize) -> Vec<crate::capture::jsonl_parser::ToolUse> {
+        use chrono::TimeZone;
+        (0..count)
+            .map(|i| crate::capture::jsonl_parser::ToolUse {
+                id: format!("toolu_{}", i),
+                name: if i % 3 == 2 { "Edit".to_string() } else { "Read".to_string() },
+                input: serde_json::Value::Null,
+                timestamp: chrono::Utc
+                    .with_ymd_and_hms(2026, 2, 17, 10, 0, i as u32 % 60)
+                    .unwrap(),
+                file_path: Some(format!("/src/file_{}.rs", i)),
+                is_read: i % 3 != 2,
+                is_write: i % 3 == 2,
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn test_insert_file_access_events_basic() {
+        let (engine, _dir) = setup_fae_test_db().await;
+        let tool_uses = make_test_tool_uses(3);
+
+        let count = engine
+            .insert_file_access_events("test-session-001", &tool_uses)
+            .await
+            .unwrap();
+        assert_eq!(count, 3);
+
+        // Query back and verify order
+        let rows: Vec<(String, String, String, i32)> = sqlx::query_as(
+            "SELECT file_path, tool_name, access_type, sequence_position \
+             FROM file_access_events \
+             WHERE session_id = ? \
+             ORDER BY sequence_position",
+        )
+        .bind("test-session-001")
+        .fetch_all(engine.database().pool())
+        .await
+        .unwrap();
+
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].0, "/src/file_0.rs");
+        assert_eq!(rows[0].1, "Read");
+        assert_eq!(rows[0].2, "read");
+        assert_eq!(rows[0].3, 0);
+
+        assert_eq!(rows[1].0, "/src/file_1.rs");
+        assert_eq!(rows[1].1, "Read");
+        assert_eq!(rows[1].2, "read");
+        assert_eq!(rows[1].3, 1);
+
+        assert_eq!(rows[2].0, "/src/file_2.rs");
+        assert_eq!(rows[2].1, "Edit");
+        assert_eq!(rows[2].2, "write");
+        assert_eq!(rows[2].3, 2);
+    }
+
+    #[tokio::test]
+    async fn test_insert_file_access_events_idempotent() {
+        let (engine, _dir) = setup_fae_test_db().await;
+        let tool_uses = make_test_tool_uses(3);
+
+        // Insert first time
+        engine
+            .insert_file_access_events("test-session-002", &tool_uses)
+            .await
+            .unwrap();
+
+        // Insert again (same session) — should DELETE + re-INSERT
+        engine
+            .insert_file_access_events("test-session-002", &tool_uses)
+            .await
+            .unwrap();
+
+        // Verify still only 3 rows
+        let count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM file_access_events WHERE session_id = ?",
+        )
+        .bind("test-session-002")
+        .fetch_one(engine.database().pool())
+        .await
+        .unwrap();
+
+        assert_eq!(count.0, 3, "Idempotent re-insert should not duplicate rows");
+    }
+
+    #[tokio::test]
+    async fn test_insert_file_access_events_batch_performance() {
+        let (engine, _dir) = setup_fae_test_db().await;
+        let tool_uses = make_test_tool_uses(500);
+
+        let start = std::time::Instant::now();
+        let count = engine
+            .insert_file_access_events("test-session-perf", &tool_uses)
+            .await
+            .unwrap();
+        let elapsed = start.elapsed();
+
+        assert_eq!(count, 500);
+        assert!(
+            elapsed.as_millis() < 5000,
+            "500 inserts should complete in <5s, took {}ms",
+            elapsed.as_millis()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_insert_file_access_events_access_type_mapping() {
+        let (engine, _dir) = setup_fae_test_db().await;
+
+        use chrono::TimeZone;
+        let tool_uses = vec![
+            // Read tool
+            crate::capture::jsonl_parser::ToolUse {
+                id: "t1".to_string(),
+                name: "Read".to_string(),
+                input: serde_json::Value::Null,
+                timestamp: chrono::Utc.with_ymd_and_hms(2026, 2, 17, 10, 0, 0).unwrap(),
+                file_path: Some("/a.rs".to_string()),
+                is_read: true,
+                is_write: false,
+            },
+            // Write tool
+            crate::capture::jsonl_parser::ToolUse {
+                id: "t2".to_string(),
+                name: "Edit".to_string(),
+                input: serde_json::Value::Null,
+                timestamp: chrono::Utc.with_ymd_and_hms(2026, 2, 17, 10, 0, 1).unwrap(),
+                file_path: Some("/b.rs".to_string()),
+                is_read: false,
+                is_write: true,
+            },
+            // Neither read nor write (e.g., Bash with a file path)
+            crate::capture::jsonl_parser::ToolUse {
+                id: "t3".to_string(),
+                name: "Bash".to_string(),
+                input: serde_json::Value::Null,
+                timestamp: chrono::Utc.with_ymd_and_hms(2026, 2, 17, 10, 0, 2).unwrap(),
+                file_path: Some("/c.rs".to_string()),
+                is_read: false,
+                is_write: false,
+            },
+        ];
+
+        engine
+            .insert_file_access_events("test-session-types", &tool_uses)
+            .await
+            .unwrap();
+
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT file_path, access_type FROM file_access_events \
+             WHERE session_id = ? ORDER BY sequence_position",
+        )
+        .bind("test-session-types")
+        .fetch_all(engine.database().pool())
+        .await
+        .unwrap();
+
+        assert_eq!(rows[0].1, "read");
+        assert_eq!(rows[1].1, "write");
+        assert_eq!(rows[2].1, "other");
+    }
+
+    #[tokio::test]
+    async fn test_insert_file_access_events_empty_list() {
+        let (engine, _dir) = setup_fae_test_db().await;
+        let tool_uses: Vec<crate::capture::jsonl_parser::ToolUse> = vec![];
+
+        let count = engine
+            .insert_file_access_events("test-session-empty", &tool_uses)
+            .await
+            .unwrap();
+
+        assert_eq!(count, 0, "Empty tool_uses should insert 0 rows");
+    }
+
+    #[tokio::test]
+    async fn test_insert_file_access_events_multiple_sessions() {
+        let (engine, _dir) = setup_fae_test_db().await;
+
+        // Insert for session A
+        let tool_uses_a = make_test_tool_uses(3);
+        engine
+            .insert_file_access_events("session-a", &tool_uses_a)
+            .await
+            .unwrap();
+
+        // Insert for session B
+        let tool_uses_b = make_test_tool_uses(5);
+        engine
+            .insert_file_access_events("session-b", &tool_uses_b)
+            .await
+            .unwrap();
+
+        // Verify session A still has 3
+        let count_a: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM file_access_events WHERE session_id = ?",
+        )
+        .bind("session-a")
+        .fetch_one(engine.database().pool())
+        .await
+        .unwrap();
+        assert_eq!(count_a.0, 3);
+
+        // Verify session B has 5
+        let count_b: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM file_access_events WHERE session_id = ?",
+        )
+        .bind("session-b")
+        .fetch_one(engine.database().pool())
+        .await
+        .unwrap();
+        assert_eq!(count_b.0, 5);
+
+        // Total = 8
+        let total: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM file_access_events",
+        )
+        .fetch_one(engine.database().pool())
+        .await
+        .unwrap();
+        assert_eq!(total.0, 8);
     }
 }

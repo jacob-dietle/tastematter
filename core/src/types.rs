@@ -712,6 +712,9 @@ pub struct Continuity {
     pub pending_items: Vec<PendingItem>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chain_context: Option<ChainContext>,
+    /// Detected incomplete work sequence from temporal edges
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub incomplete_sequence: Option<IncompleteSequence>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -734,6 +737,43 @@ pub struct ChainContext {
     pub session_count: u32,
 }
 
+/// A directed behavioral edge between two files.
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+pub struct FileEdge {
+    pub source_file: String,
+    pub target_file: String,
+    pub edge_type: String,
+    pub session_count: i32,
+    pub confidence: f64,
+    pub lift: Option<f64>,
+}
+
+/// Work pattern derived from temporal edges.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkPattern {
+    /// Files consistently at the start of work sequences
+    pub entry_points: Vec<String>,
+    /// Files consistently at the end (edited after reads)
+    pub work_targets: Vec<String>,
+    /// Topological sort of read_before chain
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub typical_sequence: Option<Vec<String>>,
+    /// Comparison of last session against typical pattern
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub incomplete_sequence: Option<IncompleteSequence>,
+}
+
+/// Detected incomplete work sequence.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IncompleteSequence {
+    /// What was observed in last session
+    pub observed: Vec<String>,
+    /// What typically comes next
+    pub typical_next: String,
+    /// How confident is the prediction
+    pub confidence: f64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkCluster {
     /// Phase 2: LLM-generated cluster name
@@ -746,6 +786,9 @@ pub struct WorkCluster {
     pub interpretation: Option<String>,
     /// high_access_high_session | high_access_low_session | low_access_high_session | low_access_low_session
     pub access_pattern: String,
+    /// Temporal edge enrichment: work patterns derived from behavioral edges
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub work_pattern: Option<WorkPattern>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1503,5 +1546,144 @@ mod tests {
     fn stress_parse_time_range_just_d() {
         let result = parse_time_range("d");
         assert!(result.is_err(), "Just 'd' with no number should error");
+    }
+
+    // =========================================================================
+    // Temporal Edges: FileEdge, WorkPattern, IncompleteSequence tests
+    // =========================================================================
+
+    #[test]
+    fn test_file_edge_serialization() {
+        let edge = FileEdge {
+            source_file: "types.rs".to_string(),
+            target_file: "query.rs".to_string(),
+            edge_type: "read_then_edit".to_string(),
+            session_count: 5,
+            confidence: 0.83,
+            lift: Some(4.2),
+        };
+
+        let json = serde_json::to_string(&edge).unwrap();
+        assert!(json.contains("source_file"));
+        assert!(json.contains("types.rs"));
+        assert!(json.contains("read_then_edit"));
+        assert!(json.contains("0.83"));
+
+        // Round-trip
+        let deserialized: FileEdge = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.source_file, "types.rs");
+        assert_eq!(deserialized.target_file, "query.rs");
+        assert_eq!(deserialized.edge_type, "read_then_edit");
+        assert_eq!(deserialized.session_count, 5);
+        assert!((deserialized.confidence - 0.83).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_work_pattern_serialization() {
+        let pattern = WorkPattern {
+            entry_points: vec!["types.rs".to_string()],
+            work_targets: vec!["query.rs".to_string()],
+            typical_sequence: Some(vec![
+                "types.rs".to_string(),
+                "storage.rs".to_string(),
+                "query.rs".to_string(),
+            ]),
+            incomplete_sequence: Some(IncompleteSequence {
+                observed: vec!["types.rs".to_string(), "storage.rs".to_string()],
+                typical_next: "query.rs".to_string(),
+                confidence: 0.80,
+            }),
+        };
+
+        let json = serde_json::to_string(&pattern).unwrap();
+        assert!(json.contains("entry_points"));
+        assert!(json.contains("work_targets"));
+        assert!(json.contains("typical_sequence"));
+        assert!(json.contains("incomplete_sequence"));
+        assert!(json.contains("typical_next"));
+        assert!(json.contains("0.8"));
+
+        // Round-trip
+        let deserialized: WorkPattern = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.entry_points, vec!["types.rs"]);
+        assert_eq!(deserialized.work_targets, vec!["query.rs"]);
+        assert_eq!(deserialized.typical_sequence.unwrap().len(), 3);
+        let inc = deserialized.incomplete_sequence.unwrap();
+        assert_eq!(inc.typical_next, "query.rs");
+        assert!((inc.confidence - 0.80).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_work_cluster_without_pattern_skips_field() {
+        let cluster = WorkCluster {
+            name: None,
+            files: vec!["src/main.rs".to_string()],
+            pmi_score: 0.55,
+            interpretation: None,
+            access_pattern: "high_access_high_session".to_string(),
+            work_pattern: None,
+        };
+
+        let json = serde_json::to_string(&cluster).unwrap();
+        // work_pattern: None should be omitted from JSON
+        assert!(!json.contains("work_pattern"), "work_pattern should be absent when None: {}", json);
+        // name and interpretation also absent
+        assert!(!json.contains("name"));
+        assert!(!json.contains("interpretation"));
+    }
+
+    #[test]
+    fn test_work_cluster_with_pattern_includes_field() {
+        let cluster = WorkCluster {
+            name: Some("Rust Core".to_string()),
+            files: vec!["types.rs".to_string(), "query.rs".to_string()],
+            pmi_score: 0.55,
+            interpretation: None,
+            access_pattern: "high_access_high_session".to_string(),
+            work_pattern: Some(WorkPattern {
+                entry_points: vec!["types.rs".to_string()],
+                work_targets: vec!["query.rs".to_string()],
+                typical_sequence: None,
+                incomplete_sequence: None,
+            }),
+        };
+
+        let json = serde_json::to_string(&cluster).unwrap();
+        assert!(json.contains("work_pattern"));
+        assert!(json.contains("entry_points"));
+        // typical_sequence: None should be omitted
+        assert!(!json.contains("typical_sequence"));
+    }
+
+    #[test]
+    fn test_continuity_without_incomplete_sequence_skips_field() {
+        let continuity = Continuity {
+            left_off_at: None,
+            pending_items: vec![],
+            chain_context: None,
+            incomplete_sequence: None,
+        };
+
+        let json = serde_json::to_string(&continuity).unwrap();
+        assert!(!json.contains("incomplete_sequence"), "incomplete_sequence should be absent when None");
+    }
+
+    #[test]
+    fn test_continuity_with_incomplete_sequence_includes_field() {
+        let continuity = Continuity {
+            left_off_at: None,
+            pending_items: vec![],
+            chain_context: None,
+            incomplete_sequence: Some(IncompleteSequence {
+                observed: vec!["types.rs".to_string()],
+                typical_next: "query.rs".to_string(),
+                confidence: 0.75,
+            }),
+        };
+
+        let json = serde_json::to_string(&continuity).unwrap();
+        assert!(json.contains("incomplete_sequence"));
+        assert!(json.contains("typical_next"));
+        assert!(json.contains("query.rs"));
     }
 }
