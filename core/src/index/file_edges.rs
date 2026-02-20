@@ -1476,13 +1476,14 @@ mod tests {
                 .await
                 .unwrap();
 
-        // Phase 2: Add 2 more sessions with later timestamps
+        // Phase 2: Add 2 more sessions with timestamps AFTER the extraction marker.
+        // The marker uses Utc::now(), so these must be in the future to be picked up.
         for i in 3..5 {
             let sid = format!("session-{}", i);
             insert_event(
                 &pool,
                 &sid,
-                "2026-02-18T10:00:00.000Z",
+                "2099-01-01T10:00:00.000Z",
                 "a.rs",
                 "Read",
                 "read",
@@ -1492,7 +1493,7 @@ mod tests {
             insert_event(
                 &pool,
                 &sid,
-                "2026-02-18T10:00:30.000Z",
+                "2099-01-01T10:00:30.000Z",
                 "b.rs",
                 "Edit",
                 "write",

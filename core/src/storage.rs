@@ -1268,9 +1268,10 @@ mod tests {
         assert!(fe_names.contains(&"total_sessions_with_source".to_string()));
         assert!(fe_names.contains(&"avg_time_delta_seconds".to_string()));
         assert!(fe_names.contains(&"confidence".to_string()));
+        assert!(fe_names.contains(&"lift".to_string()));
         assert!(fe_names.contains(&"first_seen".to_string()));
         assert!(fe_names.contains(&"last_seen".to_string()));
-        assert_eq!(fe_names.len(), 10, "file_edges should have 10 columns");
+        assert_eq!(fe_names.len(), 11, "file_edges should have 11 columns");
     }
 
     #[tokio::test]
