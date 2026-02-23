@@ -4,8 +4,8 @@ Context packages documenting the indexer/daemon investigation and Claude Code da
 
 ## Overview
 
-**Date Range:** 2026-01-12 to 2026-02-16
-**Package Count:** 67
+**Date Range:** 2026-01-12 to 2026-02-17
+**Package Count:** 69
 **Theme:** Chain linking bug, data model, Intel Layer priority, CLI fix, daemon, **FULL RUST PORT COMPLETE (All 9 Phases)**, **GLOB BUG FOUND**, **CANONICAL SPEC COMPLETE**, **TDD FIX APPLIED**, **TEST ALIGNMENT COMPLETE**, **PARSER GAP FIX COMPLETE**, **TYPE CONTRACTS COMPLETE**, **PHASE 3 GIT SYNC COMPLETE**, **PHASE 4 JSONL PARSER COMPLETE**, **PHASE 5 CHAIN GRAPH COMPLETE**, **PHASE 6 INVERTED INDEX COMPLETE**, **PHASE 7 FILE WATCHER COMPLETE**, **PHASE 8 DAEMON RUNNER COMPLETE**, **PARITY TEST SUITE COMPLETE**, **CLI DISTRIBUTION ARCHITECTURE**, **DAEMON AUTO-SETUP COMPLETE**, **TELEMETRY INSTRUMENTATION COMPLETE**, **INTEL SERVICE PHASE 1 COMPLETE**, **PHASE 3+4 PARALLEL COMPLETE**
 
 ## Narrative
@@ -88,6 +88,8 @@ This chain documents investigating and fixing the chain linking bug:
 | 65 | 2026-02-13 | **VALIDATION_SKILL_UPDATE_DOWNLOAD_ALERTS_PLAN** (Production heat validation: perfect 10/20/30/40% distribution. Context-query skill v4.0: added 6 missing CLI commands. Both repos pushed + dev merged. Download alert Worker plan designed: CF Worker proxy → R2 + Slack webhook) |
 | 66 | 2026-02-16 | **DOWNLOAD_ALERTS_DEPLOYED_INTEL_PORT_APPROVED** (CF Worker deployed with ntfy.sh, context-query skill synced to public repo, architecture decision: port all agents to Rust, spec 18 written) |
 | 67 | 2026-02-16 | **INTEL_RUST_PORT_PHASE1_COMPLETE** (anthropic.rs + context_synthesis agent ported, IntelClient::from_env(), 65 intel tests passing, sidecar fallback preserved) |
+| 68 | 2026-02-16 | **INTEL_PORT_E2E_SETUP_CI_FIXES_NEEDED** (E2E tests, intel setup command, staging release gate, CI fmt + narrative assertion failures to fix) |
+| 69 | 2026-02-17 | **POSTHOG_TELEMETRY_FIX_AND_CI_FILTER** (Replaced dead posthog-rs with async reqwest POST, CI noise filter, v0.1.0-alpha.25 + alpha.26) |
 
 ## Key Findings
 
@@ -109,7 +111,7 @@ This chain documents investigating and fixing the chain linking bug:
 
 ## Current State
 
-**Latest package:** [[67_2026-02-16_INTEL_RUST_PORT_PHASE1_COMPLETE]]
+**Latest package:** [[69_2026-02-17_POSTHOG_TELEMETRY_FIX_AND_CI_FILTER]]
 **Canonical specs:**
 - [[canonical/07_CLAUDE_CODE_DATA_MODEL.md]]
 - [[canonical/08_PYTHON_PORT_INVENTORY.md]]

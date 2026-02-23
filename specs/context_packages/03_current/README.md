@@ -4,9 +4,9 @@ Context packages documenting active Tastematter development.
 
 ## Overview
 
-**Date Range:** 2026-01-05 to 2026-02-10
-**Package Count:** 37
-**Theme:** Rust port, performance optimization, HTTP transport, bug fixes, migration, CLI distribution, GTM strategy
+**Date Range:** 2026-01-05 to 2026-02-18
+**Package Count:** 42
+**Theme:** Rust port, performance optimization, HTTP transport, bug fixes, migration, CLI distribution, GTM strategy, temporal edges
 
 ## Narrative
 
@@ -60,11 +60,16 @@ This chain documents the Rust migration and refinement:
 | 35 | 2026-02-09 | **DB_AUTO_INIT_COMPLETE** (`open_or_create_default()` implemented, fresh queries work without `daemon once`) |
 | 36 | 2026-02-10 | **CONTEXT_RESTORE_PHASE2_PLAN** (LLM synthesis for 5 Option<String> fields — 8-step plan, ~400 lines, parallelizable TS/Rust) |
 | 37 | 2026-02-10 | **CONTEXT_RESTORE_PHASE2_COMPLETE** (All 8 steps implemented with TDD, 35 new tests, CLAUDE.md updated) |
+| 38 | 2026-02-17 | **TEMPORAL_EDGES_DESIGN_AND_CODEGRAPH_TEARDOWN** (CodeGraph analysis, temporal edges thesis, three-layer rollup design, empirical validation needed) |
+| 39 | 2026-02-17 | **TEMPORAL_SIGNAL_VALIDATION_PASS** (7/7 sessions show SIGNAL, all 9 assumptions verified, 62 avg R→E patterns/session, gate cleared for implementation) |
+| 40 | 2026-02-17 | **TEMPORAL_EDGES_SPEC_AND_PHASE1_SCHEMA** (Canonical spec 19 written, Phase 1 schema migration implemented, 5 tests written, NOT YET RUN) |
+| 41 | 2026-02-17 | **TEMPORAL_EDGES_FULL_IMPLEMENTATION** (All 4 phases complete via 3-agent DAG, 52 new tests, 470 total, pipeline wired end-to-end) |
+| 42 | 2026-02-19 | **TEMPORAL_EDGES_QUALITY_REFINEMENT_COMPLETE** (All 3 fixes done: path normalization, lift metric, threshold+guard. 5/5 clusters with work_patterns) |
 
 ## Current State
 
-**Latest:** [[37_2026-02-10_CONTEXT_RESTORE_PHASE2_COMPLETE]]
-**Status:** Phase 2 shipped. LLM synthesis fills 5 `None` fields via single Haiku call. 35 new tests (16 TS, 19 Rust). Needs end-to-end verification with live intel service.
+**Latest:** [[42_2026-02-18_TEMPORAL_EDGES_QUALITY_REFINEMENT_COMPLETE]]
+**Status:** Spec #20 quality refinement complete. All 3 fixes implemented: (1) path normalization via `normalize_file_path` + git root detection, (2) lift metric for statistical significance, (3) threshold lowered from 3→2 with lift guard. End-to-end verified: 5/5 clusters show work_patterns with entry_points and typical_sequences. Next: O(events²) extraction optimization (spec exists).
 
 ## Related
 

@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rula Context OS - Query Architecture</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #fff;
+    color: #1a1a1a;
+    font-family: 'IBM Plex Sans', sans-serif;
+    padding: 48px;
+    min-height: 100vh;
+  }
+
+  .page-title {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    color: #888;
+    margin-bottom: 8px;
+  }
+
+  h1 {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 28px;
+    font-weight: 600;
+    color: #111;
+    margin-bottom: 4px;
+  }
+
+  .subtitle {
+    font-size: 14px;
+    color: #666;
+    margin-bottom: 48px;
+  }
+
+  /* Main layout */
+  .architecture {
+    display: grid;
+    grid-template-rows: auto auto auto auto;
+    gap: 0;
+    max-width: 960px;
+  }
+
+  /* Layer labels */
+  .layer {
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    align-items: start;
+    min-height: 80px;
+  }
+
+  .layer-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: #888;
+    padding-top: 20px;
+    text-align: right;
+    padding-right: 24px;
+    border-right: 2px solid #e0e0e0;
+  }
+
+  .layer-content {
+    padding: 16px 0 16px 24px;
+  }
+
+  /* Query boxes */
+  .queries {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 8px;
+  }
+
+  .query-box {
+    padding: 16px 20px;
+    position: relative;
+  }
+
+  .query-box.q1 {
+    background: #edf2f9;
+    border-left: 4px solid #2d5a9e;
+  }
+
+  .query-box.q2 {
+    background: #f3edf6;
+    border-left: 4px solid #6b3a82;
+  }
+
+  .query-tag {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 8px;
+  }
+
+  .q1 .query-tag { color: #2d5a9e; }
+  .q2 .query-tag { color: #6b3a82; }
+
+  .query-text {
+    font-size: 14px;
+    color: #333;
+    line-height: 1.5;
+    font-style: italic;
+  }
+
+  /* Decomposition */
+  .decompose {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+
+  .decompose-box {
+    padding: 16px 20px;
+    background: #f7f7f7;
+    border: 1px solid #e0e0e0;
+  }
+
+  .decompose-box.d1 { border-left: 3px solid #2d5a9e; }
+  .decompose-box.d2 { border-left: 3px solid #6b3a82; }
+
+  .decompose-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #555;
+    margin-bottom: 10px;
+  }
+
+  .decompose-items {
+    list-style: none;
+    font-size: 13px;
+    font-family: 'IBM Plex Mono', monospace;
+    color: #555;
+    line-height: 1.9;
+  }
+
+  .decompose-items li::before {
+    content: ">";
+    margin-right: 8px;
+    color: #aaa;
+  }
+
+  .highlight { color: #111; font-weight: 600; }
+
+  /* Merge indicator */
+  .merge-point {
+    text-align: center;
+    padding: 10px 0;
+  }
+
+  .merge-bracket {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 18px;
+    color: #ccc;
+    letter-spacing: 4px;
+  }
+
+  .merge-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: #777;
+    margin-top: 2px;
+  }
+
+  /* Ontology foundation */
+  .ontology-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: #ccc;
+    border: 1px solid #ccc;
+  }
+
+  .dim-cell {
+    background: #fff;
+    padding: 16px;
+    text-align: center;
+  }
+
+  .dim-name {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #8a6200;
+    margin-bottom: 10px;
+  }
+
+  .dim-values {
+    list-style: none;
+    font-size: 12px;
+    color: #444;
+    line-height: 1.9;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+
+  /* Operation box */
+  .operation {
+    border: 2px solid #8a6200;
+    padding: 20px 24px;
+    text-align: center;
+    background: #fffbf0;
+  }
+
+  .operation-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: #8a6200;
+    margin-bottom: 10px;
+  }
+
+  .operation-desc {
+    font-size: 14px;
+    color: #333;
+    line-height: 1.7;
+  }
+
+  .operation-desc strong {
+    color: #111;
+    font-weight: 600;
+  }
+
+  /* Data layer */
+  .data-sources {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: #ccc;
+  }
+
+  .data-cell {
+    padding: 14px 16px;
+    text-align: center;
+    background: #f0f7f0;
+    border-bottom: 3px solid #2d7a2d;
+  }
+
+  .data-name {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: #1a5a1a;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  /* Timeline */
+  .timeline {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    margin-top: 8px;
+    background: #ccc;
+  }
+
+  .month-cell {
+    padding: 14px 16px;
+    background: #fff;
+    border-top: 3px solid #ddd;
+  }
+
+  .month-cell.active {
+    border-top-color: #8a6200;
+    background: #fffbf0;
+  }
+
+  .month-cell.future {
+    border-top-color: #ccc;
+  }
+
+  .month-num {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 6px;
+  }
+
+  .month-cell.active .month-num { color: #8a6200; }
+  .month-cell.future .month-num { color: #888; }
+
+  .month-desc {
+    font-size: 12px;
+    color: #888;
+    line-height: 1.6;
+  }
+
+  .month-cell.active .month-desc { color: #444; }
+
+  /* Insight callout */
+  .insight {
+    margin-top: 40px;
+    padding: 20px 24px;
+    border-left: 4px solid #8a6200;
+    background: #fffbf0;
+  }
+
+  .insight-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: #8a6200;
+    margin-bottom: 10px;
+  }
+
+  .insight-text {
+    font-size: 15px;
+    color: #333;
+    line-height: 1.7;
+  }
+
+  .insight-text strong {
+    color: #111;
+    font-weight: 600;
+  }
+
+  .month-label-hint {
+    font-size: 9px;
+    font-weight: 600;
+    margin-top: 4px;
+  }
+</style>
+</head>
+<body>
+
+<div class="page-title">Rula Revenue Intelligence</div>
+<h1>Two Queries, One Foundation</h1>
+<div class="subtitle">How the ontology enables both complex queries through the same decomposition pattern</div>
+
+<div class="architecture">
+
+  <!-- Layer 1: The Queries -->
+  <div class="layer">
+    <div class="layer-label">Queries</div>
+    <div class="layer-content">
+      <div class="queries">
+        <div class="query-box q1">
+          <div class="query-tag">Query 1 — Lever Analysis</div>
+          <div class="query-text">"What lever isn't working well relative to its opportunity size? Can we decompose and try something new?"</div>
+        </div>
+        <div class="query-box q2">
+          <div class="query-tag">Query 2 — Stakeholder Resonance</div>
+          <div class="query-text">"What is/isn't resonating with &lt;stakeholder-category&gt;? Can we fine-tune our value clarity?"</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Layer 2: Decomposition -->
+  <div class="layer">
+    <div class="layer-label">Decompose</div>
+    <div class="layer-content">
+      <div class="decompose">
+        <div class="decompose-box d1">
+          <div class="decompose-label">Holds constant, varies one</div>
+          <div class="decompose-items">
+            <li>Hold <span class="highlight">Insurance</span> constant</li>
+            <li>Hold <span class="highlight">Employers</span> constant</li>
+            <li>Hold <span class="highlight">Providers</span> constant</li>
+            <li>Vary <span class="highlight">Referrals</span> &rarr; test 3 approaches</li>
+            <li>Measure: <span class="highlight">opportunity size vs performance</span></li>
+          </div>
+        </div>
+        <div class="decompose-box d2">
+          <div class="decompose-label">Isolates stakeholder from lever</div>
+          <div class="decompose-items">
+            <li>Pick lever: <span class="highlight">Employer channel</span></li>
+            <li>Enumerate stakeholders: <span class="highlight">HR, Benefits, Broker</span></li>
+            <li>For each: what are <span class="highlight">inputs / outputs</span>?</li>
+            <li>What language maps to <span class="highlight">their mental model</span>?</li>
+            <li>Measure: <span class="highlight">resonance by stakeholder type</span></li>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Merge point -->
+  <div class="layer">
+    <div class="layer-label"></div>
+    <div class="layer-content">
+      <div class="merge-point">
+        <div class="merge-bracket">\&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;/</div>
+        <div class="merge-label">Both require the same foundation</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Layer 3: The Ontology -->
+  <div class="layer">
+    <div class="layer-label">Ontology<br><span class="month-label-hint" style="color:#8a6200;">Month 1</span></div>
+    <div class="layer-content">
+      <div class="ontology-grid">
+        <div class="dim-cell">
+          <div class="dim-name">Channel</div>
+          <div class="dim-values">
+            <li>D2C</li>
+            <li>Health Plans</li>
+            <li>Employers</li>
+            <li>PCPs</li>
+          </div>
+        </div>
+        <div class="dim-cell">
+          <div class="dim-name">Stakeholder</div>
+          <div class="dim-values">
+            <li>Payers</li>
+            <li>Brokers</li>
+            <li>HR / Benefits</li>
+            <li>Clinic Admin</li>
+          </div>
+        </div>
+        <div class="dim-cell">
+          <div class="dim-name">Motion</div>
+          <div class="dim-values">
+            <li>Inbound</li>
+            <li>Enterprise</li>
+            <li>Partnership</li>
+            <li>Referral</li>
+          </div>
+        </div>
+        <div class="dim-cell">
+          <div class="dim-name">Metric</div>
+          <div class="dim-values">
+            <li>Starts</li>
+            <li>Referral Vol.</li>
+            <li>Contract Val.</li>
+            <li>Resonance</li>
+          </div>
+        </div>
+      </div>
+
+      <div style="padding: 12px 0;">
+        <div class="operation">
+          <div class="operation-label">The Core Operation</div>
+          <div class="operation-desc">
+            <strong>Slice</strong> any dimension while holding others constant.<br>
+            Query 1 slices by <strong>Channel</strong>. Query 2 slices by <strong>Stakeholder</strong>.<br>
+            Same ontology. Same operation. Different axis.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Layer 4: Data Sources -->
+  <div class="layer">
+    <div class="layer-label">Data<br><span class="month-label-hint" style="color:#1a5a1a;">Month 2</span></div>
+    <div class="layer-content">
+      <div class="data-sources">
+        <div class="data-cell">
+          <div class="data-name">Gong Transcripts</div>
+        </div>
+        <div class="data-cell">
+          <div class="data-name">Playbooks</div>
+        </div>
+        <div class="data-cell">
+          <div class="data-name">CRM Records</div>
+        </div>
+        <div class="data-cell">
+          <div class="data-name">Team Context</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Layer 5: Timeline -->
+  <div class="layer">
+    <div class="layer-label">Timeline</div>
+    <div class="layer-content">
+      <div class="timeline">
+        <div class="month-cell active">
+          <div class="month-num">Month 1</div>
+          <div class="month-desc">Define dimensions. Build ontology. Test with real queries. Architecture that matches how they think.</div>
+        </div>
+        <div class="month-cell future">
+          <div class="month-num">Month 2</div>
+          <div class="month-desc">Connect live data. Context workers process + synthesize. Gong transcripts flow in tagged by dimension.</div>
+        </div>
+        <div class="month-cell future">
+          <div class="month-num">Month 3</div>
+          <div class="month-desc">System answers the queries. Automated feedback loops. Agents compound on structured context.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Insight callout -->
+<div class="insight" style="max-width: 960px; margin-left: 144px; margin-top: 32px;">
+  <div class="insight-label">The Insight</div>
+  <div class="insight-text">
+    Paul's two queries look different but they're <strong>the same operation at different zoom levels</strong>.
+    One slices the flywheel by channel to find underperforming levers.
+    The other decomposes a lever to isolate stakeholder resonance.
+    Both require <strong>one thing first</strong>: an ontology where Channel, Stakeholder, Motion, and Metric
+    are named, related, and queryable. That's Month 1. Everything else builds on it.
+  </div>
+</div>
+
+</body>
+</html>

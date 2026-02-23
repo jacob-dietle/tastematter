@@ -1,0 +1,17 @@
+{
+  "name": "tastematter-control-plane",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20251205.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.15",
+    "wrangler": "^4.53.0"
+  }
+}

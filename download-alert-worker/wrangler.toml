@@ -1,0 +1,20 @@
+name = "tastematter-download-alerts"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+account_id = "4c8353a21e0bfc69a1e036e223cba4d8"
+
+[triggers]
+crons = ["*/15 * * * *"]
+
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+head_sampling_rate = 1
+
+# Secrets (set via `printf "value" | wrangler secret put NAME`):
+# CF_ACCOUNT_ID       - Cloudflare account tag (for GraphQL API)
+# CF_API_TOKEN         - API token with Account Analytics:Read scope
+# NTFY_TOPIC           - ntfy.sh topic name for push notifications

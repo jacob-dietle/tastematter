@@ -8,7 +8,8 @@ declare global {
 		// interface PageState {}
 		interface Platform {
 			env?: {
-				// Cloudflare Pages bindings
+				CF_ACCESS_CLIENT_ID: string;
+				CF_ACCESS_CLIENT_SECRET: string;
 			};
 		}
 	}

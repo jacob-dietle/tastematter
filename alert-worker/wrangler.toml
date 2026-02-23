@@ -1,7 +1,14 @@
 name = "tastematter-alert-worker"
 main = "src/index.ts"
 compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
 account_id = "4c8353a21e0bfc69a1e036e223cba4d8"
+workers_dev = false
+
+# Custom domain (protected by CF Access)
+[[routes]]
+pattern = "api.tastematter.dev"
+custom_domain = true
 
 [triggers]
 crons = ["0 */4 * * *"]
@@ -9,7 +16,31 @@ crons = ["0 */4 * * *"]
 [[d1_databases]]
 binding = "ALERTS_DB"
 database_name = "tastematter-alerts"
-database_id = "TODO"
+database_id = "326e6f35-f971-46c9-ad6f-f332ff2dda1a"
+
+# R2 bucket for corpus storage (Phase 2: Context Publishing)
+[[r2_buckets]]
+binding = "CORPUS_BUCKET"
+bucket_name = "tastematter-corpus"
+
+# Durable Object: Corpus holder (Phase 2)
+[[durable_objects.bindings]]
+name = "CONTEXT_DO"
+class_name = "ContextDO"
+
+# Durable Object: MCP server (Phase 2, name must be MCP_OBJECT for McpAgent)
+[[durable_objects.bindings]]
+name = "MCP_OBJECT"
+class_name = "ContextMCP"
+
+# DO migrations
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ContextDO"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["ContextMCP"]
 
 [vars]
 OWNER_ID = "founder"
@@ -24,3 +55,4 @@ head_sampling_rate = 1
 
 # Secrets (set via `printf "value" | wrangler secret put NAME`):
 # KNOCK_API_KEY - Knock API key for triggering workflows
+# ANTHROPIC_API_KEY - Anthropic API key for agentic query (Phase 2)

@@ -100,3 +100,15 @@ tmpclaude-*
 # Test
 *.snap
 
+# Wrangler local state
+.wrangler/
+
+# Windows artifacts
+nul
+
+# Cloudflare dev secrets
+.dev.vars
+
+# Embedded repos (separate version control)
+public-repo/
+

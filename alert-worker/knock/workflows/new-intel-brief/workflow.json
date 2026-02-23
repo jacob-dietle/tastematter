@@ -1,0 +1,38 @@
+{
+  "name": "New Intel Brief",
+  "steps": [
+    {
+      "channel_key": "resend",
+      "channel_type": "email",
+      "ref": "email_1",
+      "template": {
+        "settings": {
+          "attachment_key": "attachments",
+          "layout_key": null
+        },
+        "subject": "{{ subject }}",
+        "html_body@": "email_1\\html_body.html"
+      },
+      "type": "channel"
+    },
+    {
+      "channel_key": "in-app",
+      "channel_type": "in_app_feed",
+      "ref": "in_app_feed_1",
+      "template": {
+        "action_url": "{{ url }}",
+        "markdown_body@": "in_app_feed_1\\markdown_body.md"
+      },
+      "type": "channel"
+    }
+  ],
+  "trigger_frequency": "every_trigger",
+  "__readonly": {
+    "environment": "development",
+    "key": "new-intel-brief",
+    "active": true,
+    "valid": true,
+    "created_at": "2026-02-16T19:06:32.094435Z"
+  },
+  "$schema": "https://schemas.knock.app/cli/workflow.json"
+}

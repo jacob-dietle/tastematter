@@ -15,6 +15,115 @@ export interface Env {
   ALERTS_DB: D1Database;
   KNOCK_API_KEY: string;
   OWNER_ID: string;
+  // Publishing (Phase 2)
+  CONTEXT_DO: DurableObjectNamespace;
+  MCP_OBJECT: DurableObjectNamespace;
+  CORPUS_BUCKET: R2Bucket;
+  ANTHROPIC_API_KEY: string;
+}
+
+// --- Corpus types (Phase 2: Context Publishing) ---
+
+export interface CorpusSnapshot {
+  version: string;
+  commit: string;
+  fileCount: number;
+  totalSize: number;
+  generatedAt: string;
+  files: Record<string, FileEntry>;
+  allPaths: string[];
+}
+
+export interface FileEntry {
+  path: string;
+  content: string;
+  size: number;
+  frontmatter?: {
+    tags?: string[];
+    title?: string;
+    description?: string;
+    [key: string]: any;
+  };
+}
+
+export interface GrepOptions {
+  caseInsensitive?: boolean;
+  contextLines?: number;
+  maxResults?: number;
+  maxMatchesPerFile?: number;
+}
+
+export interface GrepResult {
+  path: string;
+  matches: MatchDetail[];
+  score: number;
+}
+
+export interface MatchDetail {
+  line: number;
+  content: string;
+  context?: {
+    before: string[];
+    after: string[];
+  };
+}
+
+export interface ListOptions {
+  directories?: boolean;
+  files?: boolean;
+  maxResults?: number;
+}
+
+export interface ListResult {
+  path: string;
+  type: 'directory' | 'file';
+  depth: number;
+  matchedPattern: string;
+}
+
+// --- Query types (Phase 2) ---
+
+export interface QueryResult {
+  response: string;
+  conversationHistory: any[];
+  totalTurns: number;
+  duration: number;
+  model: string;
+}
+
+export interface StreamingQueryResult {
+  stream: ReadableStream<Uint8Array>;
+  finalResultPromise: Promise<QueryResult>;
+}
+
+export interface QueryOptions {
+  debug?: boolean;
+  onProgress?: (message: string) => void;
+  streaming?: boolean;
+}
+
+export interface QueryLogRow {
+  id: number;
+  engagement_id: string;
+  timestamp: string;
+  query: string;
+  response_length: number | null;
+  duration_ms: number | null;
+  tool_calls: number | null;
+  corpus_commit: string | null;
+  success: number;
+  error_message: string | null;
+}
+
+export interface InsertQueryLogInput {
+  engagement_id: string;
+  query: string;
+  response_length?: number;
+  duration_ms?: number;
+  tool_calls?: number;
+  corpus_commit?: string;
+  success?: number;
+  error_message?: string;
 }
 
 // --- D1 row types ---
@@ -147,6 +256,17 @@ export interface InsertActivityLogInput {
   event_type: string;
   message?: string;
   details?: string;
+}
+
+// --- /status Contract (what this worker returns to control plane) ---
+
+export interface WorkerStatusResponse {
+  identity: { worker: string; display_name: string; system_id?: string; account_id?: string; version?: string };
+  vitals: { status: 'ok' | 'degraded' | 'error'; started_at?: string; features?: Record<string, boolean> };
+  corpus?: { commit: string; file_count: number; loaded_at: string; source_repo?: string };
+  trail?: { last_deposit: string; at: string; type: string; detail?: string };
+  d1_health?: { total_executions: number; total_failures: number; failure_rate: string; last_execution?: { status: string; duration_ms: number; at: string }; last_failure?: { error: string; at: string } };
+  schedule?: { cron: string; last_run?: string; next_run?: string };
 }
 
 // --- Trigger function signature (dependency injection) ---

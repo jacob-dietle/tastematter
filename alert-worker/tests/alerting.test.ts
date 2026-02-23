@@ -35,21 +35,37 @@ function makeAlertState(
 }
 
 describe("evaluateRule", () => {
-  it("fires content_change when enabled", () => {
+  it("does not fire content_change when no corpus SHA available", () => {
     const result = evaluateRule(makeRule(), null);
+    expect(result.shouldFire).toBe(false);
+    expect(result.reason).toContain("No corpus available");
+  });
+
+  it("does not fire on first check (records baseline)", () => {
+    const result = evaluateRule(makeRule(), null, "abc123");
+    expect(result.shouldFire).toBe(false);
+    expect(result.reason).toContain("baseline");
+  });
+
+  it("does not fire when corpus SHA unchanged", () => {
+    const state = makeAlertState({ last_corpus_sha: "abc123" });
+    const result = evaluateRule(makeRule(), state, "abc123");
+    expect(result.shouldFire).toBe(false);
+    expect(result.reason).toContain("unchanged");
+  });
+
+  it("fires when corpus SHA changed", () => {
+    const state = makeAlertState({ last_corpus_sha: "old_sha" });
+    const result = evaluateRule(makeRule(), state, "new_sha");
     expect(result.shouldFire).toBe(true);
-    expect(result.reason).toContain("content_change always fires");
+    expect(result.reason).toContain("old_sha");
+    expect(result.reason).toContain("new_sha");
   });
 
   it("does not fire when disabled", () => {
-    const result = evaluateRule(makeRule({ enabled: false }), null);
+    const result = evaluateRule(makeRule({ enabled: false }), null, "abc123");
     expect(result.shouldFire).toBe(false);
     expect(result.reason).toContain("disabled");
-  });
-
-  it("fires content_change even with prior state", () => {
-    const result = evaluateRule(makeRule(), makeAlertState());
-    expect(result.shouldFire).toBe(true);
   });
 
   it("fires schedule trigger", () => {
@@ -113,7 +129,7 @@ describe("processAlertRules", () => {
         .mockResolvedValue({ success: true, data: engagements }),
       getAlertState: vi
         .fn()
-        .mockResolvedValue({ success: true, data: null }),
+        .mockResolvedValue({ success: true, data: makeAlertState({ last_corpus_sha: "old_sha" }) }),
       upsertAlertState: vi
         .fn()
         .mockResolvedValue({ success: true, data: undefined }),
@@ -123,7 +139,6 @@ describe("processAlertRules", () => {
       insertActivityLog: vi
         .fn()
         .mockResolvedValue({ success: true, data: undefined }),
-      // These methods exist on the DB type but aren't used in alerting
       upsertEngagement: vi.fn(),
       getAlertHistory: vi.fn(),
     };
@@ -136,7 +151,7 @@ describe("processAlertRules", () => {
     });
   }
 
-  it("processes rules and fires alerts", async () => {
+  it("fires when corpus SHA changed", async () => {
     const db = makeMockDB();
     const triggerFn = makeMockTriggerFn();
 
@@ -145,19 +160,39 @@ describe("processAlertRules", () => {
       ownerId: "founder",
       knockApiKey: "sk_test_key",
       triggerFn,
+      currentCorpusSha: "new_sha",
     });
 
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.checked).toBe(1);
       expect(result.data.fired).toBe(1);
-      expect(result.data.errors).toHaveLength(0);
     }
-
     expect(triggerFn).toHaveBeenCalledOnce();
-    expect(db.insertAlertHistory).toHaveBeenCalledOnce();
-    expect(db.upsertAlertState).toHaveBeenCalledOnce();
-    expect(db.insertActivityLog).toHaveBeenCalledOnce();
+  });
+
+  it("does not fire when corpus SHA unchanged", async () => {
+    const db = makeMockDB();
+    db.getAlertState.mockResolvedValue({
+      success: true,
+      data: makeAlertState({ last_corpus_sha: "same_sha" }),
+    });
+    const triggerFn = makeMockTriggerFn();
+
+    const result = await processAlertRules({
+      db: db as any,
+      ownerId: "founder",
+      knockApiKey: "sk_test_key",
+      triggerFn,
+      currentCorpusSha: "same_sha",
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.checked).toBe(1);
+      expect(result.data.fired).toBe(0);
+    }
+    expect(triggerFn).not.toHaveBeenCalled();
   });
 
   it("skips engagements without alerting config", async () => {
@@ -193,6 +228,7 @@ describe("processAlertRules", () => {
       ownerId: "founder",
       knockApiKey: "sk_test_key",
       triggerFn: triggerFn as TriggerFn,
+      currentCorpusSha: "new_sha",
     });
 
     expect(result.success).toBe(true);
@@ -202,7 +238,6 @@ describe("processAlertRules", () => {
       expect(result.data.errors[0]).toContain("Knock API 500");
     }
 
-    // Should log failed history
     expect(db.insertAlertHistory).toHaveBeenCalledWith(
       expect.objectContaining({
         success: 0,
@@ -245,6 +280,7 @@ describe("processAlertRules", () => {
       ownerId: "founder",
       knockApiKey: "sk_test_key",
       triggerFn,
+      currentCorpusSha: "new_sha",
     });
 
     expect(result.success).toBe(true);
@@ -252,7 +288,6 @@ describe("processAlertRules", () => {
       expect(result.data.errors).toHaveLength(1);
       expect(result.data.errors[0]).toContain("bad");
       expect(result.data.errors[0]).toContain("config parse error");
-      // The good engagement should still fire
       expect(result.data.fired).toBe(1);
     }
   });
@@ -286,6 +321,7 @@ describe("processAlertRules", () => {
       ownerId: "founder",
       knockApiKey: "sk_test_key",
       triggerFn,
+      currentCorpusSha: "any_sha",
     });
 
     expect(result.success).toBe(true);

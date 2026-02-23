@@ -15,28 +15,39 @@ interface EvaluateResult {
 
 /**
  * Evaluates a single watch rule against its prior state.
- * Phase 1 simplified: content_change always fires (no corpus SHA diff yet).
+ * content_change compares current corpus SHA against last known SHA.
  * Disabled rules never fire.
  */
 export function evaluateRule(
   rule: WatchRule,
-  priorState: AlertStateRow | null
+  priorState: AlertStateRow | null,
+  currentCorpusSha?: string,
 ): EvaluateResult {
   if (!rule.enabled) {
     return { shouldFire: false, reason: "Rule is disabled" };
   }
 
-  // Phase 1: content_change always fires (no corpus SHA comparison yet)
   if (rule.trigger === "content_change") {
-    return { shouldFire: true, reason: "Phase 1: content_change always fires" };
+    if (!currentCorpusSha) {
+      return { shouldFire: false, reason: "No corpus available to check" };
+    }
+    const lastSha = priorState?.last_corpus_sha;
+    if (!lastSha) {
+      return { shouldFire: false, reason: "First check — recording baseline SHA" };
+    }
+    if (currentCorpusSha === lastSha) {
+      return { shouldFire: false, reason: `Corpus unchanged (${currentCorpusSha.slice(0, 8)})` };
+    }
+    return {
+      shouldFire: true,
+      reason: `Corpus changed: ${lastSha.slice(0, 8)} → ${currentCorpusSha.slice(0, 8)}`,
+    };
   }
 
-  // Phase 1: schedule always fires
   if (rule.trigger === "schedule") {
     return { shouldFire: true, reason: "Scheduled rule fires on cron" };
   }
 
-  // Other trigger types not yet implemented
   return {
     shouldFire: false,
     reason: `Trigger type '${rule.trigger}' not yet implemented`,
@@ -48,6 +59,7 @@ interface ProcessAlertRulesInput {
   ownerId: string;
   knockApiKey: string;
   triggerFn: TriggerFn;
+  currentCorpusSha?: string;
 }
 
 interface ProcessAlertRulesOutput {
@@ -63,7 +75,7 @@ interface ProcessAlertRulesOutput {
 export async function processAlertRules(
   input: ProcessAlertRulesInput
 ): Promise<Result<ProcessAlertRulesOutput>> {
-  const { db, ownerId, knockApiKey, triggerFn } = input;
+  const { db, ownerId, knockApiKey, triggerFn, currentCorpusSha } = input;
   let fired = 0;
   let checked = 0;
   const errors: string[] = [];
@@ -105,7 +117,7 @@ export async function processAlertRules(
         );
         const priorState = stateResult.success ? stateResult.data : null;
 
-        const evalResult = evaluateRule(rule, priorState);
+        const evalResult = evaluateRule(rule, priorState, currentCorpusSha);
 
         // Update last_checked_at
         const now = new Date().toISOString();
@@ -116,7 +128,7 @@ export async function processAlertRules(
           last_fired_at: evalResult.shouldFire
             ? now
             : priorState?.last_fired_at ?? undefined,
-          last_corpus_sha: priorState?.last_corpus_sha ?? undefined,
+          last_corpus_sha: currentCorpusSha ?? priorState?.last_corpus_sha ?? undefined,
         });
 
         if (!evalResult.shouldFire) {

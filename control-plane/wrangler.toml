@@ -1,0 +1,33 @@
+name = "tastematter-control-plane"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+account_id = "4c8353a21e0bfc69a1e036e223cba4d8"
+workers_dev = false
+
+[[routes]]
+pattern = "control.tastematter.dev"
+custom_domain = true
+
+[triggers]
+crons = ["0 * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "tastematter-control"
+database_id = "b656b62f-c44d-4188-abbe-1692a078419d"
+
+[vars]
+OWNER_ID = "founder"
+
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+head_sampling_rate = 1
+
+# Secrets (set via `printf "value" | wrangler secret put NAME`):
+# KNOCK_API_KEY - For worker health alerts
+# CF_ACCESS_CLIENT_ID - Service token for polling CF Access-protected workers
+# CF_ACCESS_CLIENT_SECRET - Service token secret
