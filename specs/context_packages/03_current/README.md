@@ -5,7 +5,7 @@ Context packages documenting active Tastematter development.
 ## Overview
 
 **Date Range:** 2026-01-05 to 2026-02-24
-**Package Count:** 47
+**Package Count:** 48
 **Theme:** Rust port, performance optimization, HTTP transport, bug fixes, migration, CLI distribution, GTM strategy, temporal edges, global trail sync
 
 ## Narrative
@@ -70,11 +70,12 @@ This chain documents the Rust migration and refinement:
 | 45 | 2026-02-24 | **GLOBAL_TRAIL_WORKER_AND_RUST_PUSH** (CF Worker + D1 deployed and verified, Rust trail module built with auto-push in daemon sync, 21+13 tests) |
 | 46 | 2026-02-24 | **TRAIL_FIRST_PUSH_AND_FEATURE_FLAGS** (24K rows pushed to D1, D1 batch fix, trail CLI subcommands, Cargo feature flags, release skill updated) |
 | 47 | 2026-02-25 | **TRAIL_PULL_AND_AUTO_SYNC** (pull.rs built mirroring push, auto-pull in daemon Phase 6, 24K rows pulled, incremental sync, UNIQUE index on file_access_events) |
+| 48 | 2026-02-25 | **VPS_TRAIL_SETUP** (VPS onboarding guide: build, config, pull, daemon, round-trip verification) |
 
 ## Current State
 
-**Latest:** [[47_2026-02-25_TRAIL_PULL_AND_AUTO_SYNC]]
-**Status:** Trail fully bidirectional. Auto-push (Phase 5) + auto-pull (Phase 6) in daemon sync. 24K+ rows synced both directions, incremental. Feature-flagged out of public binary. Next: VPS setup and round-trip verification.
+**Latest:** [[48_2026-02-25_VPS_TRAIL_SETUP]]
+**Status:** Trail fully bidirectional. VPS setup guide written. Next: execute setup on VPS and verify round-trip.
 
 ## Related
 
