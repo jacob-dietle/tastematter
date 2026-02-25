@@ -294,20 +294,17 @@ mod tests {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
 
         // Create _metadata table
-        sqlx::query(
-            "CREATE TABLE _metadata (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        sqlx::query("CREATE TABLE _metadata (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT)")
+            .execute(&pool)
+            .await
+            .unwrap();
 
         // No last_trail_pull entry — should default to epoch
-        let since: Option<(String,)> = sqlx::query_as(
-            "SELECT value FROM _metadata WHERE key = 'last_trail_pull'",
-        )
-        .fetch_optional(&pool)
-        .await
-        .unwrap();
+        let since: Option<(String,)> =
+            sqlx::query_as("SELECT value FROM _metadata WHERE key = 'last_trail_pull'")
+                .fetch_optional(&pool)
+                .await
+                .unwrap();
 
         assert!(since.is_none());
     }
@@ -316,12 +313,10 @@ mod tests {
     async fn test_metadata_write_and_read() {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
 
-        sqlx::query(
-            "CREATE TABLE _metadata (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
+        sqlx::query("CREATE TABLE _metadata (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT)")
+            .execute(&pool)
+            .await
+            .unwrap();
 
         // Write last_trail_pull
         sqlx::query(
@@ -333,12 +328,11 @@ mod tests {
         .unwrap();
 
         // Read it back
-        let (val,): (String,) = sqlx::query_as(
-            "SELECT value FROM _metadata WHERE key = 'last_trail_pull'",
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let (val,): (String,) =
+            sqlx::query_as("SELECT value FROM _metadata WHERE key = 'last_trail_pull'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
 
         assert_eq!(val, "2026-02-24T12:00:00Z");
     }
@@ -382,11 +376,10 @@ mod tests {
             .await
             .unwrap();
 
-        let (count,): (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM claude_sessions")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM claude_sessions")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
         assert_eq!(count, 1);
 
         let (path,): (String,) =
@@ -441,11 +434,10 @@ mod tests {
         .await
         .unwrap();
 
-        let (count,): (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM file_access_events")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM file_access_events")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
         assert_eq!(count, 1, "INSERT OR IGNORE should skip duplicate");
     }
 }

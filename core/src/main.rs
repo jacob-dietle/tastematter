@@ -529,10 +529,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 let mut trail_msg = String::new();
                 if result.trail_rows_pushed > 0 {
-                    trail_msg.push_str(&format!(", {} trail rows pushed", result.trail_rows_pushed));
+                    trail_msg
+                        .push_str(&format!(", {} trail rows pushed", result.trail_rows_pushed));
                 }
                 if result.trail_rows_pulled > 0 {
-                    trail_msg.push_str(&format!(", {} trail rows pulled", result.trail_rows_pulled));
+                    trail_msg
+                        .push_str(&format!(", {} trail rows pulled", result.trail_rows_pulled));
                 }
                 eprintln!(
                     "\nSync complete: {} commits, {} sessions, {} chains, {} files indexed{} in {}ms",
@@ -560,10 +562,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         Ok(result) => {
                             let mut trail_msg = String::new();
                             if result.trail_rows_pushed > 0 {
-                                trail_msg.push_str(&format!(", trail push:{}", result.trail_rows_pushed));
+                                trail_msg.push_str(&format!(
+                                    ", trail push:{}",
+                                    result.trail_rows_pushed
+                                ));
                             }
                             if result.trail_rows_pulled > 0 {
-                                trail_msg.push_str(&format!(", trail pull:{}", result.trail_rows_pulled));
+                                trail_msg.push_str(&format!(
+                                    ", trail pull:{}",
+                                    result.trail_rows_pulled
+                                ));
                             }
                             eprintln!(
                                 "[{}] Sync: {} commits, {} sessions, {} chains{} in {}ms",
@@ -1534,8 +1542,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 TrailCommands::Pull => {
-                    use tastematter::trail::pull::pull_trail;
                     use tastematter::storage::Database;
+                    use tastematter::trail::pull::pull_trail;
 
                     if !config.trail.is_configured() {
                         eprintln!("Trail not configured. Run `tastematter trail status` for setup instructions.");

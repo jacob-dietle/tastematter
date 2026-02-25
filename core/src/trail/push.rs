@@ -404,9 +404,7 @@ mod tests {
     #[tokio::test]
     async fn test_push_skips_when_not_configured() {
         // Create an in-memory SQLite pool for testing
-        let pool = SqlitePool::connect("sqlite::memory:")
-            .await
-            .unwrap();
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
 
         let config = TrailConfig::default(); // not configured
         let result = push_trail(&pool, &config).await;
