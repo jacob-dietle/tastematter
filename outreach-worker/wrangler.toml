@@ -1,0 +1,42 @@
+# ============================================================================
+# Tastematter Outreach Worker
+# Kondo webhook receiver + outreach pipeline tracker
+# ============================================================================
+
+name = "tastematter-outreach-worker"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+
+# Personal account (Jacob@jdietle.me)
+account_id = "4c8353a21e0bfc69a1e036e223cba4d8"
+
+workers_dev = true
+
+# ============================================================================
+# D1 Database Binding
+# Create with: npx wrangler d1 create tastematter-outreach
+# ============================================================================
+[[d1_databases]]
+binding = "DB"
+database_name = "tastematter-outreach"
+database_id = "bb343c06-2c91-4233-a11a-e273c50887fe"
+
+# ============================================================================
+# Observability
+# ============================================================================
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+invocation_logs = true
+
+# ============================================================================
+# Secrets (set via: printf "value" | npx wrangler secret put NAME)
+#
+# Required:
+#   CF_ACCESS_CLIENT_ID     - Service token client ID
+#   CF_ACCESS_CLIENT_SECRET - Service token client secret
+#   WEBHOOK_SECRET          - Kondo webhook verification secret
+# ============================================================================

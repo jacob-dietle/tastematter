@@ -41,11 +41,12 @@ This chain tracks development of:
 | 05 | 2026-02-20 | Control plane deployed, infra hardened (CF Access, custom domains, SSR), alert stub fixed, cloudflare-fullstack-engineering skill created |
 | 06 | 2026-02-20 | Stigmergic Control Plane v2: system grouping, /status contract, Knock on system transitions, 5 specs, 152 tests. Phases 1-3 via coordinated agent team. |
 | 07 | 2026-02-20 | Full registry (11 workers, 3 accounts), dashboard deployed, first cron poll, self-poll + fallback bugs fixed. 5 workers need /health endpoints. |
+| 08 | 2026-02-23 | Epistemic grounding: 5→3 workers at 404, root cause (wrong URL + stale deploys), monorepo committed (6d44ee3), agent team created, plan approved. |
 
 ## Current State
 
-Latest package: [[07_2026-02-20_FULL_REGISTRY_AND_DASHBOARD_DEPLOYED]]
-Status: Spec 21 complete (4/4 phases). 11 workers registered across 3 accounts, 5 systems. Dashboard live. 5 workers returning 404 (no /health route yet). Next: add /status endpoints to workers via parallel agent team.
+Latest package: [[08_2026-02-23_STATUS_ENDPOINTS_GROUNDED_TEAM_READY]]
+Status: 3 workers need /status endpoints (nickel-conference-pr, resy-finder, linkedin-post-alerting). Agent team `status-endpoints` created with shared task list. Plan approved. Next session: spawn teammates, implement, deploy, verify.
 
 ## Implementation Phases
 

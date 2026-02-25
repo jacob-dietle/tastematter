@@ -1,0 +1,4 @@
+# Copy to .dev.vars and fill in values for local development
+CF_ACCESS_CLIENT_ID=your-client-id
+CF_ACCESS_CLIENT_SECRET=your-client-secret
+WEBHOOK_SECRET=your-webhook-secret

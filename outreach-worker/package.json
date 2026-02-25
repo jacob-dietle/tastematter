@@ -1,0 +1,22 @@
+{
+  "name": "tastematter-outreach-worker",
+  "version": "1.0.0",
+  "description": "Kondo webhook receiver + outreach pipeline tracker for Tastematter Wave 2",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "build": "tsc --noEmit",
+    "db:migrate:remote": "wrangler d1 migrations apply tastematter-outreach --remote",
+    "db:migrate:local": "wrangler d1 migrations apply tastematter-outreach --local"
+  },
+  "keywords": ["cloudflare-workers", "tastematter", "outreach"],
+  "license": "ISC",
+  "packageManager": "pnpm@10.8.0",
+  "dependencies": {},
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20251205.0",
+    "typescript": "^5.9.3",
+    "wrangler": "^4.53.0"
+  }
+}

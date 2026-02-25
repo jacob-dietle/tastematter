@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Tastematter - Give Claude Memory of Your Work</title>
-  <meta name="description" content="Every Claude Code session starts fresh. Your work doesn't. Tastematter gives Claude memory of what you've been working on.">
+  <title>Tastematter - Context Trails for Claude Code</title>
+  <meta name="description" content="Your Claude Code sessions generate invisible patterns — which files are hot, where attention shifted, what drifted from the plan. Tastematter reveals them.">
   <link rel="icon" href="./assets/orange_icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./styles.css">
 </head>
@@ -24,16 +24,16 @@
     </div>
   </header>
 
-  <!-- Hero -->
+  <!-- 1. HERO -->
   <section class="hero">
     <div class="container">
       <h1 class="hero-title">
-        <span class="hero-title-line">EVERY SESSION</span>
-        <span class="hero-title-line">STARTS FRESH.</span>
-        <span class="hero-title-line" style="color: var(--primary);">YOUR WORK DOESN'T.</span>
+        <span class="hero-title-line">YOUR WORK</span>
+        <span class="hero-title-line">LEAVES TRAILS</span>
+        <span class="hero-title-line" style="color: var(--primary);">YOU CAN'T SEE.</span>
       </h1>
       <p class="hero-subtitle">
-        Tastematter gives Claude memory of your work. Query what you've been working on, find related files, never lose context again.
+        Hundreds of Claude Code sessions. Thousands of file touches. Invisible patterns holding your codebase together. Tastematter reveals them.
       </p>
 
       <!-- Terminal Install Window -->
@@ -69,50 +69,101 @@
         <a href="https://github.com/tastesystems/tastematter" class="btn btn-primary btn-lg" target="_blank">
           View on GitHub
         </a>
-        <a href="https://cal.com/jacobdietle/tastematter-cli-setup" class="btn btn-secondary btn-lg" target="_blank">
-          Get Setup Help
-        </a>
       </div>
     </div>
   </section>
 
-  <!-- Pain Points -->
-  <section class="section" style="background: var(--bg-secondary);">
-    <div class="container">
-      <h2 class="text-center mb-8">SOUND_FAMILIAR?</h2>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-6" style="max-width: 800px; margin: 0 auto;">
-        <div class="card">
-          <h3 class="card-title" style="font-size: 1.25rem;">"Where was I?"</h3>
-          <p class="card-text">
-            You return to a project after a few days. Which files were you working on? What was the state of things?
-          </p>
+  <!-- 2. THE TRADEOFF -->
+  <section class="section" style="background: var(--surface);">
+    <div class="container" style="max-width: 750px; margin: 0 auto;">
+      <h2 class="text-center mb-8">YOU TRADED VISIBILITY FOR LEVERAGE</h2>
+
+      <div class="code-block" style="margin-bottom: 2rem; padding: 0; overflow: hidden;">
+        <!-- Y-axis label -->
+        <div style="text-align: center; padding: 1rem 1rem 0.5rem; font-family: 'VCR OSD Mono', monospace; font-size: 0.8rem; letter-spacing: 0.1em; color: #E2E8F0;">LEVERAGE</div>
+        <!-- Quadrant grid -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; font-family: 'VCR OSD Mono', monospace; font-size: 0.75rem; line-height: 1.5; margin: 0 1.5rem;">
+          <!-- Top-left: Agentic -->
+          <div style="border-right: 1px solid #444; border-bottom: 1px solid #444; padding: 1.25rem;">
+            <div style="color: #6B7280; font-size: 0.65rem; margin-bottom: 0.75rem;">HIGH LEVERAGE · LOW VISION</div>
+            <div style="color: #9CA3AF;">× Agentic Workflows</div>
+          </div>
+          <!-- Top-right: Tastematter -->
+          <div style="border-bottom: 1px solid #444; padding: 1.25rem;">
+            <div style="color: #6B7280; font-size: 0.65rem; margin-bottom: 0.75rem;">HIGH LEVERAGE · HIGH VISION</div>
+            <div style="color: #D35400; font-size: 0.875rem;">★ TASTEMATTER</div>
+            <div style="color: #D35400; font-size: 0.7rem; margin-top: 0.25rem;">have both</div>
+          </div>
+          <!-- Bottom-left: Vibe Coding -->
+          <div style="border-right: 1px solid #444; padding: 1.25rem;">
+            <div style="color: #6B7280; font-size: 0.65rem; margin-bottom: 0.75rem;">LOW LEVERAGE · LOW VISION</div>
+            <div style="color: #9CA3AF;">× Vibe Coding</div>
+          </div>
+          <!-- Bottom-right: Manual Coding -->
+          <div style="padding: 1.25rem;">
+            <div style="color: #6B7280; font-size: 0.65rem; margin-bottom: 0.75rem;">LOW LEVERAGE · HIGH VISION</div>
+            <div style="color: #9CA3AF;">× Manual Coding</div>
+          </div>
         </div>
-        <div class="card">
-          <h3 class="card-title" style="font-size: 1.25rem;">"Which files matter?"</h3>
-          <p class="card-text">
-            50+ files in your codebase. Some you've touched once, some you live in. But which ones?
-          </p>
-        </div>
-        <div class="card">
-          <h3 class="card-title" style="font-size: 1.25rem;">"I have to re-explain everything"</h3>
-          <p class="card-text">
-            Every Claude session starts blank. It doesn't know you spent 3 days on auth last week.
-          </p>
-        </div>
-        <div class="card">
-          <h3 class="card-title" style="font-size: 1.25rem;">"What else should I look at?"</h3>
-          <p class="card-text">
-            Files are implicitly connected. When you touch one, there are others that go with it.
-          </p>
-        </div>
+        <!-- X-axis label -->
+        <div style="text-align: right; padding: 0.5rem 1.5rem 1rem; font-family: 'VCR OSD Mono', monospace; font-size: 0.8rem; letter-spacing: 0.1em; color: #E2E8F0;">VISION →</div>
+      </div>
+
+      <div style="color: var(--muted); font-size: 1.0625rem; line-height: 1.8;">
+        <p style="margin-bottom: 1.25rem;">
+          Before AI coding tools, you typed every line. You knew what happened.
+        </p>
+        <p style="margin-bottom: 1.25rem;">
+          With Claude Code, you ship 10x faster — but the agent touches files you don't track, builds things you forget about, and your plan diverges from reality without anyone catching it.
+        </p>
+        <p style="color: var(--foreground); font-weight: bold;">
+          The more agentic your workflow, the more invisible your context becomes.
+        </p>
       </div>
     </div>
   </section>
 
-  <!-- Demo Conversation -->
+  <!-- 3. DARK MATTER -->
   <section class="section">
     <div class="container">
-      <h2 class="text-center mb-8">SEE_IT_IN_ACTION</h2>
+      <h2 class="text-center mb-4">THE DARK MATTER OF YOUR CODEBASE</h2>
+      <p class="text-center text-muted mb-8" style="max-width: 550px; margin: 0 auto 2rem;">
+        It's there. It's holding everything together. You just can't see it.
+      </p>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6" style="max-width: 800px; margin: 0 auto;">
+        <div class="card">
+          <h3 class="card-title">WHAT'S ACTUALLY HOT</h3>
+          <p class="card-text">
+            Not what you think you're working on — what the data says. 47 touches across 12 sessions this week. That's where your attention actually went.
+          </p>
+        </div>
+        <div class="card">
+          <h3 class="card-title">WHERE ATTENTION SHIFTED</h3>
+          <p class="card-text">
+            Your plan said API redesign. Your trails say 89% of work went to auth. The pivot happened Tuesday. Nobody noticed.
+          </p>
+        </div>
+        <div class="card">
+          <h3 class="card-title">WHAT GOT ABANDONED</h3>
+          <p class="card-text">
+            routes.ts was hot two weeks ago. Now it's cold. The migration hasn't been touched in 11 days. Work cooled off and nobody flagged it.
+          </p>
+        </div>
+        <div class="card">
+          <h3 class="card-title">WHAT MOVES TOGETHER</h3>
+          <p class="card-text">
+            Every time you touch middleware.ts, you also touch jwt.ts. They're implicitly connected. Your agent should know that. Without trails, it doesn't.
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. SEE THE TRAILS -->
+  <section class="section" style="background: var(--surface);">
+    <div class="container">
+      <h2 class="text-center mb-8">SEE THE TRAILS</h2>
 
       <div class="terminal" style="max-width: 800px; margin: 0 auto;">
         <div class="terminal-header">
@@ -124,183 +175,36 @@
           <span class="terminal-title">CLAUDE CODE</span>
           <div style="width: 52px;"></div>
         </div>
-        <div class="terminal-body terminal-demo">
-          <div class="terminal-line">
-            <span style="color: #4ecdc4;">You:</span>
-            <span style="color: #ccc;"> What was I working on for the auth feature?</span>
-          </div>
-          <div class="terminal-line mt-4">
-            <span style="color: #ff6b6b;">Claude:</span>
-            <span style="color: #ccc;"> Let me check your recent activity...</span>
-          </div>
-          <div class="terminal-line terminal-indent mt-2">
-            <span class="terminal-comment">[runs: tastematter query flex --files "*auth*" --time 14d]</span>
-          </div>
-          <div class="terminal-line terminal-indent mt-4">
-            <span style="color: #ccc;">You've been focused on:</span>
-          </div>
-          <div class="terminal-line terminal-indent">
-            <span style="color: var(--primary);">•</span>
-            <span style="color: #ccc;"> src/auth/middleware.ts</span>
-            <span class="terminal-comment"> (12 sessions, 2 days ago)</span>
-          </div>
-          <div class="terminal-line terminal-indent">
-            <span style="color: var(--primary);">•</span>
-            <span style="color: #ccc;"> src/auth/jwt.ts</span>
-            <span class="terminal-comment"> (8 sessions)</span>
-          </div>
-          <div class="terminal-line terminal-indent">
-            <span style="color: var(--primary);">•</span>
-            <span style="color: #ccc;"> tests/auth.test.ts</span>
-            <span class="terminal-comment"> (6 sessions)</span>
-          </div>
-          <div class="terminal-line terminal-indent mt-4">
-            <span style="color: #ccc;">Your last session touched middleware.ts and jwt.ts together.</span>
-          </div>
-          <div class="terminal-line terminal-indent">
-            <span style="color: #ccc;">Want me to continue where you left off?</span>
-          </div>
+        <div class="terminal-body">
+          <pre style="font-family: inherit; font-size: 0.85rem; line-height: 1.7; margin: 0; color: var(--foreground); white-space: pre; overflow-x: auto;"><span style="color: #4ecdc4;">You:</span> What was I working on this week?
+
+<span style="color: #ff6b6b;">Claude:</span> Let me check your context trails...
+<span style="color: var(--muted);">[runs: tastematter context "my-project"]</span>
+
+Your trails show:
+
+<span style="color: #22C55E;">HOT</span>   middleware.ts  <span style="color: #22C55E;">##############</span><span style="color: var(--muted);">......</span>  47 · 12 sessions
+<span style="color: #22C55E;">HOT</span>   jwt.ts         <span style="color: #22C55E;">##########</span><span style="color: var(--muted);">..........</span>  31 · w/ middleware
+<span style="color: #F59E0B;">WARM</span>  auth.test.ts   <span style="color: #F59E0B;">######</span><span style="color: var(--muted);">..............</span>  22 · 6 sessions
+<span style="color: #EF4444;">COLD</span>  routes.ts      <span style="color: var(--muted);">##..................</span>   3 · 8 days silent
+
+<span style="color: #EF4444;">DRIFT</span>
+Plan: "API redesign" -> Reality: 89% auth/
+routes.ts abandoned since day 11
+
+Continuing from middleware.ts?</pre>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- How It Works - Information Hierarchy -->
-  <section class="section" style="background: var(--bg-secondary);">
-    <div class="container">
-      <h2 class="text-center mb-8">HOW_IT_WORKS</h2>
-      <p class="text-center text-muted mb-8" style="max-width: 600px; margin: 0 auto 2rem;">
-        Your work exists at three levels. Claude can't see across them. Tastematter can.
-      </p>
-
-      <div class="hierarchy-diagram" style="display: flex; flex-direction: column; align-items: center; max-width: 600px; margin: 0 auto;">
-        <!-- Workstreams Layer - Smallest (top of pyramid) -->
-        <div class="hierarchy-box hierarchy-top" style="background: var(--bg); border: 2px solid var(--primary); border-radius: 8px; padding: 1.25rem; text-align: center; width: 60%;">
-          <div style="font-family: var(--font-mono); font-size: 0.875rem; color: var(--primary); margin-bottom: 0.5rem;">WORKSTREAMS</div>
-          <div style="display: flex; gap: 0.5rem; justify-content: center; margin-bottom: 0.5rem; flex-wrap: wrap;">
-            <span class="hierarchy-tag" style="background: var(--bg-secondary); padding: 0.4rem 0.75rem; border-radius: 4px; font-size: 0.75rem;">auth feature</span>
-            <span class="hierarchy-tag" style="background: var(--bg-secondary); padding: 0.4rem 0.75rem; border-radius: 4px; font-size: 0.75rem;">api redesign</span>
-          </div>
-          <div style="font-size: 0.7rem; color: var(--text-muted);">[ COHERENT ]</div>
-        </div>
-
-        <!-- Arrow Down/Up -->
-        <div class="hierarchy-arrow" style="text-align: center; padding: 0.5rem 0; color: var(--text-muted);">
-          <div style="font-size: 1.25rem;">▲ ▼</div>
-          <div style="font-size: 0.65rem; font-family: var(--font-mono); color: var(--primary);">TASTEMATTER</div>
-        </div>
-
-        <!-- Sessions Layer - Medium -->
-        <div class="hierarchy-box hierarchy-mid" style="background: var(--bg); border: 2px solid #666; border-radius: 8px; padding: 1.25rem; text-align: center; width: 80%;">
-          <div style="font-family: var(--font-mono); font-size: 0.875rem; color: #888; margin-bottom: 0.5rem;">SESSIONS</div>
-          <div style="display: flex; gap: 0.4rem; justify-content: center; margin-bottom: 0.5rem; flex-wrap: wrap;">
-            <span class="hierarchy-tag" style="background: var(--bg-secondary); padding: 0.3rem 0.6rem; border-radius: 4px; font-size: 0.7rem;">Mon</span>
-            <span class="hierarchy-tag" style="background: var(--bg-secondary); padding: 0.3rem 0.6rem; border-radius: 4px; font-size: 0.7rem;">Tue</span>
-            <span class="hierarchy-tag" style="background: var(--bg-secondary); padding: 0.3rem 0.6rem; border-radius: 4px; font-size: 0.7rem;">Wed</span>
-            <span class="hierarchy-tag" style="background: var(--bg-secondary); padding: 0.3rem 0.6rem; border-radius: 4px; font-size: 0.7rem;">Thu</span>
-          </div>
-          <div style="font-size: 0.7rem; color: var(--text-muted);">[ SCATTERED ]</div>
-        </div>
-
-        <!-- Arrow Down/Up -->
-        <div class="hierarchy-arrow" style="text-align: center; padding: 0.5rem 0; color: var(--text-muted);">
-          <div style="font-size: 1.25rem;">▲ ▼</div>
-          <div style="font-size: 0.65rem; font-family: var(--font-mono); color: var(--primary);">TASTEMATTER</div>
-        </div>
-
-        <!-- JSONL Layer - Largest (bottom of pyramid) -->
-        <div class="hierarchy-box hierarchy-bottom" style="background: var(--bg); border: 2px solid #444; border-radius: 8px; padding: 1.25rem; text-align: center; width: 100%;">
-          <div style="font-family: var(--font-mono); font-size: 0.875rem; color: #666; margin-bottom: 0.5rem;">JSONL DATA</div>
-          <div style="display: flex; gap: 0.25rem; justify-content: center; flex-wrap: wrap; margin-bottom: 0.5rem;">
-            <span style="background: #333; padding: 0.2rem 0.4rem; border-radius: 2px; font-size: 0.55rem; color: #555;">░░░</span>
-            <span style="background: #333; padding: 0.2rem 0.4rem; border-radius: 2px; font-size: 0.55rem; color: #555;">░░░</span>
-            <span style="background: #333; padding: 0.2rem 0.4rem; border-radius: 2px; font-size: 0.55rem; color: #555;">░░░</span>
-            <span style="background: #333; padding: 0.2rem 0.4rem; border-radius: 2px; font-size: 0.55rem; color: #555;">░░░</span>
-            <span style="background: #333; padding: 0.2rem 0.4rem; border-radius: 2px; font-size: 0.55rem; color: #555;">░░░</span>
-            <span style="background: #333; padding: 0.2rem 0.4rem; border-radius: 2px; font-size: 0.55rem; color: #555;">░░░</span>
-            <span style="background: #333; padding: 0.2rem 0.4rem; border-radius: 2px; font-size: 0.55rem; color: #555;">░░░</span>
-            <span style="background: #333; padding: 0.2rem 0.4rem; border-radius: 2px; font-size: 0.55rem; color: #555;">░░░</span>
-          </div>
-          <div style="font-size: 0.7rem; color: var(--text-muted);">[ FRAGMENTED ]</div>
-        </div>
-      </div>
-
-      <p class="text-center mt-8" style="max-width: 500px; margin: 2rem auto 0; font-size: 0.9rem; color: var(--text-muted);">
-        <strong style="color: var(--text);">One workstream = many sessions = hundreds of JSONL entries.</strong><br>
-        Tastematter lets Claude navigate the full hierarchy.
-      </p>
-    </div>
-  </section>
-
-  <!-- Features (Benefits-focused) -->
-  <section class="features section">
-    <div class="container">
-      <h2 class="features-title">WHAT_YOU_GET</h2>
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-
-        <div class="card">
-          <h3 class="card-title">FIND_HOT_FILES</h3>
-          <p class="card-text">
-            "What am I actually working on?" Get your most-accessed files in 2 seconds. Filter by time, pattern, or project.
-          </p>
-        </div>
-
-        <div class="card">
-          <h3 class="card-title">SEE_RELATIONSHIPS</h3>
-          <p class="card-text">
-            Files that get accessed together belong together. Find implicit connections you didn't know existed.
-          </p>
-        </div>
-
-        <div class="card">
-          <h3 class="card-title">TRACK_HISTORY</h3>
-          <p class="card-text">
-            "What did I do last week?" See your work across sessions. Never lose track of where you left off.
-          </p>
-        </div>
-
-      </div>
-    </div>
-  </section>
-
-  <!-- Quick Start -->
+  <!-- 5. RESOLUTION + INSTALL -->
   <section class="section">
-    <div class="container">
-      <h2 class="text-center mb-8">QUICK_START</h2>
-
-      <div class="code-block" style="max-width: 800px; margin: 0 auto;">
-        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-        <pre><span class="comment"># 1. Index your Claude Code sessions</span>
-<span class="command">tastematter parse-sessions --project ~/.claude/projects</span>
-<span class="command">tastematter build-chains</span>
-<span class="command">tastematter index-files</span>
-
-<span class="comment"># 2. Query your work</span>
-<span class="command">tastematter query flex --time 7d --limit 10</span>
-
-<span class="comment"># That's it. Now Claude knows what you've been working on.</span></pre>
-      </div>
-    </div>
-  </section>
-
-  <!-- CTA Section -->
-  <section class="section" style="background: var(--bg-secondary);">
     <div class="container text-center">
-      <h2 class="mb-4">WANT_HELP_GETTING_SET_UP?</h2>
-      <p class="text-muted mb-8" style="max-width: 500px; margin: 0 auto 2rem;">
-        Setting up your first Context OS can be tricky. I'll walk you through it - takes about 15 minutes.
+      <h2 class="mb-4">KEEP THE LEVERAGE.<br><span style="color: var(--primary);">SEE THE TRAILS.</span></h2>
+      <p class="text-muted mb-8" style="max-width: 550px; margin: 0 auto 2rem; font-size: 1.0625rem;">
+        One install. Background daemon indexes automatically. Your agent sees what you actually built — not just what the docs say you planned.
       </p>
-      <a href="https://cal.com/jacobdietle/tastematter-cli-setup" class="btn btn-primary btn-lg" target="_blank">
-        Book a Free Setup Call
-      </a>
-    </div>
-  </section>
-
-  <!-- Install Section -->
-  <section class="install section">
-    <div class="container">
-      <h2 class="install-title">INSTALL</h2>
-      <p class="install-subtitle">One command. Works on Windows, macOS, and Linux.</p>
 
       <div class="install-tabs">
         <button class="install-tab active" onclick="switchTab('windows')">Windows</button>
@@ -319,7 +223,7 @@
       </div>
 
       <p class="text-muted text-center mt-4" style="font-size: 0.875rem;">
-        Requires Claude Code to be installed. <a href="https://claude.ai/code" style="color: var(--primary);">Get Claude Code</a>
+        Requires Claude Code. <a href="https://claude.ai/code" style="color: var(--primary);">Get Claude Code</a>
       </p>
     </div>
   </section>
