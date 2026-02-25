@@ -22,6 +22,8 @@ pub mod intelligence;
 pub mod query;
 pub mod storage;
 pub mod telemetry;
+#[cfg(feature = "trail")]
+pub mod trail;
 pub mod types;
 
 pub use error::{CommandError, CoreError};

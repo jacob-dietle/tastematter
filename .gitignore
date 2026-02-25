@@ -112,3 +112,6 @@ nul
 # Embedded repos (separate version control)
 public-repo/
 
+# Trail worker (private infrastructure — personal CF account + D1)
+trail-worker/
+

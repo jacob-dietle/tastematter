@@ -4,9 +4,9 @@ Context packages documenting active Tastematter development.
 
 ## Overview
 
-**Date Range:** 2026-01-05 to 2026-02-18
-**Package Count:** 42
-**Theme:** Rust port, performance optimization, HTTP transport, bug fixes, migration, CLI distribution, GTM strategy, temporal edges
+**Date Range:** 2026-01-05 to 2026-02-24
+**Package Count:** 47
+**Theme:** Rust port, performance optimization, HTTP transport, bug fixes, migration, CLI distribution, GTM strategy, temporal edges, global trail sync
 
 ## Narrative
 
@@ -65,11 +65,16 @@ This chain documents the Rust migration and refinement:
 | 40 | 2026-02-17 | **TEMPORAL_EDGES_SPEC_AND_PHASE1_SCHEMA** (Canonical spec 19 written, Phase 1 schema migration implemented, 5 tests written, NOT YET RUN) |
 | 41 | 2026-02-17 | **TEMPORAL_EDGES_FULL_IMPLEMENTATION** (All 4 phases complete via 3-agent DAG, 52 new tests, 470 total, pipeline wired end-to-end) |
 | 42 | 2026-02-19 | **TEMPORAL_EDGES_QUALITY_REFINEMENT_COMPLETE** (All 3 fixes done: path normalization, lift metric, threshold+guard. 5/5 clusters with work_patterns) |
+| 43 | 2026-02-24 | **WAVE2_LAUNCH_DECISION_AND_OUTREACH_WORKER_DESIGN** (GTM launch decision: open gates now, save megaphone. Outreach worker arch approved: CF Worker + D1 + Kondo webhooks) |
+| 44 | 2026-02-24 | **GLOBAL_TRAIL_SPEC_AND_CONTEXT_OPS** (D1 sync for multi-machine trails, "trail" naming from Bush Memex, Context Ops offering, VPS setup complete) |
+| 45 | 2026-02-24 | **GLOBAL_TRAIL_WORKER_AND_RUST_PUSH** (CF Worker + D1 deployed and verified, Rust trail module built with auto-push in daemon sync, 21+13 tests) |
+| 46 | 2026-02-24 | **TRAIL_FIRST_PUSH_AND_FEATURE_FLAGS** (24K rows pushed to D1, D1 batch fix, trail CLI subcommands, Cargo feature flags, release skill updated) |
+| 47 | 2026-02-25 | **TRAIL_PULL_AND_AUTO_SYNC** (pull.rs built mirroring push, auto-pull in daemon Phase 6, 24K rows pulled, incremental sync, UNIQUE index on file_access_events) |
 
 ## Current State
 
-**Latest:** [[42_2026-02-18_TEMPORAL_EDGES_QUALITY_REFINEMENT_COMPLETE]]
-**Status:** Spec #20 quality refinement complete. All 3 fixes implemented: (1) path normalization via `normalize_file_path` + git root detection, (2) lift metric for statistical significance, (3) threshold lowered from 3→2 with lift guard. End-to-end verified: 5/5 clusters show work_patterns with entry_points and typical_sequences. Next: O(events²) extraction optimization (spec exists).
+**Latest:** [[47_2026-02-25_TRAIL_PULL_AND_AUTO_SYNC]]
+**Status:** Trail fully bidirectional. Auto-push (Phase 5) + auto-pull (Phase 6) in daemon sync. 24K+ rows synced both directions, incremental. Feature-flagged out of public binary. Next: VPS setup and round-trip verification.
 
 ## Related
 

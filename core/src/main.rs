@@ -167,6 +167,12 @@ enum Commands {
         #[command(subcommand)]
         intel_cmd: IntelCommands,
     },
+    /// Global trail commands (multi-machine sync)
+    #[cfg(feature = "trail")]
+    Trail {
+        #[command(subcommand)]
+        trail_cmd: TrailCommands,
+    },
     /// Restore context for a topic — composed query across flex, heat, chains, sessions, timeline, co-access
     Context {
         /// Search query (used as glob pattern *query*)
@@ -215,6 +221,17 @@ enum DaemonCommands {
     },
     /// Uninstall daemon from login
     Uninstall,
+}
+
+#[cfg(feature = "trail")]
+#[derive(Subcommand)]
+enum TrailCommands {
+    /// Show global trail status (row counts, last sync)
+    Status,
+    /// Push local trail data to global worker
+    Push,
+    /// Pull global trail data to local SQLite
+    Pull,
 }
 
 #[derive(Subcommand)]
@@ -474,6 +491,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             IntelCommands::Setup { .. } => "intel_setup",
             IntelCommands::NameChain { .. } => "intel_name_chain",
         },
+        #[cfg(feature = "trail")]
+        Commands::Trail { trail_cmd } => match trail_cmd {
+            TrailCommands::Status => "trail_status",
+            TrailCommands::Push => "trail_push",
+            TrailCommands::Pull => "trail_pull",
+        },
         Commands::Context { ref time, .. } => {
             time_range_bucket = Some(TimeRangeBucket::from_time_arg(time));
             "context"
@@ -504,12 +527,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         eprintln!("  - {}", err);
                     }
                 }
+                let mut trail_msg = String::new();
+                if result.trail_rows_pushed > 0 {
+                    trail_msg.push_str(&format!(", {} trail rows pushed", result.trail_rows_pushed));
+                }
+                if result.trail_rows_pulled > 0 {
+                    trail_msg.push_str(&format!(", {} trail rows pulled", result.trail_rows_pulled));
+                }
                 eprintln!(
-                    "\nSync complete: {} commits, {} sessions, {} chains, {} files indexed in {}ms",
+                    "\nSync complete: {} commits, {} sessions, {} chains, {} files indexed{} in {}ms",
                     result.git_commits_synced,
                     result.sessions_parsed,
                     result.chains_built,
                     result.files_indexed,
+                    trail_msg,
                     result.duration_ms
                 );
                 Ok(())
@@ -527,12 +558,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let start = std::time::Instant::now();
                     match run_sync(&config).await {
                         Ok(result) => {
+                            let mut trail_msg = String::new();
+                            if result.trail_rows_pushed > 0 {
+                                trail_msg.push_str(&format!(", trail push:{}", result.trail_rows_pushed));
+                            }
+                            if result.trail_rows_pulled > 0 {
+                                trail_msg.push_str(&format!(", trail pull:{}", result.trail_rows_pulled));
+                            }
                             eprintln!(
-                                "[{}] Sync: {} commits, {} sessions, {} chains in {}ms",
+                                "[{}] Sync: {} commits, {} sessions, {} chains{} in {}ms",
                                 chrono::Local::now().format("%H:%M:%S"),
                                 result.git_commits_synced,
                                 result.sessions_parsed,
                                 result.chains_built,
+                                trail_msg,
                                 result.duration_ms
                             );
                         }
@@ -1420,6 +1459,126 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             eprintln!("Error calling intel service: {}", e);
                             std::process::exit(1);
                         }
+                    }
+                }
+            }
+        }
+        #[cfg(feature = "trail")]
+        Commands::Trail { trail_cmd } => {
+            use tastematter::daemon::load_config;
+            use tastematter::trail::push::push_trail;
+
+            let config = load_config(None).unwrap_or_default();
+
+            match trail_cmd {
+                TrailCommands::Status => {
+                    if !config.trail.is_configured() {
+                        eprintln!("Trail not configured.");
+                        eprintln!("Add trail section to ~/.context-os/config.yaml:");
+                        eprintln!("  trail:");
+                        eprintln!("    endpoint: https://tastematter-trail.<you>.workers.dev");
+                        eprintln!("    machine_id: <hostname>");
+                        eprintln!("    client_id: <cf-access-client-id>");
+                        eprintln!("    client_secret: <cf-access-client-secret>");
+                        std::process::exit(1);
+                    }
+
+                    let endpoint = config.trail.endpoint.as_ref().unwrap();
+                    let client_id = config.trail.client_id.as_ref().unwrap();
+                    let client_secret = config.trail.client_secret.as_ref().unwrap();
+
+                    let status_url = format!("{}/trail/status", endpoint.trim_end_matches('/'));
+                    let client = reqwest::Client::new();
+                    match client
+                        .get(&status_url)
+                        .header("CF-Access-Client-Id", client_id)
+                        .header("CF-Access-Client-Secret", client_secret)
+                        .timeout(std::time::Duration::from_secs(10))
+                        .send()
+                        .await
+                    {
+                        Ok(resp) if resp.status().is_success() => {
+                            let body: serde_json::Value = resp.json().await?;
+                            println!("{}", serde_json::to_string_pretty(&body)?);
+                        }
+                        Ok(resp) => {
+                            let status = resp.status();
+                            let text = resp.text().await.unwrap_or_default();
+                            eprintln!("Trail status failed ({}): {}", status, text);
+                            std::process::exit(1);
+                        }
+                        Err(e) => {
+                            eprintln!("Trail status request failed: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                TrailCommands::Push => {
+                    if !config.trail.is_configured() {
+                        eprintln!("Trail not configured. Run `tastematter trail status` for setup instructions.");
+                        std::process::exit(1);
+                    }
+
+                    let trail_result = push_trail(engine.database().pool(), &config.trail).await;
+
+                    if trail_result.rows_pushed > 0 {
+                        println!("{} rows pushed", trail_result.rows_pushed);
+                    } else {
+                        println!("No rows to push");
+                    }
+                    for err in &trail_result.errors {
+                        eprintln!("Error: {}", err);
+                    }
+                    if !trail_result.errors.is_empty() {
+                        std::process::exit(1);
+                    }
+                }
+                TrailCommands::Pull => {
+                    use tastematter::trail::pull::pull_trail;
+                    use tastematter::storage::Database;
+
+                    if !config.trail.is_configured() {
+                        eprintln!("Trail not configured. Run `tastematter trail status` for setup instructions.");
+                        std::process::exit(1);
+                    }
+
+                    // Pull writes to local SQLite — need RW connection
+                    let rw_db: Database = if let Some(ref path) = cli.db {
+                        match Database::open_rw(path).await {
+                            Ok(db) => db,
+                            Err(e) => {
+                                eprintln!("Failed to open database for writing: {}", e);
+                                std::process::exit(1);
+                            }
+                        }
+                    } else {
+                        match Database::canonical_path() {
+                            Ok(p) => match Database::open_rw(p).await {
+                                Ok(db) => db,
+                                Err(e) => {
+                                    eprintln!("Failed to open database for writing: {}", e);
+                                    std::process::exit(1);
+                                }
+                            },
+                            Err(e) => {
+                                eprintln!("Failed to find database: {}", e);
+                                std::process::exit(1);
+                            }
+                        }
+                    };
+
+                    let pull_result = pull_trail(rw_db.pool(), &config.trail).await;
+
+                    if pull_result.rows_pulled > 0 {
+                        println!("{} rows pulled", pull_result.rows_pulled);
+                    } else {
+                        println!("No new rows to pull");
+                    }
+                    for err in &pull_result.errors {
+                        eprintln!("Error: {}", err);
+                    }
+                    if !pull_result.errors.is_empty() {
+                        std::process::exit(1);
                     }
                 }
             }

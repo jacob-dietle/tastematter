@@ -247,6 +247,7 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_fae_session ON file_access_events(session_id);
             CREATE INDEX IF NOT EXISTS idx_fae_file ON file_access_events(file_path);
             CREATE INDEX IF NOT EXISTS idx_fae_session_seq ON file_access_events(session_id, sequence_position);
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_fae_unique ON file_access_events(session_id, file_path, tool_name, sequence_position);
 
             -- Layer 9: File Edges (aggregated behavioral relationships)
             -- Directed edges extracted deterministically from temporal ordering
@@ -302,6 +303,8 @@ impl Database {
             "ALTER TABLE chain_graph ADD COLUMN indexed_at TEXT",
             // file_edges lift column (spec #20 quality refinement)
             "ALTER TABLE file_edges ADD COLUMN lift REAL",
+            // file_access_events dedup (matches file_edges idx_fe_unique pattern)
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_fae_unique ON file_access_events(session_id, file_path, tool_name, sequence_position)",
         ];
 
         for migration in migrations {

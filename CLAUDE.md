@@ -56,11 +56,29 @@ apps/tastematter/
 └── CLAUDE.md                # This file
 ```
 
+## Feature Flags
+
+| Feature | Description | Public release | Personal build |
+|---------|-------------|----------------|----------------|
+| (none) | Core CLI, query, daemon, intel | Yes | Yes |
+| `trail` | Global trail sync — push + pull to CF Worker + D1 | **No** | **Yes** |
+
+```bash
+# Public build (CI default — no trail)
+cd core && cargo build --release
+
+# Personal build (includes trail subcommands + daemon auto-push/pull)
+cd core && cargo build --release --features trail
+```
+
+**Rule:** `trail-worker/` is gitignored. Trail code compiles out without the feature. CI builds/tests without `--features trail`.
+
 ## Key Commands
 
 ```bash
 # Rust core
-cd core && cargo build --release
+cd core && cargo build --release                  # public
+cd core && cargo build --release --features trail  # personal (with trail sync)
 cd core && cargo test -- --test-threads=2  # ALWAYS limit threads (see Known Issues)
 
 # Frontend (desktop app)

@@ -6,6 +6,8 @@
 //! - Chain graph building (WITH DATABASE PERSISTENCE)
 //! - Intelligence enrichment (optional - graceful degradation)
 //! - Inverted index updates
+//! - Global trail push (optional - graceful degradation)
+//! - Global trail pull (optional - graceful degradation)
 
 use log::debug;
 use serde::{Deserialize, Serialize};
@@ -24,6 +26,10 @@ use crate::index::inverted_index::build_inverted_index;
 use crate::intelligence::{ChainNamingRequest, ChainSummaryRequest, IntelClient, MetadataStore};
 use crate::query::QueryEngine;
 use crate::storage::Database;
+#[cfg(feature = "trail")]
+use crate::trail::pull::pull_trail;
+#[cfg(feature = "trail")]
+use crate::trail::push::push_trail;
 use crate::types::SessionInput;
 use sqlx::sqlite::SqlitePool;
 
@@ -34,6 +40,8 @@ pub struct SyncResult {
     pub sessions_parsed: i32,
     pub chains_built: i32,
     pub files_indexed: i32,
+    pub trail_rows_pushed: i32,
+    pub trail_rows_pulled: i32,
     pub duration_ms: u64,
     pub errors: Vec<String>,
 }
@@ -134,6 +142,30 @@ pub async fn run_sync(config: &DaemonConfig) -> Result<SyncResult, String> {
 
     // 4. Inverted index (uses chains for context)
     build_index_phase(&claude_dir, chains.as_ref(), &mut result);
+
+    // 5. Global trail push (optional - requires `trail` feature)
+    #[cfg(feature = "trail")]
+    if config.trail.is_configured() {
+        if let Some(ref engine) = engine {
+            let trail_result = push_trail(engine.database().pool(), &config.trail).await;
+            result.trail_rows_pushed = trail_result.rows_pushed;
+            for err in trail_result.errors {
+                result.errors.push(format!("Trail: {}", err));
+            }
+        }
+    }
+
+    // 6. Global trail pull (optional - requires `trail` feature)
+    #[cfg(feature = "trail")]
+    if config.trail.is_configured() {
+        if let Some(ref engine) = engine {
+            let pull_result = pull_trail(engine.database().pool(), &config.trail).await;
+            result.trail_rows_pulled = pull_result.rows_pulled;
+            for err in pull_result.errors {
+                result.errors.push(format!("Trail: {}", err));
+            }
+        }
+    }
 
     // Record duration
     result.duration_ms = start.elapsed().as_millis() as u64;
@@ -893,6 +925,8 @@ mod tests {
             sessions_parsed: 50,
             chains_built: 5,
             files_indexed: 100,
+            trail_rows_pushed: 0,
+            trail_rows_pulled: 0,
             duration_ms: 1234,
             errors: vec!["test error".to_string()],
         };
@@ -961,6 +995,8 @@ mod tests {
             sessions_parsed: 100,
             chains_built: 10,
             files_indexed: 250,
+            trail_rows_pushed: 0,
+            trail_rows_pulled: 0,
             duration_ms: 5000,
             errors: vec!["Unicode error: \u{1F680} emoji in path".to_string()],
         };

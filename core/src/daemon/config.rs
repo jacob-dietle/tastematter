@@ -6,6 +6,9 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+#[cfg(feature = "trail")]
+use crate::trail::config::TrailConfig;
+
 /// Sync timing configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncConfig {
@@ -127,6 +130,10 @@ pub struct DaemonConfig {
     /// Intelligence service configuration
     #[serde(default)]
     pub intelligence: IntelligenceConfig,
+    /// Global trail sync configuration (requires `trail` feature)
+    #[cfg(feature = "trail")]
+    #[serde(default)]
+    pub trail: TrailConfig,
 }
 
 fn default_version() -> u32 {
@@ -142,6 +149,8 @@ impl Default for DaemonConfig {
             project: ProjectConfig::default(),
             logging: LoggingConfig::default(),
             intelligence: IntelligenceConfig::default(),
+            #[cfg(feature = "trail")]
+            trail: TrailConfig::default(),
         }
     }
 }

@@ -33,6 +33,10 @@ notify = "6.1"
 serde_yaml = "0.9"
 reqwest = { version = "0.12", features = ["json"] }
 
+[features]
+default = []
+trail = []
+
 [dev-dependencies]
 tokio = { version = "1.40", features = ["full", "test-util"] }
 tempfile = "3.10"
