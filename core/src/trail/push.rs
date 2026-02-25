@@ -41,13 +41,14 @@ pub const TABLES: &[TableDef] = &[
             "first_user_message",
             "conversation_excerpt",
             "parsed_at",
+            "source_machine",
         ],
         path_columns: &["project_path"],
         json_path_columns: &["files_read", "files_written"],
     },
     TableDef {
         name: "chain_graph",
-        columns: &["session_id", "chain_id", "parent_session_id", "indexed_at"],
+        columns: &["session_id", "chain_id", "parent_session_id", "indexed_at", "source_machine"],
         path_columns: &[],
         json_path_columns: &[],
     },
@@ -64,6 +65,7 @@ pub const TABLES: &[TableDef] = &[
             "model_used",
             "created_at",
             "updated_at",
+            "source_machine",
         ],
         path_columns: &[],
         json_path_columns: &[],
@@ -79,6 +81,7 @@ pub const TABLES: &[TableDef] = &[
             "workstream_tags",
             "model_used",
             "created_at",
+            "source_machine",
         ],
         path_columns: &[],
         json_path_columns: &[],
@@ -91,6 +94,7 @@ pub const TABLES: &[TableDef] = &[
             "session_count",
             "files_count",
             "updated_at",
+            "source_machine",
         ],
         path_columns: &[],
         json_path_columns: &[],
@@ -104,6 +108,7 @@ pub const TABLES: &[TableDef] = &[
             "tool_name",
             "access_type",
             "sequence_position",
+            "source_machine",
         ],
         path_columns: &["file_path"],
         json_path_columns: &[],
@@ -121,6 +126,7 @@ pub const TABLES: &[TableDef] = &[
             "lift",
             "first_seen",
             "last_seen",
+            "source_machine",
         ],
         path_columns: &["source_file", "target_file"],
         json_path_columns: &[],
@@ -141,6 +147,7 @@ pub const TABLES: &[TableDef] = &[
             "insertions",
             "deletions",
             "files_count",
+            "source_machine",
         ],
         path_columns: &[],
         json_path_columns: &[
@@ -266,11 +273,18 @@ pub async fn push_trail(pool: &SqlitePool, config: &TrailConfig) -> TrailPushRes
     result
 }
 
-/// Query all rows from a single table with explicit column selection
+/// Query local-origin rows from a single table with explicit column selection
 /// and path normalization.
+///
+/// Only returns rows where source_machine IS NULL (locally created) —
+/// rows pulled from D1 with a different source_machine are excluded
+/// to prevent re-pushing other machines' data.
 async fn query_table(pool: &SqlitePool, table_def: &TableDef) -> Result<Vec<Value>, String> {
     let columns_sql = table_def.columns.join(", ");
-    let query = format!("SELECT {} FROM {}", columns_sql, table_def.name);
+    let query = format!(
+        "SELECT {} FROM {} WHERE source_machine IS NULL",
+        columns_sql, table_def.name,
+    );
 
     let rows = sqlx::query(&query)
         .fetch_all(pool)
@@ -411,5 +425,87 @@ mod tests {
 
         assert_eq!(result.rows_pushed, 0);
         assert!(result.errors.is_empty());
+    }
+
+    #[test]
+    fn test_all_tables_have_source_machine_column() {
+        // Every synced table must include source_machine so that:
+        // 1. Pull preserves attribution from D1
+        // 2. Push can filter to only local-origin rows
+        for table in TABLES {
+            assert!(
+                table.columns.contains(&"source_machine"),
+                "Table '{}' missing 'source_machine' column — would corrupt D1 attribution on push",
+                table.name,
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_push_excludes_other_machine_rows() {
+        // Push should only send rows where source_machine IS NULL (local-origin)
+        // or source_machine matches the configured machine_id.
+        // Rows pulled from D1 with a different source_machine must NOT be pushed back.
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+
+        // Create claude_sessions with all columns from TableDef + source_machine
+        sqlx::query(
+            "CREATE TABLE claude_sessions (
+                session_id TEXT PRIMARY KEY,
+                project_path TEXT,
+                started_at TEXT,
+                ended_at TEXT,
+                duration_seconds INTEGER,
+                user_message_count INTEGER,
+                assistant_message_count INTEGER,
+                total_messages INTEGER,
+                files_read TEXT,
+                files_written TEXT,
+                tools_used TEXT,
+                file_size_bytes INTEGER,
+                first_user_message TEXT,
+                conversation_excerpt TEXT,
+                parsed_at TEXT,
+                source_machine TEXT
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Insert a local-origin row (source_machine IS NULL)
+        sqlx::query(
+            "INSERT INTO claude_sessions (session_id, project_path, source_machine) \
+             VALUES ('local-1', '/home/user/project', NULL)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Insert a row from another machine (should be excluded from push)
+        sqlx::query(
+            "INSERT INTO claude_sessions (session_id, project_path, source_machine) \
+             VALUES ('laptop-1', '/home/user/project', 'laptop')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let sessions_def = &TABLES[0];
+        assert_eq!(sessions_def.name, "claude_sessions");
+
+        let rows = query_table(&pool, sessions_def).await.unwrap();
+
+        // Should only return the local-origin row, not the laptop row
+        assert_eq!(
+            rows.len(),
+            1,
+            "Push should exclude rows from other machines, got: {:?}",
+            rows,
+        );
+        assert_eq!(
+            rows[0].get("session_id").and_then(|v| v.as_str()),
+            Some("local-1"),
+        );
     }
 }

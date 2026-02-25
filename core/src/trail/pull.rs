@@ -12,8 +12,9 @@ use super::push::TABLES;
 const IGNORE_TABLES: &[&str] = &["file_access_events", "file_edges"];
 
 /// Columns added by the worker that don't exist in local SQLite.
+/// source_machine is preserved locally for attribution; only synced_at is D1-only.
 #[cfg(test)]
-const D1_ONLY_COLUMNS: &[&str] = &["source_machine", "synced_at"];
+const D1_ONLY_COLUMNS: &[&str] = &["synced_at"];
 
 /// Result of a trail pull operation.
 #[derive(Debug, Default)]
@@ -257,7 +258,14 @@ mod tests {
 
     #[test]
     fn test_d1_only_columns_not_in_table_defs() {
-        // Verify that D1-only columns are NOT in any TableDef column list
+        // Only synced_at should be D1-only. source_machine must be in TableDef
+        // columns so pull preserves it and push can filter by it.
+        assert_eq!(
+            D1_ONLY_COLUMNS,
+            &["synced_at"],
+            "source_machine must NOT be in D1_ONLY_COLUMNS — it's needed locally for attribution",
+        );
+        // Verify synced_at is not in any table's columns
         for table in TABLES {
             for &col in table.columns {
                 assert!(
@@ -267,6 +275,19 @@ mod tests {
                     table.name,
                 );
             }
+        }
+    }
+
+    #[test]
+    fn test_pull_preserves_source_machine() {
+        // source_machine must be in each TableDef's columns list so that
+        // pull inserts it into local SQLite, preserving D1 attribution.
+        for table in TABLES {
+            assert!(
+                table.columns.contains(&"source_machine"),
+                "Table '{}' missing 'source_machine' in columns — pull would strip attribution",
+                table.name,
+            );
         }
     }
 

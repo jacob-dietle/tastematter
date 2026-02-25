@@ -161,7 +161,8 @@ impl Database {
                 file_size_bytes INTEGER,
                 first_user_message TEXT,
                 conversation_excerpt TEXT,
-                parsed_at TEXT DEFAULT CURRENT_TIMESTAMP
+                parsed_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                source_machine TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_claude_sessions_started ON claude_sessions(started_at);
             CREATE INDEX IF NOT EXISTS idx_claude_sessions_project ON claude_sessions(project_path);
@@ -183,7 +184,8 @@ impl Database {
                 files_count INTEGER,
                 is_agent_commit BOOLEAN,
                 is_merge_commit BOOLEAN,
-                synced_at TEXT DEFAULT CURRENT_TIMESTAMP
+                synced_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                source_machine TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_git_commits_timestamp ON git_commits(timestamp);
 
@@ -193,7 +195,8 @@ impl Database {
                 root_session_id TEXT,
                 session_count INTEGER,
                 files_count INTEGER,
-                updated_at TEXT
+                updated_at TEXT,
+                source_machine TEXT
             );
 
             -- Layer 5: Chain Graph (session-to-chain mapping)
@@ -202,7 +205,8 @@ impl Database {
                 chain_id TEXT NOT NULL,
                 parent_session_id TEXT,
                 is_root BOOLEAN,
-                indexed_at TEXT
+                indexed_at TEXT,
+                source_machine TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_chain_graph_chain ON chain_graph(chain_id);
 
@@ -217,7 +221,8 @@ impl Database {
                 generated_at TEXT,
                 model_used TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                source_machine TEXT
             );
 
             -- Layer 7: Chain Summaries (Intel-generated chain summaries)
@@ -229,7 +234,8 @@ impl Database {
                 key_files TEXT,
                 workstream_tags TEXT,
                 model_used TEXT,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                source_machine TEXT
             );
 
             -- Layer 8: File Access Events (per-tool-call temporal data)
@@ -242,7 +248,8 @@ impl Database {
                 file_path TEXT NOT NULL,
                 tool_name TEXT NOT NULL,
                 access_type TEXT NOT NULL,
-                sequence_position INTEGER NOT NULL
+                sequence_position INTEGER NOT NULL,
+                source_machine TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_fae_session ON file_access_events(session_id);
             CREATE INDEX IF NOT EXISTS idx_fae_file ON file_access_events(file_path);
@@ -262,7 +269,8 @@ impl Database {
                 avg_time_delta_seconds REAL,
                 confidence REAL NOT NULL DEFAULT 0.0,
                 first_seen TEXT,
-                last_seen TEXT
+                last_seen TEXT,
+                source_machine TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_fe_source ON file_edges(source_file, edge_type);
             CREATE INDEX IF NOT EXISTS idx_fe_target ON file_edges(target_file, edge_type);
@@ -305,6 +313,15 @@ impl Database {
             "ALTER TABLE file_edges ADD COLUMN lift REAL",
             // file_access_events dedup (matches file_edges idx_fe_unique pattern)
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_fae_unique ON file_access_events(session_id, file_path, tool_name, sequence_position)",
+            // source_machine column for trail attribution (distinguishes laptop vs VPS rows)
+            "ALTER TABLE claude_sessions ADD COLUMN source_machine TEXT",
+            "ALTER TABLE chain_graph ADD COLUMN source_machine TEXT",
+            "ALTER TABLE chain_metadata ADD COLUMN source_machine TEXT",
+            "ALTER TABLE chain_summaries ADD COLUMN source_machine TEXT",
+            "ALTER TABLE chains ADD COLUMN source_machine TEXT",
+            "ALTER TABLE file_access_events ADD COLUMN source_machine TEXT",
+            "ALTER TABLE file_edges ADD COLUMN source_machine TEXT",
+            "ALTER TABLE git_commits ADD COLUMN source_machine TEXT",
         ];
 
         for migration in migrations {
@@ -881,8 +898,8 @@ mod tests {
 
         assert_eq!(
             rows.len(),
-            10,
-            "chain_metadata should have exactly 10 columns"
+            11,
+            "chain_metadata should have exactly 11 columns (including source_machine)"
         );
     }
 
@@ -1252,8 +1269,8 @@ mod tests {
         assert!(fae_names.contains(&"sequence_position".to_string()));
         assert_eq!(
             fae_names.len(),
-            7,
-            "file_access_events should have 7 columns"
+            8,
+            "file_access_events should have 8 columns (including source_machine)"
         );
 
         // Verify file_edges table exists with correct columns
@@ -1274,7 +1291,7 @@ mod tests {
         assert!(fe_names.contains(&"lift".to_string()));
         assert!(fe_names.contains(&"first_seen".to_string()));
         assert!(fe_names.contains(&"last_seen".to_string()));
-        assert_eq!(fe_names.len(), 11, "file_edges should have 11 columns");
+        assert_eq!(fe_names.len(), 12, "file_edges should have 12 columns (including source_machine)");
     }
 
     #[tokio::test]
@@ -1440,5 +1457,43 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(version.0, "2.3", "Schema version should be 2.3");
+    }
+
+    #[tokio::test]
+    async fn test_migration_adds_source_machine_column() {
+        // After ensure_schema(), all 8 synced tables must have a source_machine column.
+        // This is required for trail attribution (distinguishing laptop vs VPS rows).
+        let temp_dir = tempfile::tempdir().unwrap();
+        let db_path = temp_dir.path().join("migration.db");
+        let db = Database::open_rw(&db_path).await.unwrap();
+        db.ensure_schema().await.unwrap();
+
+        let synced_tables = [
+            "claude_sessions",
+            "chain_graph",
+            "chain_metadata",
+            "chain_summaries",
+            "chains",
+            "file_access_events",
+            "file_edges",
+            "git_commits",
+        ];
+
+        for table in synced_tables {
+            // PRAGMA table_info returns column metadata; check source_machine exists
+            let rows: Vec<(i64, String, String, i64, Option<String>, i64)> = sqlx::query_as(
+                &format!("PRAGMA table_info({})", table),
+            )
+            .fetch_all(db.pool())
+            .await
+            .unwrap();
+
+            let has_source_machine = rows.iter().any(|r| r.1 == "source_machine");
+            assert!(
+                has_source_machine,
+                "Table '{}' missing 'source_machine' column after ensure_schema()",
+                table,
+            );
+        }
     }
 }
