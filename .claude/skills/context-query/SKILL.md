@@ -44,6 +44,7 @@ git log --oneline -10 -- <hot_files>
 
 | Command | Purpose |
 |---------|---------|
+| `init` | **First-time setup** — parse sessions, build chains, index files |
 | `context <query>` | **Start here.** Composed query across flex, heat, chains, sessions, timeline, co-access |
 | `query <subcommand>` | Targeted queries (flex, heat, chains, etc.) |
 | `intel health` | Check intel service health |
@@ -206,18 +207,11 @@ git log → understand evolution
 
 **If queries return empty results:**
 ```bash
-# Check database exists
-ls ~/.context-os/context_os_events.db
+# Re-initialize (safe to run anytime — idempotent)
+tastematter init
 
-# Check daemon status
+# Or check daemon status
 tastematter daemon status
-
-# Run a single sync
-tastematter daemon once
-
-# Rebuild indexes if needed
-tastematter build-chains
-tastematter index-files
 ```
 
 ---
@@ -343,10 +337,11 @@ All support `--format json`.
 
 | Command | Purpose |
 |---------|---------|
+| `init` | First-time setup (parse sessions + build chains + index files) |
 | `sync-git` | Sync git commits from repository |
-| `parse-sessions` | Parse JSONL session files |
-| `build-chains` | Build chain graph from sessions |
-| `index-files` | Build inverted file index |
+| `parse-sessions` | Parse JSONL session files (advanced) |
+| `build-chains` | Build chain graph from sessions (advanced) |
+| `index-files` | Build inverted file index (advanced) |
 | `watch` | Watch directory for file changes |
 | `daemon once` | Run single sync cycle |
 | `daemon start` | Start daemon (foreground) |

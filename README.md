@@ -102,13 +102,11 @@ irm https://install.tastematter.dev/install.ps1 | iex
 curl -fsSL https://install.tastematter.dev/install.sh | bash
 ```
 
-## Quick Setup (5 minutes)
+## Quick Setup
 
 ```bash
-# 1. Index your Claude Code sessions
-tastematter parse-sessions --project ~/.claude/projects
-tastematter build-chains
-tastematter index-files
+# 1. Initialize (one command — parses sessions, builds chains, indexes files)
+tastematter init
 
 # 2. Query your work
 tastematter query flex --time 7d --limit 10
@@ -141,17 +139,30 @@ This repo includes a skill that teaches Claude how to use tastematter.
 <details>
 <summary>Click to expand full command reference</summary>
 
+### Top-Level Commands
+
+| Command | What It Does |
+|---------|-------------|
+| `init` | **First-time setup** — parse sessions, build chains, index files |
+| `context <query>` | **Start here.** Full context for a topic (summary, heat, clusters, insights) |
+| `query <subcommand>` | Targeted queries (flex, heat, chains, etc.) |
+| `daemon status` | Show daemon sync state + registration |
+| `daemon once` | Run a single sync cycle |
+
 ### Query Commands
 
 | Command | What It Does |
 |---------|-------------|
 | `query flex` | Find files by time range, pattern, or session |
+| `query heat` | File heat metrics (specificity, velocity, score, level) |
 | `query co-access <file>` | Find files that get accessed with this one |
 | `query chains` | List your conversation chains |
 | `query sessions` | Query session-level data |
+| `query timeline` | Timeline data for visualization |
 | `query search <pattern>` | Search file paths by keyword |
+| `query verify <receipt>` | Verify a previous query result |
 
-### Index Commands
+### Index Commands (advanced)
 
 | Command | What It Does |
 |---------|-------------|
@@ -159,14 +170,22 @@ This repo includes a skill that teaches Claude how to use tastematter.
 | `build-chains` | Build conversation chain graph |
 | `index-files` | Build file access index |
 
+Use `tastematter init` instead — it runs all three.
+
 ### Examples
 
 ```bash
+# Full context for a project (start here)
+tastematter context "auth" --format json
+
 # Most accessed files in the last 30 days
 tastematter query flex --time 30d --limit 20
 
 # Files matching a pattern
 tastematter query flex --files "*auth*" --time 14d
+
+# File heat metrics
+tastematter query heat --time 30d
 
 # What files are accessed together with this one?
 tastematter query co-access src/main.rs --limit 15
