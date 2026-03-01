@@ -17,7 +17,7 @@
         <span>TASTEMATTER</span>
       </a>
       <nav class="nav">
-        <a href="https://github.com/tastesystems/tastematter" class="nav-link" target="_blank">GitHub</a>
+        <a href="https://github.com/jacob-dietle/tastematter" class="nav-link" target="_blank">GitHub</a>
         <a href="./terms.html" class="nav-link">Terms</a>
         <a href="./privacy.html" class="nav-link">Privacy</a>
       </nav>
@@ -33,7 +33,7 @@
         <span class="hero-title-line" style="color: var(--primary);">YOU CAN'T SEE.</span>
       </h1>
       <p class="hero-subtitle">
-        Hundreds of Claude Code sessions. Thousands of file touches. Invisible patterns holding your codebase together. Tastematter reveals them.
+        People think re-explaining yourself to your AI is a memory problem. It's a visibility problem.
       </p>
 
       <!-- Terminal Install Window -->
@@ -66,7 +66,7 @@
       </div>
 
       <div class="flex justify-center gap-4 mt-8">
-        <a href="https://github.com/tastesystems/tastematter" class="btn btn-primary btn-lg" target="_blank">
+        <a href="https://github.com/jacob-dietle/tastematter" class="btn btn-primary btn-lg" target="_blank">
           View on GitHub
         </a>
       </div>
@@ -111,6 +111,15 @@
 
       <div style="color: var(--muted); font-size: 1.0625rem; line-height: 1.8;">
         <p style="margin-bottom: 1.25rem;">
+          Most people think this is a memory problem — that you need vector databases, RAG pipelines, and overengineered retrieval systems.
+        </p>
+        <p style="margin-bottom: 1.25rem;">
+          But everything you need is already in your session data. It just needs to be processed so you can actually see it.
+        </p>
+        <p style="margin-bottom: 1.25rem; color: var(--foreground); font-weight: bold;">
+          This is not a memory solution. This is a visibility solution.
+        </p>
+        <p style="margin-bottom: 1.25rem;">
           Before AI coding tools, you typed every line. You knew what happened.
         </p>
         <p style="margin-bottom: 1.25rem;">
@@ -123,44 +132,66 @@
     </div>
   </section>
 
-  <!-- 3. DARK MATTER -->
+  <!-- 3. DARK MATTER + VIDEO -->
   <section class="section">
     <div class="container">
-      <h2 class="text-center mb-4">THE DARK MATTER OF YOUR CODEBASE</h2>
-      <p class="text-center text-muted mb-8" style="max-width: 550px; margin: 0 auto 2rem;">
-        It's there. It's holding everything together. You just can't see it.
-      </p>
+      <div class="grid grid-cols-1 md:grid-cols-2" style="max-width: 1060px; margin: 0 auto; gap: 3rem; align-items: stretch;">
 
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-6" style="max-width: 800px; margin: 0 auto;">
-        <div class="card">
-          <h3 class="card-title">WHAT'S ACTUALLY HOT</h3>
-          <p class="card-text">
-            Not what you think you're working on — what the data says. 47 touches across 12 sessions this week. That's where your attention actually went.
+        <!-- Left: heading + subtitle + cards -->
+        <div>
+          <h2 style="margin-bottom: 0.75rem;">THE DARK MATTER OF YOUR CODEBASE</h2>
+          <p class="text-muted" style="font-size: 1.0625rem; line-height: 1.7; margin-bottom: 1.5rem;">
+            It's there. It's holding everything together. You just can't see it.
           </p>
+          <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+            <div class="card">
+              <h3 class="card-title">WHAT'S ACTUALLY HOT</h3>
+              <p class="card-text">
+                Not what you think you're working on — what the data says. 47 touches across 12 sessions this week.
+              </p>
+            </div>
+            <div class="card">
+              <h3 class="card-title">WHERE ATTENTION SHIFTED</h3>
+              <p class="card-text">
+                Your plan said API redesign. Your trails say 89% of work went to auth. The pivot happened Tuesday.
+              </p>
+            </div>
+            <div class="card">
+              <h3 class="card-title">WHAT GOT ABANDONED</h3>
+              <p class="card-text">
+                routes.ts was hot two weeks ago. Now it's cold. The migration hasn't been touched in 11 days.
+              </p>
+            </div>
+            <div class="card">
+              <h3 class="card-title">WHAT MOVES TOGETHER</h3>
+              <p class="card-text">
+                Every time you touch middleware.ts, you also touch jwt.ts. Your agent should know that. Without trails, it doesn't.
+              </p>
+            </div>
+          </div>
         </div>
-        <div class="card">
-          <h3 class="card-title">WHERE ATTENTION SHIFTED</h3>
-          <p class="card-text">
-            Your plan said API redesign. Your trails say 89% of work went to auth. The pivot happened Tuesday. Nobody noticed.
-          </p>
+
+        <!-- Right: video, fills full height of left column -->
+        <div style="display: flex; align-items: stretch;">
+          <div style="width: 100%; overflow: hidden;">
+            <iframe
+              width="100%"
+              height="100%"
+              src="https://www.youtube.com/embed/wTNNynQ3J-Y"
+              title="Tastematter Demo"
+              frameborder="0"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowfullscreen
+              style="border: 0; display: block;"
+            ></iframe>
+          </div>
         </div>
-        <div class="card">
-          <h3 class="card-title">WHAT GOT ABANDONED</h3>
-          <p class="card-text">
-            routes.ts was hot two weeks ago. Now it's cold. The migration hasn't been touched in 11 days. Work cooled off and nobody flagged it.
-          </p>
-        </div>
-        <div class="card">
-          <h3 class="card-title">WHAT MOVES TOGETHER</h3>
-          <p class="card-text">
-            Every time you touch middleware.ts, you also touch jwt.ts. They're implicitly connected. Your agent should know that. Without trails, it doesn't.
-          </p>
-        </div>
+
       </div>
     </div>
   </section>
 
-  <!-- 4. SEE THE TRAILS -->
+  <!-- 5. SEE THE TRAILS -->
   <section class="section" style="background: var(--surface);">
     <div class="container">
       <h2 class="text-center mb-8">SEE THE TRAILS</h2>
@@ -195,15 +226,29 @@ routes.ts abandoned since day 11
 Continuing from middleware.ts?</pre>
         </div>
       </div>
+
+      <!-- Agent testimony -->
+      <div class="code-block" style="max-width: 700px; margin: 2rem auto 0; padding: 1.5rem 2rem; font-family: 'VCR OSD Mono', monospace; font-size: 0.85rem; line-height: 1.8;">
+        <div style="color: #6B7280; font-size: 0.7rem; letter-spacing: 0.1em; margin-bottom: 1rem;">WHAT THE AGENT SAID</div>
+        <p style="color: #E2E8F0; margin-bottom: 1rem;">
+          "The docs tell me what you planned. The CLI tells me what you did, when you stopped, and where your attention actually is right now."
+        </p>
+        <p style="color: #E2E8F0; margin-bottom: 1rem;">
+          "I learned more about the actual state of this project from one CLI command than from reading 500 lines of strategy docs."
+        </p>
+        <p style="color: #D35400; margin: 0;">
+          — Claude Code, reviewing Tastematter for the first time
+        </p>
+      </div>
     </div>
   </section>
 
-  <!-- 5. RESOLUTION + INSTALL -->
+  <!-- 6. RESOLUTION + INSTALL -->
   <section class="section">
     <div class="container text-center">
       <h2 class="mb-4">KEEP THE LEVERAGE.<br><span style="color: var(--primary);">SEE THE TRAILS.</span></h2>
       <p class="text-muted mb-8" style="max-width: 550px; margin: 0 auto 2rem; font-size: 1.0625rem;">
-        One install. Background daemon indexes automatically. Your agent sees what you actually built — not just what the docs say you planned.
+        One install. Background daemon indexes automatically. Not memory — visibility. Your agent sees what you actually built, not what you planned to build.
       </p>
 
       <div class="install-tabs">
@@ -232,7 +277,7 @@ Continuing from middleware.ts?</pre>
   <footer class="footer">
     <div class="container footer-inner">
       <div class="footer-links">
-        <a href="https://github.com/tastesystems/tastematter" class="footer-link" target="_blank">GitHub</a>
+        <a href="https://github.com/jacob-dietle/tastematter" class="footer-link" target="_blank">GitHub</a>
         <a href="./terms.html" class="footer-link">Terms</a>
         <a href="./privacy.html" class="footer-link">Privacy</a>
       </div>

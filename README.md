@@ -1,6 +1,14 @@
 # Tastematter
 
-Context intelligence CLI for Claude Code sessions. Query your work patterns, find related files, and understand what you've been working on.
+**Your work leaves trails you can't see.**
+
+People think re-explaining yourself to your AI is a memory problem. It's a visibility problem. You use AI as a force multiplier, ship and learn faster, but the cost of that leverage is visibility into your systems.
+
+This is not a memory solution. This is a visibility solution.
+
+Tastematter runs in the background and processes your Claude Code session data, file access patterns, and repo into a realtime index: which files you touch, where your attention goes, what drifts over time. Instead of starting every session blind, your agent knows what you did yesterday, what's hot right now, and what you abandoned two weeks ago.
+
+**[tastematter.dev](https://tastematter.dev)**
 
 ## Install
 
@@ -9,50 +17,112 @@ Context intelligence CLI for Claude Code sessions. Query your work patterns, fin
 irm https://install.tastematter.dev/install.ps1 | iex
 ```
 
-**macOS/Linux:**
+**macOS / Linux:**
 ```bash
 curl -fsSL https://install.tastematter.dev/install.sh | bash
 ```
 
+## What It Reveals
+
+- **What's actually hot** — Not what you think you're working on. What the data says. 47 touches across 12 sessions this week.
+- **Where attention shifted** — Your plan said API redesign. Your trails say 89% went to auth. The pivot happened Tuesday.
+- **What got abandoned** — routes.ts was hot two weeks ago. Now it's cold. 11 days silent. Nobody flagged it.
+- **What moves together** — Every time you touch middleware.ts, you also touch jwt.ts. Your agent should know that.
+
 ## Quick Start
 
 ```bash
-# Check installation
-tastematter --version
+# Start the background daemon (indexes automatically)
+tastematter daemon start
 
-# Initialize (first time only) - index your Claude Code sessions
-tastematter parse-sessions --project ~/.claude/projects
-tastematter build-chains
-tastematter index-files
-
-# Query your most accessed files (last 7 days)
+# What am I working on?
 tastematter query flex --time 7d --limit 10
 
-# Find files related to a specific file
-tastematter query co-access path/to/file.ts --limit 10
+# What's hot, warm, cold?
+tastematter query heat --time 30d
 
-# List your conversation chains
-tastematter query chains --limit 10
+# What files are related to this one?
+tastematter query co-access src/main.rs --limit 10
 
-# Start HTTP server for browser tools
-tastematter serve --port 3001
+# Restore full context for a project
+tastematter context my-project
 ```
 
 ## Commands
 
-| Command | Purpose |
-|---------|---------|
-| `query flex` | Flexible file queries with time/pattern filters |
-| `query co-access` | Find files accessed together |
-| `query chains` | List conversation chains |
-| `query session` | Get all files from a session |
-| `query search` | Search file paths by keyword |
-| `parse-sessions` | Index Claude Code JSONL files |
-| `build-chains` | Build conversation chain graph |
-| `index-files` | Build file access index |
-| `serve` | Start HTTP API server |
-| `daemon` | Background sync commands |
-| `watch` | Watch directory for changes |
+### Core
+| Command | What it shows you |
+|---------|-------------------|
+| `context <query>` | Full context restoration — composes flex, heat, chains, sessions, timeline, co-access |
+| `serve` | HTTP API server for browser tools and integrations |
+| `sync-git` | Sync git commit data from a repository |
+
+### Query
+| Command | What it shows you |
+|---------|-------------------|
+| `query flex` | Your hottest files with time/pattern filters |
+| `query heat` | File heat metrics — specificity, velocity, composite score |
+| `query co-access` | Files that move together |
+| `query chains` | Your conversation threads over time |
+| `query sessions` | Session-grouped file data |
+| `query timeline` | Timeline visualization data |
+| `query file` | All sessions that touched a specific file |
+| `query search` | Find files by keyword |
+| `query verify` | Verify a query receipt against current data |
+| `query receipts` | List recent query receipts from the ledger |
+
+### Daemon
+| Command | What it does |
+|---------|-------------|
+| `daemon start` | Start background indexing (foreground) |
+| `daemon once` | Run a single sync cycle and exit |
+| `daemon status` | Show sync state + platform registration |
+| `daemon install` | Install daemon to run on login |
+| `daemon uninstall` | Remove daemon from login |
+
+### Indexing (manual, daemon handles these automatically)
+| Command | What it does |
+|---------|-------------|
+| `parse-sessions` | Parse Claude Code JSONL session files |
+| `build-chains` | Build chain graph from session linking |
+| `index-files` | Build inverted file index |
+
+## Integration with Claude Code
+
+Add to your `CLAUDE.md`:
+
+```markdown
+## Context
+
+Use tastematter to understand work context before starting:
+- `tastematter context <project>` - Full context restoration
+- `tastematter query flex --time 7d` - What's hot right now
+- `tastematter query heat` - Hot/warm/cold file classification
+- `tastematter query co-access <file>` - What moves with this file
+```
+
+## How It Works
+
+Tastematter indexes your Claude Code session files (JSONL) and builds:
+
+1. **File access history** — Which files were read/written, when, how often
+2. **Session chains** — How sessions link together over time
+3. **Co-access graph** — Which files appear together (implicit relationships)
+4. **Drift detection** — Plan vs reality divergence across sessions
+
+## Data Location
+
+- **Database:** `~/.context-os/context_os_events.db`
+- **Config:** `~/.context-os/config.yaml`
+- **Query receipts:** `~/.context-os/query_ledger/`
+
+## Privacy
+
+Your context stays 100% private and local. Anonymous tool usage telemetry (which commands you run, not your files or content) can be disabled:
+
+```bash
+tastematter config set telemetry.enabled false
+```
 
 ## Query Examples
 
@@ -60,6 +130,9 @@ tastematter serve --port 3001
 ```bash
 # Most accessed files in the last 30 days
 tastematter query flex --time 30d --limit 20
+
+# File heat metrics (hot/warm/cold classification)
+tastematter query heat --time 30d --limit 20
 
 # Files matching a pattern
 tastematter query flex --files "*pixee*" --time 14d
@@ -86,78 +159,6 @@ tastematter query chains --limit 10
 tastematter query search "authentication"
 ```
 
-## Data Location
-
-- **Database:** `~/.context-os/context_os_events.db`
-- **Config:** `~/.context-os/config.yaml`
-- **Query receipts:** `~/.context-os/query_ledger/`
-
-## How It Works
-
-Tastematter indexes your Claude Code session files (JSONL) and builds:
-
-1. **File access history** - Which files were read/written, when, how often
-2. **Session context** - What files were accessed together in each session
-3. **Conversation chains** - How sessions link together via `leafUuid`
-4. **Co-access graph** - Which files appear together (implicit relationships)
-
-This lets you query patterns like:
-- "What am I working on?" (most accessed files)
-- "What's related to X?" (co-access relationships)
-- "What did I do last week?" (temporal queries)
-- "What did I abandon?" (old files with no recent activity)
-
-## Integration with Claude Code
-
-Add to your `CLAUDE.md` for Claude to use tastematter:
-
-```markdown
-## Context Queries
-
-Use tastematter to understand work context:
-- `tastematter query flex --time 7d` - Recent activity
-- `tastematter query co-access <file>` - Related files
-- `tastematter query chains --limit 5` - Conversation threads
-```
-
-See the [context-query skill](.claude/skills/context-query/SKILL.md) for advanced query strategies.
-
-## Troubleshooting
-
-### "No such table" or empty results
-```bash
-# Check database exists
-ls ~/.context-os/context_os_events.db
-
-# Re-initialize if missing
-tastematter parse-sessions --project ~/.claude/projects
-tastematter build-chains
-tastematter index-files
-```
-
-### Windows path issues
-Use backslashes for Windows paths:
-```powershell
-tastematter parse-sessions --project "C:\Users\YourName\.claude\projects"
-```
-
-### Update to latest version
-Just re-run the install command - it will overwrite the existing binary.
-
-## Development
-
-```bash
-# Build from source
-cd core
-cargo build --release
-
-# Run tests
-cargo test
-
-# The binary will be at:
-./target/release/tastematter
-```
-
 ## Architecture
 
 ```
@@ -168,7 +169,38 @@ cargo test
 └── query_ledger/           # Query receipts for verification
 ```
 
-The CLI is read-only against the database. Use `parse-sessions`, `build-chains`, and `index-files` to populate it from your Claude Code session data.
+The CLI is read-only against the database. The daemon indexes your Claude Code session data automatically in the background.
+
+## Troubleshooting
+
+### "No such table" or empty results
+```bash
+# Check database exists
+ls ~/.context-os/context_os_events.db
+
+# Re-initialize if needed
+tastematter daemon start
+```
+
+### Windows path issues
+Use backslashes for Windows paths:
+```powershell
+tastematter parse-sessions --project "C:\Users\YourName\.claude\projects"
+```
+
+### Update to latest version
+Re-run the install command — it will overwrite the existing binary.
+
+## Development
+
+```bash
+cd core && cargo build --release
+cd core && cargo test -- --test-threads=2
+```
+
+## Status
+
+Alpha software from a solo founder. v0.1.0-alpha.15. Install it if the cold start problem costs you time. Don't if it doesn't.
 
 ## License
 
