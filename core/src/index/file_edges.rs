@@ -761,7 +761,8 @@ mod tests {
             file_path TEXT NOT NULL,
             tool_name TEXT NOT NULL,
             access_type TEXT NOT NULL,
-            sequence_position INTEGER NOT NULL
+            sequence_position INTEGER NOT NULL,
+            source_machine TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_fae_session ON file_access_events(session_id);
         CREATE INDEX IF NOT EXISTS idx_fae_file ON file_access_events(file_path);
@@ -778,7 +779,8 @@ mod tests {
             confidence REAL NOT NULL DEFAULT 0.0,
             lift REAL,
             first_seen TEXT,
-            last_seen TEXT
+            last_seen TEXT,
+            source_machine TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_fe_source ON file_edges(source_file, edge_type);
         CREATE INDEX IF NOT EXISTS idx_fe_target ON file_edges(target_file, edge_type);

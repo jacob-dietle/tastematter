@@ -589,7 +589,8 @@ mod tests {
                 tools_used TEXT,
                 file_size_bytes INTEGER,
                 first_user_message TEXT,
-                conversation_excerpt TEXT
+                conversation_excerpt TEXT,
+                source_machine TEXT
             )",
             [],
         )
