@@ -108,7 +108,13 @@ pub async fn run_sync(config: &DaemonConfig) -> Result<SyncResult, String> {
     let _session_ids = sync_sessions_phase(&claude_dir, config, &mut result, engine.as_ref()).await;
 
     // 3. Chain building WITH PERSISTENCE
-    let chains = build_chains_phase(&claude_dir, &mut result, engine.as_ref(), config.local_machine_id()).await;
+    let chains = build_chains_phase(
+        &claude_dir,
+        &mut result,
+        engine.as_ref(),
+        config.local_machine_id(),
+    )
+    .await;
 
     // 3.5 Intelligence enrichment (optional - graceful degradation)
     if let Some(ref chains) = chains {
@@ -124,7 +130,13 @@ pub async fn run_sync(config: &DaemonConfig) -> Result<SyncResult, String> {
                 .ok()
                 .flatten()
                 .map(|(v,): (String,)| v);
-        match extract_file_edges(engine.database().pool(), since.as_deref(), config.local_machine_id()).await {
+        match extract_file_edges(
+            engine.database().pool(),
+            since.as_deref(),
+            config.local_machine_id(),
+        )
+        .await
+        {
             Ok(edge_result) => {
                 debug!(
                     target: "daemon.sync",
