@@ -4,16 +4,16 @@
 //! Port of `apps/codemode-graph/src/graph-tools.ts` into Boa engine.
 
 use boa_engine::{
-    Context, JsArgs, JsError, JsNativeError, JsValue, Source,
     js_string,
     native_function::NativeFunction,
     object::JsObject,
     property::{Attribute, PropertyKey},
+    Context, JsArgs, JsError, JsNativeError, JsValue, Source,
 };
 use regex::Regex;
 use std::collections::{HashSet, VecDeque};
 
-use super::{CorpusSnapshot, extract_node_name};
+use super::{extract_node_name, CorpusSnapshot};
 
 /// Result of executing JavaScript code in the graph sandbox.
 #[derive(Debug, Clone)]
@@ -30,7 +30,8 @@ pub fn execute_graph_code(snapshot: &CorpusSnapshot, code: &str) -> ExecResult {
 
     match ctx.eval(Source::from_bytes(code)) {
         Ok(val) => {
-            let s = val.to_string(&mut ctx)
+            let s = val
+                .to_string(&mut ctx)
                 .map(|js_str| js_str.to_std_string_escaped())
                 .unwrap_or_else(|_| "undefined".to_string());
             ExecResult {
@@ -72,7 +73,8 @@ fn json_to_js(val: &serde_json::Value, ctx: &mut Context) -> JsValue {
         serde_json::Value::Object(map) => {
             let obj = JsObject::default();
             for (k, v) in map {
-                obj.set(js_string!(k.as_str()), json_to_js(v, ctx), true, ctx).unwrap();
+                obj.set(js_string!(k.as_str()), json_to_js(v, ctx), true, ctx)
+                    .unwrap();
             }
             JsValue::from(obj)
         }
@@ -116,15 +118,13 @@ fn yaml_to_json(val: &serde_yaml::Value) -> serde_json::Value {
 
 /// Get a string property from a JS object.
 fn get_str(obj: &JsObject, key: &str, ctx: &mut Context) -> Option<String> {
-    obj.get(js_string!(key), ctx)
-        .ok()
-        .and_then(|v| {
-            if v.is_undefined() || v.is_null() {
-                None
-            } else {
-                v.to_string(ctx).ok().map(|s| s.to_std_string_escaped())
-            }
-        })
+    obj.get(js_string!(key), ctx).ok().and_then(|v| {
+        if v.is_undefined() || v.is_null() {
+            None
+        } else {
+            v.to_string(ctx).ok().map(|s| s.to_std_string_escaped())
+        }
+    })
 }
 
 /// Get a number property from a JS object, with a default.
@@ -143,7 +143,11 @@ fn get_num(obj: &JsObject, key: &str, default: f64, ctx: &mut Context) -> f64 {
 
 /// Find the file path for a given node name.
 fn find_path_for_node(snapshot: &CorpusSnapshot, node_name: &str) -> Option<String> {
-    snapshot.files.keys().find(|p| extract_node_name(p) == node_name).cloned()
+    snapshot
+        .files
+        .keys()
+        .find(|p| extract_node_name(p) == node_name)
+        .cloned()
 }
 
 // =============================================================================
@@ -171,7 +175,9 @@ fn register_graph_tools(ctx: &mut Context, snapshot: &CorpusSnapshot) {
             let snap = unsafe { &*snap_ptr };
             let input = args.get_or_undefined(0);
             let obj = input.as_object().ok_or_else(|| {
-                JsError::from_native(JsNativeError::typ().with_message("graph_search expects an object"))
+                JsError::from_native(
+                    JsNativeError::typ().with_message("graph_search expects an object"),
+                )
             })?;
 
             let pattern = get_str(obj, "pattern", ctx).unwrap_or_default();
@@ -179,7 +185,9 @@ fn register_graph_tools(ctx: &mut Context, snapshot: &CorpusSnapshot) {
             let max_results = get_num(obj, "maxResults", 20.0, ctx) as usize;
 
             let re = Regex::new(&pattern).map_err(|e| {
-                JsError::from_native(JsNativeError::error().with_message(format!("Invalid regex: {e}")))
+                JsError::from_native(
+                    JsNativeError::error().with_message(format!("Invalid regex: {e}")),
+                )
             })?;
 
             let mut results: Vec<serde_json::Value> = Vec::new();
@@ -201,7 +209,8 @@ fn register_graph_tools(ctx: &mut Context, snapshot: &CorpusSnapshot) {
                 }
 
                 if scope == "frontmatter" || scope == "both" {
-                    let fm_str = serde_json::to_string(&yaml_to_json(&file.frontmatter)).unwrap_or_default();
+                    let fm_str =
+                        serde_json::to_string(&yaml_to_json(&file.frontmatter)).unwrap_or_default();
                     let fm_count = re.find_iter(&fm_str).count();
                     if fm_count > 0 {
                         score += fm_count as f64 * 2.0;
@@ -223,7 +232,9 @@ fn register_graph_tools(ctx: &mut Context, snapshot: &CorpusSnapshot) {
             }
 
             results.sort_by(|a, b| {
-                b["score"].as_f64().unwrap_or(0.0)
+                b["score"]
+                    .as_f64()
+                    .unwrap_or(0.0)
                     .partial_cmp(&a["score"].as_f64().unwrap_or(0.0))
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
@@ -234,7 +245,12 @@ fn register_graph_tools(ctx: &mut Context, snapshot: &CorpusSnapshot) {
         });
 
         codemode
-            .set(js_string!("graph_search"), search_fn.to_js_function(ctx.realm()), true, ctx)
+            .set(
+                js_string!("graph_search"),
+                search_fn.to_js_function(ctx.realm()),
+                true,
+                ctx,
+            )
             .unwrap();
     }
 
@@ -245,18 +261,25 @@ fn register_graph_tools(ctx: &mut Context, snapshot: &CorpusSnapshot) {
             let snap = unsafe { &*snap_ptr };
             let input = args.get_or_undefined(0);
             let obj = input.as_object().ok_or_else(|| {
-                JsError::from_native(JsNativeError::typ().with_message("graph_traverse expects an object"))
+                JsError::from_native(
+                    JsNativeError::typ().with_message("graph_traverse expects an object"),
+                )
             })?;
 
             let start = get_str(obj, "start", ctx).unwrap_or_default();
-            let direction = get_str(obj, "direction", ctx).unwrap_or_else(|| "outbound".to_string());
+            let direction =
+                get_str(obj, "direction", ctx).unwrap_or_else(|| "outbound".to_string());
             let max_depth = get_num(obj, "maxDepth", 2.0, ctx) as usize;
 
             // Get optional filter object
-            let filter_domain = obj.get(js_string!("filter"), ctx).ok()
+            let filter_domain = obj
+                .get(js_string!("filter"), ctx)
+                .ok()
                 .and_then(|v| v.as_object().cloned())
                 .and_then(|f| get_str(&f, "domain", ctx));
-            let filter_status = obj.get(js_string!("filter"), ctx).ok()
+            let filter_status = obj
+                .get(js_string!("filter"), ctx)
+                .ok()
                 .and_then(|v| v.as_object().cloned())
                 .and_then(|f| get_str(&f, "status", ctx));
 
@@ -276,14 +299,24 @@ fn register_graph_tools(ctx: &mut Context, snapshot: &CorpusSnapshot) {
                 if depth > 0 {
                     if let Some(file) = file {
                         if let Some(ref dom) = filter_domain {
-                            let fm_domain = file.frontmatter.get("domain")
-                                .and_then(|v| v.as_str()).unwrap_or("");
-                            if fm_domain != dom { continue; }
+                            let fm_domain = file
+                                .frontmatter
+                                .get("domain")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+                            if fm_domain != dom {
+                                continue;
+                            }
                         }
                         if let Some(ref stat) = filter_status {
-                            let fm_status = file.frontmatter.get("status")
-                                .and_then(|v| v.as_str()).unwrap_or("");
-                            if fm_status != stat { continue; }
+                            let fm_status = file
+                                .frontmatter
+                                .get("status")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("");
+                            if fm_status != stat {
+                                continue;
+                            }
                         }
                     }
                 }
@@ -301,7 +334,9 @@ fn register_graph_tools(ctx: &mut Context, snapshot: &CorpusSnapshot) {
                     "frontmatter": yaml_to_json(&file.frontmatter),
                 }));
 
-                if depth >= max_depth { continue; }
+                if depth >= max_depth {
+                    continue;
+                }
 
                 if let Some(link_entry) = snap.index.links.get(&name) {
                     let mut neighbors = Vec::new();
@@ -326,7 +361,12 @@ fn register_graph_tools(ctx: &mut Context, snapshot: &CorpusSnapshot) {
         });
 
         codemode
-            .set(js_string!("graph_traverse"), traverse_fn.to_js_function(ctx.realm()), true, ctx)
+            .set(
+                js_string!("graph_traverse"),
+                traverse_fn.to_js_function(ctx.realm()),
+                true,
+                ctx,
+            )
             .unwrap();
     }
 
@@ -337,7 +377,9 @@ fn register_graph_tools(ctx: &mut Context, snapshot: &CorpusSnapshot) {
             let snap = unsafe { &*snap_ptr };
             let input = args.get_or_undefined(0);
             let obj = input.as_object().ok_or_else(|| {
-                JsError::from_native(JsNativeError::typ().with_message("graph_read expects an object"))
+                JsError::from_native(
+                    JsNativeError::typ().with_message("graph_read expects an object"),
+                )
             })?;
 
             let path = get_str(obj, "path", ctx).unwrap_or_default();
@@ -345,7 +387,9 @@ fn register_graph_tools(ctx: &mut Context, snapshot: &CorpusSnapshot) {
             let max_lines = get_num(obj, "maxLines", 0.0, ctx) as usize;
 
             let file = snap.files.get(&path).ok_or_else(|| {
-                JsError::from_native(JsNativeError::error().with_message(format!("File not found: {path}")))
+                JsError::from_native(
+                    JsNativeError::error().with_message(format!("File not found: {path}")),
+                )
             })?;
 
             let node_name = extract_node_name(&path);
@@ -382,7 +426,11 @@ fn register_graph_tools(ctx: &mut Context, snapshot: &CorpusSnapshot) {
 
             // Truncate by max lines
             if max_lines > 0 {
-                content = content.lines().take(max_lines).collect::<Vec<_>>().join("\n");
+                content = content
+                    .lines()
+                    .take(max_lines)
+                    .collect::<Vec<_>>()
+                    .join("\n");
             }
 
             let outbound: Vec<String> = link_entry.map(|e| e.outbound.clone()).unwrap_or_default();
@@ -399,7 +447,12 @@ fn register_graph_tools(ctx: &mut Context, snapshot: &CorpusSnapshot) {
         });
 
         codemode
-            .set(js_string!("graph_read"), read_fn.to_js_function(ctx.realm()), true, ctx)
+            .set(
+                js_string!("graph_read"),
+                read_fn.to_js_function(ctx.realm()),
+                true,
+                ctx,
+            )
             .unwrap();
     }
 
@@ -410,14 +463,18 @@ fn register_graph_tools(ctx: &mut Context, snapshot: &CorpusSnapshot) {
             let snap = unsafe { &*snap_ptr };
             let input = args.get_or_undefined(0);
             let obj = input.as_object().ok_or_else(|| {
-                JsError::from_native(JsNativeError::typ().with_message("graph_query expects an object"))
+                JsError::from_native(
+                    JsNativeError::typ().with_message("graph_query expects an object"),
+                )
             })?;
 
             let limit = get_num(obj, "limit", 50.0, ctx) as usize;
             let sort_by = get_str(obj, "sort", ctx);
 
             // Extract filter object
-            let filter_obj = obj.get(js_string!("filter"), ctx).ok()
+            let filter_obj = obj
+                .get(js_string!("filter"), ctx)
+                .ok()
                 .and_then(|v| v.as_object().cloned());
 
             let filter_status = filter_obj.as_ref().and_then(|f| get_str(f, "status", ctx));
@@ -431,7 +488,11 @@ fn register_graph_tools(ctx: &mut Context, snapshot: &CorpusSnapshot) {
                     return None;
                 }
                 let arr_obj = val.as_object()?;
-                let len = arr_obj.get(js_string!("length"), ctx).ok()?.to_number(ctx).ok()? as usize;
+                let len = arr_obj
+                    .get(js_string!("length"), ctx)
+                    .ok()?
+                    .to_number(ctx)
+                    .ok()? as usize;
                 let mut tags = Vec::new();
                 for i in 0..len {
                     if let Ok(item) = arr_obj.get(PropertyKey::from(i as u32), ctx) {
@@ -451,29 +512,46 @@ fn register_graph_tools(ctx: &mut Context, snapshot: &CorpusSnapshot) {
                 // Apply filters
                 if let Some(ref status) = filter_status {
                     let fm_status = fm.get("status").and_then(|v| v.as_str()).unwrap_or("");
-                    if fm_status != status { continue; }
+                    if fm_status != status {
+                        continue;
+                    }
                 }
                 if let Some(ref domain) = filter_domain {
                     let fm_domain = fm.get("domain").and_then(|v| v.as_str()).unwrap_or("");
-                    if fm_domain != domain { continue; }
+                    if fm_domain != domain {
+                        continue;
+                    }
                 }
                 if let Some(ref name_pattern) = filter_name {
                     let fm_name = fm.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                    let re = Regex::new(&format!("(?i){}", name_pattern)).unwrap_or_else(|_| Regex::new("$^").unwrap());
-                    if !re.is_match(fm_name) { continue; }
+                    let re = Regex::new(&format!("(?i){}", name_pattern))
+                        .unwrap_or_else(|_| Regex::new("$^").unwrap());
+                    if !re.is_match(fm_name) {
+                        continue;
+                    }
                 }
                 if let Some(ref required_tags) = filter_tags {
-                    let file_tags: Vec<String> = fm.get("tags")
+                    let file_tags: Vec<String> = fm
+                        .get("tags")
                         .and_then(|v| v.as_sequence())
-                        .map(|seq| seq.iter().filter_map(|t| t.as_str().map(String::from)).collect())
+                        .map(|seq| {
+                            seq.iter()
+                                .filter_map(|t| t.as_str().map(String::from))
+                                .collect()
+                        })
                         .unwrap_or_default();
-                    if !required_tags.iter().all(|t| file_tags.contains(t)) { continue; }
+                    if !required_tags.iter().all(|t| file_tags.contains(t)) {
+                        continue;
+                    }
                 }
 
                 let node_name = extract_node_name(path);
                 let link_entry = snap.index.links.get(&node_name);
-                let fm_name = fm.get("name").and_then(|v| v.as_str())
-                    .map(String::from).unwrap_or_else(|| node_name.clone());
+                let fm_name = fm
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .map(String::from)
+                    .unwrap_or_else(|| node_name.clone());
 
                 matching_nodes.push(serde_json::json!({
                     "path": path,
@@ -495,13 +573,22 @@ fn register_graph_tools(ctx: &mut Context, snapshot: &CorpusSnapshot) {
             if let Some(ref sort) = sort_by {
                 match sort.as_str() {
                     "name" => matching_nodes.sort_by(|a, b| {
-                        a["name"].as_str().unwrap_or("").cmp(b["name"].as_str().unwrap_or(""))
+                        a["name"]
+                            .as_str()
+                            .unwrap_or("")
+                            .cmp(b["name"].as_str().unwrap_or(""))
                     }),
                     "status" => matching_nodes.sort_by(|a, b| {
-                        a["status"].as_str().unwrap_or("").cmp(b["status"].as_str().unwrap_or(""))
+                        a["status"]
+                            .as_str()
+                            .unwrap_or("")
+                            .cmp(b["status"].as_str().unwrap_or(""))
                     }),
                     "last_updated" => matching_nodes.sort_by(|a, b| {
-                        b["last_updated"].as_str().unwrap_or("").cmp(a["last_updated"].as_str().unwrap_or(""))
+                        b["last_updated"]
+                            .as_str()
+                            .unwrap_or("")
+                            .cmp(a["last_updated"].as_str().unwrap_or(""))
                     }),
                     _ => {}
                 }
@@ -518,7 +605,12 @@ fn register_graph_tools(ctx: &mut Context, snapshot: &CorpusSnapshot) {
         });
 
         codemode
-            .set(js_string!("graph_query"), query_fn.to_js_function(ctx.realm()), true, ctx)
+            .set(
+                js_string!("graph_query"),
+                query_fn.to_js_function(ctx.realm()),
+                true,
+                ctx,
+            )
             .unwrap();
     }
 
@@ -552,12 +644,15 @@ mod tests {
     #[test]
     fn test_graph_search_basic() {
         let snap = fixture_snapshot();
-        let result = execute_graph_code(&snap, r##"
+        let result = execute_graph_code(
+            &snap,
+            r##"
             (() => {
                 const results = codemode.graph_search({ pattern: "context" });
                 return JSON.stringify(results.length);
             })()
-        "##);
+        "##,
+        );
         assert!(result.error.is_none(), "Error: {:?}", result.error);
         let count: usize = serde_json::from_str(result.result.as_ref().unwrap()).unwrap();
         assert!(count > 0, "Should find files matching 'context'");
@@ -566,26 +661,35 @@ mod tests {
     #[test]
     fn test_graph_search_frontmatter_scope() {
         let snap = fixture_snapshot();
-        let result = execute_graph_code(&snap, r##"
+        let result = execute_graph_code(
+            &snap,
+            r##"
             (() => {
                 const results = codemode.graph_search({ pattern: "canonical", scope: "frontmatter" });
                 return JSON.stringify(results.map(r => r.path));
             })()
-        "##);
+        "##,
+        );
         assert!(result.error.is_none(), "Error: {:?}", result.error);
         let paths: Vec<String> = serde_json::from_str(result.result.as_ref().unwrap()).unwrap();
-        assert!(paths.len() >= 3, "Should find canonical files in frontmatter");
+        assert!(
+            paths.len() >= 3,
+            "Should find canonical files in frontmatter"
+        );
     }
 
     #[test]
     fn test_graph_search_max_results() {
         let snap = fixture_snapshot();
-        let result = execute_graph_code(&snap, r##"
+        let result = execute_graph_code(
+            &snap,
+            r##"
             (() => {
                 const results = codemode.graph_search({ pattern: ".", maxResults: 2 });
                 return JSON.stringify(results.length);
             })()
-        "##);
+        "##,
+        );
         assert!(result.error.is_none(), "Error: {:?}", result.error);
         let count: usize = serde_json::from_str(result.result.as_ref().unwrap()).unwrap();
         assert!(count <= 2, "Should respect maxResults limit");
@@ -596,12 +700,15 @@ mod tests {
     #[test]
     fn test_graph_traverse_outbound() {
         let snap = fixture_snapshot();
-        let result = execute_graph_code(&snap, r##"
+        let result = execute_graph_code(
+            &snap,
+            r##"
             (() => {
                 const r = codemode.graph_traverse({ start: "context-engineering", direction: "outbound", maxDepth: 1 });
                 return JSON.stringify(r.nodes.map(n => n.name));
             })()
-        "##);
+        "##,
+        );
         assert!(result.error.is_none(), "Error: {:?}", result.error);
         let names: Vec<String> = serde_json::from_str(result.result.as_ref().unwrap()).unwrap();
         assert!(names.contains(&"context-engineering".to_string()));
@@ -611,12 +718,15 @@ mod tests {
     #[test]
     fn test_graph_traverse_inbound() {
         let snap = fixture_snapshot();
-        let result = execute_graph_code(&snap, r##"
+        let result = execute_graph_code(
+            &snap,
+            r##"
             (() => {
                 const r = codemode.graph_traverse({ start: "context-engineering", direction: "inbound", maxDepth: 1 });
                 return JSON.stringify(r.nodes.map(n => n.name));
             })()
-        "##);
+        "##,
+        );
         assert!(result.error.is_none(), "Error: {:?}", result.error);
         let names: Vec<String> = serde_json::from_str(result.result.as_ref().unwrap()).unwrap();
         // agentic-systems, taste-op, business-model all link TO context-engineering
@@ -626,12 +736,15 @@ mod tests {
     #[test]
     fn test_graph_traverse_depth_limit() {
         let snap = fixture_snapshot();
-        let result = execute_graph_code(&snap, r##"
+        let result = execute_graph_code(
+            &snap,
+            r##"
             (() => {
                 const r = codemode.graph_traverse({ start: "context-engineering", direction: "both", maxDepth: 0 });
                 return JSON.stringify(r.nodes.length);
             })()
-        "##);
+        "##,
+        );
         assert!(result.error.is_none(), "Error: {:?}", result.error);
         let count: usize = serde_json::from_str(result.result.as_ref().unwrap()).unwrap();
         assert_eq!(count, 1, "Depth 0 should return only the start node");
@@ -642,7 +755,9 @@ mod tests {
     #[test]
     fn test_graph_read_basic() {
         let snap = fixture_snapshot();
-        let result = execute_graph_code(&snap, r##"
+        let result = execute_graph_code(
+            &snap,
+            r##"
             (() => {
                 const r = codemode.graph_read({ path: "technical/context-engineering.md" });
                 return JSON.stringify({
@@ -652,7 +767,8 @@ mod tests {
                     domain: r.frontmatter.domain,
                 });
             })()
-        "##);
+        "##,
+        );
         assert!(result.error.is_none(), "Error: {:?}", result.error);
         let val: serde_json::Value = serde_json::from_str(result.result.as_ref().unwrap()).unwrap();
         assert_eq!(val["has_content"], true);
@@ -664,21 +780,29 @@ mod tests {
     #[test]
     fn test_graph_read_section() {
         let snap = fixture_snapshot();
-        let result = execute_graph_code(&snap, r##"
+        let result = execute_graph_code(
+            &snap,
+            r##"
             (() => {
                 const r = codemode.graph_read({ path: "technical/context-engineering.md", section: "Core Principle" });
                 return JSON.stringify(r.content);
             })()
-        "##);
+        "##,
+        );
         assert!(result.error.is_none(), "Error: {:?}", result.error);
         let content: String = serde_json::from_str(result.result.as_ref().unwrap()).unwrap();
-        assert!(content.contains("context"), "Section should contain context-related text");
+        assert!(
+            content.contains("context"),
+            "Section should contain context-related text"
+        );
     }
 
     #[test]
     fn test_graph_read_not_found() {
         let snap = fixture_snapshot();
-        let result = execute_graph_code(&snap, r##"
+        let result = execute_graph_code(
+            &snap,
+            r##"
             (() => {
                 try {
                     codemode.graph_read({ path: "nonexistent/file.md" });
@@ -687,7 +811,8 @@ mod tests {
                     return JSON.stringify({ error: true });
                 }
             })()
-        "##);
+        "##,
+        );
         assert!(result.error.is_none(), "Executor itself should not crash");
         let val: serde_json::Value = serde_json::from_str(result.result.as_ref().unwrap()).unwrap();
         assert_eq!(val["error"], true);
@@ -698,12 +823,15 @@ mod tests {
     #[test]
     fn test_graph_query_by_domain() {
         let snap = fixture_snapshot();
-        let result = execute_graph_code(&snap, r##"
+        let result = execute_graph_code(
+            &snap,
+            r##"
             (() => {
                 const r = codemode.graph_query({ filter: { domain: "technical" } });
                 return JSON.stringify({ total: r.total, names: r.nodes.map(n => n.name) });
             })()
-        "##);
+        "##,
+        );
         assert!(result.error.is_none(), "Error: {:?}", result.error);
         let val: serde_json::Value = serde_json::from_str(result.result.as_ref().unwrap()).unwrap();
         assert_eq!(val["total"], 2);
@@ -712,12 +840,15 @@ mod tests {
     #[test]
     fn test_graph_query_by_status() {
         let snap = fixture_snapshot();
-        let result = execute_graph_code(&snap, r##"
+        let result = execute_graph_code(
+            &snap,
+            r##"
             (() => {
                 const r = codemode.graph_query({ filter: { status: "canonical" } });
                 return JSON.stringify(r.total);
             })()
-        "##);
+        "##,
+        );
         assert!(result.error.is_none(), "Error: {:?}", result.error);
         let count: usize = serde_json::from_str(result.result.as_ref().unwrap()).unwrap();
         assert_eq!(count, 3, "3 canonical files in fixture");
@@ -726,27 +857,37 @@ mod tests {
     #[test]
     fn test_graph_query_by_tags() {
         let snap = fixture_snapshot();
-        let result = execute_graph_code(&snap, r##"
+        let result = execute_graph_code(
+            &snap,
+            r##"
             (() => {
                 const r = codemode.graph_query({ filter: { tags: ["methodology", "taste"] } });
                 return JSON.stringify(r.nodes.map(n => n.name));
             })()
-        "##);
+        "##,
+        );
         assert!(result.error.is_none(), "Error: {:?}", result.error);
         let names: Vec<String> = serde_json::from_str(result.result.as_ref().unwrap()).unwrap();
         // Only taste-operationalization has both tags (name from frontmatter is UPPER_CASE)
-        assert!(names.iter().any(|n| n.to_lowercase().contains("taste")), "Names: {:?}", names);
+        assert!(
+            names.iter().any(|n| n.to_lowercase().contains("taste")),
+            "Names: {:?}",
+            names
+        );
     }
 
     #[test]
     fn test_graph_query_limit() {
         let snap = fixture_snapshot();
-        let result = execute_graph_code(&snap, r##"
+        let result = execute_graph_code(
+            &snap,
+            r##"
             (() => {
                 const r = codemode.graph_query({ filter: {}, limit: 2 });
                 return JSON.stringify(r.nodes.length);
             })()
-        "##);
+        "##,
+        );
         assert!(result.error.is_none(), "Error: {:?}", result.error);
         let count: usize = serde_json::from_str(result.result.as_ref().unwrap()).unwrap();
         assert!(count <= 2);
@@ -757,7 +898,9 @@ mod tests {
     #[test]
     fn test_composition_search_then_read() {
         let snap = fixture_snapshot();
-        let result = execute_graph_code(&snap, r##"
+        let result = execute_graph_code(
+            &snap,
+            r##"
             (() => {
                 const results = codemode.graph_search({ pattern: "context" });
                 const top = results[0];
@@ -768,7 +911,8 @@ mod tests {
                     inbound_count: detail.inbound_links.length,
                 });
             })()
-        "##);
+        "##,
+        );
         assert!(result.error.is_none(), "Error: {:?}", result.error);
         let val: serde_json::Value = serde_json::from_str(result.result.as_ref().unwrap()).unwrap();
         assert!(val["outbound_count"].as_u64().unwrap() > 0);
@@ -785,7 +929,9 @@ mod tests {
     #[test]
     fn test_real_llm_pattern() {
         let snap = fixture_snapshot();
-        let result = execute_graph_code(&snap, r##"
+        let result = execute_graph_code(
+            &snap,
+            r##"
             (() => {
                 const results = codemode.graph_search({ pattern: "context" });
                 const top = results[0];
@@ -797,11 +943,15 @@ mod tests {
                     inbound_count: detail.inbound_links.length,
                 });
             })()
-        "##);
+        "##,
+        );
         assert!(result.error.is_none(), "Error: {:?}", result.error);
         let val: serde_json::Value = serde_json::from_str(result.result.as_ref().unwrap()).unwrap();
         // Top result has a path, status, and link counts — proves search→read composition works
         assert!(val["path"].as_str().unwrap().ends_with(".md"));
-        assert!(val["outbound_count"].as_u64().unwrap() > 0 || val["inbound_count"].as_u64().unwrap() > 0);
+        assert!(
+            val["outbound_count"].as_u64().unwrap() > 0
+                || val["inbound_count"].as_u64().unwrap() > 0
+        );
     }
 }

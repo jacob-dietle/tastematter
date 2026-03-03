@@ -1296,7 +1296,11 @@ mod tests {
         assert!(fe_names.contains(&"lift".to_string()));
         assert!(fe_names.contains(&"first_seen".to_string()));
         assert!(fe_names.contains(&"last_seen".to_string()));
-        assert_eq!(fe_names.len(), 12, "file_edges should have 12 columns (including source_machine)");
+        assert_eq!(
+            fe_names.len(),
+            12,
+            "file_edges should have 12 columns (including source_machine)"
+        );
     }
 
     #[tokio::test]
@@ -1486,12 +1490,11 @@ mod tests {
 
         for table in synced_tables {
             // PRAGMA table_info returns column metadata; check source_machine exists
-            let rows: Vec<(i64, String, String, i64, Option<String>, i64)> = sqlx::query_as(
-                &format!("PRAGMA table_info({})", table),
-            )
-            .fetch_all(db.pool())
-            .await
-            .unwrap();
+            let rows: Vec<(i64, String, String, i64, Option<String>, i64)> =
+                sqlx::query_as(&format!("PRAGMA table_info({})", table))
+                    .fetch_all(db.pool())
+                    .await
+                    .unwrap();
 
             let has_source_machine = rows.iter().any(|r| r.1 == "source_machine");
             assert!(

@@ -48,7 +48,13 @@ pub const TABLES: &[TableDef] = &[
     },
     TableDef {
         name: "chain_graph",
-        columns: &["session_id", "chain_id", "parent_session_id", "indexed_at", "source_machine"],
+        columns: &[
+            "session_id",
+            "chain_id",
+            "parent_session_id",
+            "indexed_at",
+            "source_machine",
+        ],
         path_columns: &[],
         json_path_columns: &[],
     },

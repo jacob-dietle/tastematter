@@ -215,17 +215,13 @@ fn build_index(files: &HashMap<String, CorpusFile>) -> GraphIndex {
         } else {
             "."
         };
-        tree.entry(dir.to_string())
-            .or_default()
-            .push(path.clone());
+        tree.entry(dir.to_string()).or_default().push(path.clone());
 
         // Tag index from frontmatter
         if let Some(tag_seq) = file.frontmatter.get("tags").and_then(|v| v.as_sequence()) {
             for tag_val in tag_seq {
                 if let Some(tag) = tag_val.as_str() {
-                    tags.entry(tag.to_string())
-                        .or_default()
-                        .push(path.clone());
+                    tags.entry(tag.to_string()).or_default().push(path.clone());
                 }
             }
         }
@@ -320,7 +316,8 @@ mod tests {
 
     #[test]
     fn test_extract_wiki_links_in_yaml() {
-        let links = extract_wiki_links(r#"related: ["[[context-engineering]]", "[[business-model]]"]"#);
+        let links =
+            extract_wiki_links(r#"related: ["[[context-engineering]]", "[[business-model]]"]"#);
         assert_eq!(links, vec!["context-engineering", "business-model"]);
     }
 
@@ -369,7 +366,9 @@ mod tests {
         // Verify specific files loaded
         assert!(snap.files.contains_key("technical/context-engineering.md"));
         assert!(snap.files.contains_key("business/business-model.md"));
-        assert!(snap.files.contains_key("methodology/taste-operationalization.md"));
+        assert!(snap
+            .files
+            .contains_key("methodology/taste-operationalization.md"));
         assert!(snap.files.contains_key("technical/agentic-systems.md"));
         assert!(snap.files.contains_key("emergent/new-concept.md"));
     }
@@ -402,7 +401,9 @@ mod tests {
         let snap = load_graph(&fixture_path());
         let ce_links = &snap.index.links["context-engineering"];
         // context-engineering.md links to: taste-operationalization, agentic-systems, business-model
-        assert!(ce_links.outbound.contains(&"taste-operationalization".to_string()));
+        assert!(ce_links
+            .outbound
+            .contains(&"taste-operationalization".to_string()));
         assert!(ce_links.outbound.contains(&"agentic-systems".to_string()));
         assert!(ce_links.outbound.contains(&"business-model".to_string()));
     }
@@ -413,7 +414,9 @@ mod tests {
         let ce_links = &snap.index.links["context-engineering"];
         // context-engineering should have inbound from: agentic-systems, taste-operationalization, business-model
         assert!(ce_links.inbound.contains(&"agentic-systems".to_string()));
-        assert!(ce_links.inbound.contains(&"taste-operationalization".to_string()));
+        assert!(ce_links
+            .inbound
+            .contains(&"taste-operationalization".to_string()));
         assert!(ce_links.inbound.contains(&"business-model".to_string()));
     }
 
