@@ -173,6 +173,16 @@ enum Commands {
         #[command(subcommand)]
         trail_cmd: TrailCommands,
     },
+    /// Execute JavaScript against a knowledge graph (Code Mode)
+    #[command(name = "graph-exec")]
+    GraphExec {
+        /// Path to knowledge graph directory
+        #[arg(long)]
+        graph: String,
+
+        /// JavaScript code to execute
+        code: String,
+    },
     /// Restore context for a topic — composed query across flex, heat, chains, sessions, timeline, co-access
     Context {
         /// Search query (used as glob pattern *query*)
@@ -497,6 +507,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             TrailCommands::Push => "trail_push",
             TrailCommands::Pull => "trail_pull",
         },
+        Commands::GraphExec { .. } => "graph_exec",
         Commands::Context { ref time, .. } => {
             time_range_bucket = Some(TimeRangeBucket::from_time_arg(time));
             "context"
@@ -967,6 +978,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     .insert_file_access_events(
                                         &parsed.summary.session_id,
                                         &parsed.tool_uses,
+                                        None, // CLI parse doesn't have trail config
                                     )
                                     .await
                                 {
@@ -1587,6 +1599,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     if !pull_result.errors.is_empty() {
                         std::process::exit(1);
+                    }
+                }
+            }
+        }
+        Commands::GraphExec { graph, code } => {
+            let snapshot = tastematter::graph::load_graph(&graph);
+            let exec_result = tastematter::graph::executor::execute_graph_code(&snapshot, &code);
+            match exec_result.error {
+                Some(err) => {
+                    let output = serde_json::json!({ "error": err });
+                    println!("{}", serde_json::to_string_pretty(&output)?);
+                    std::process::exit(1);
+                }
+                None => {
+                    // Try to parse result as JSON for pretty printing, fallback to raw
+                    let raw = exec_result.result.unwrap_or_else(|| "null".to_string());
+                    match serde_json::from_str::<serde_json::Value>(&raw) {
+                        Ok(val) => println!("{}", serde_json::to_string_pretty(&val)?),
+                        Err(_) => println!("{}", raw),
                     }
                 }
             }

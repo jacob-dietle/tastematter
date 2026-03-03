@@ -616,6 +616,7 @@ mod tests {
             first_user_message: Some("Help me refactor this code".to_string()),
             conversation_excerpt: Some("[User 1]: Help me refactor this code".to_string()),
             file_size_bytes: Some(42000),
+            source_machine: None,
         };
 
         // Insert and verify
@@ -998,6 +999,7 @@ mod tests {
             first_user_message: Some("First version".to_string()),
             conversation_excerpt: None,
             file_size_bytes: None,
+            source_machine: None,
         };
 
         // First upsert
@@ -1019,6 +1021,7 @@ mod tests {
             first_user_message: Some("Updated version".to_string()),
             conversation_excerpt: None,
             file_size_bytes: None,
+            source_machine: None,
         };
 
         engine.upsert_session(&updated).await.unwrap();
@@ -1068,6 +1071,7 @@ mod tests {
             first_user_message: None,
             conversation_excerpt: None,
             file_size_bytes: None,
+            source_machine: None,
         };
 
         let result = engine.upsert_session(&session).await;
@@ -1114,6 +1118,7 @@ mod tests {
             first_user_message: None,
             conversation_excerpt: Some(large_excerpt.clone()),
             file_size_bytes: None,
+            source_machine: None,
         };
 
         let result = engine.upsert_session(&session).await;

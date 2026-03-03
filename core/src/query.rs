@@ -1619,8 +1619,9 @@ impl QueryEngine {
                 session_id, project_path, started_at, ended_at, duration_seconds,
                 user_message_count, assistant_message_count, total_messages,
                 files_read, files_written, tools_used,
-                first_user_message, conversation_excerpt, file_size_bytes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                first_user_message, conversation_excerpt, file_size_bytes,
+                source_machine
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#;
 
         let result = sqlx::query(sql)
@@ -1638,6 +1639,7 @@ impl QueryEngine {
             .bind(&session.first_user_message)
             .bind(&session.conversation_excerpt)
             .bind(session.file_size_bytes)
+            .bind(&session.source_machine)
             .execute(self.db.pool())
             .await
             .map_err(CoreError::Database)?;
@@ -1744,8 +1746,9 @@ impl QueryEngine {
                 session_id, project_path, started_at, ended_at, duration_seconds,
                 user_message_count, assistant_message_count, total_messages,
                 files_read, files_written, tools_used,
-                first_user_message, conversation_excerpt, file_size_bytes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                first_user_message, conversation_excerpt, file_size_bytes,
+                source_machine
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#;
 
         let result = sqlx::query(sql)
@@ -1763,6 +1766,7 @@ impl QueryEngine {
             .bind(&session.first_user_message)
             .bind(&session.conversation_excerpt)
             .bind(session.file_size_bytes)
+            .bind(&session.source_machine)
             .execute(self.db.pool())
             .await
             .map_err(CoreError::Database)?;
@@ -1840,6 +1844,7 @@ impl QueryEngine {
         &self,
         session_id: &str,
         tool_uses: &[ToolUse],
+        machine_id: Option<&str>,
     ) -> Result<usize, CoreError> {
         let pool = self.db.pool();
 
@@ -1869,8 +1874,8 @@ impl QueryEngine {
 
             sqlx::query(
                 "INSERT INTO file_access_events \
-                 (session_id, timestamp, file_path, tool_name, access_type, sequence_position) \
-                 VALUES (?, ?, ?, ?, ?, ?)",
+                 (session_id, timestamp, file_path, tool_name, access_type, sequence_position, source_machine) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(session_id)
             .bind(tu.timestamp.to_rfc3339())
@@ -1878,6 +1883,7 @@ impl QueryEngine {
             .bind(&tu.name)
             .bind(access_type)
             .bind(seq as i32)
+            .bind(machine_id)
             .execute(&mut *tx)
             .await
             .map_err(CoreError::Database)?;
@@ -1901,6 +1907,7 @@ impl QueryEngine {
     pub async fn persist_chains(
         &self,
         chains: &std::collections::HashMap<String, crate::index::chain_graph::Chain>,
+        machine_id: Option<&str>,
     ) -> Result<WriteResult, CoreError> {
         let mut rows = 0u64;
 
@@ -1957,13 +1964,14 @@ impl QueryEngine {
         for chain in chains.values() {
             sqlx::query(
                 "INSERT OR REPLACE INTO chains (
-                    chain_id, root_session_id, session_count, files_count, updated_at
-                ) VALUES (?, ?, ?, ?, datetime('now'))",
+                    chain_id, root_session_id, session_count, files_count, updated_at, source_machine
+                ) VALUES (?, ?, ?, ?, datetime('now'), ?)",
             )
             .bind(&chain.chain_id)
             .bind(&chain.root_session)
             .bind(chain.sessions.len() as i32)
             .bind(chain.files_list.len() as i32)
+            .bind(machine_id)
             .execute(&mut *tx)
             .await
             .map_err(CoreError::Database)?;
@@ -1986,13 +1994,14 @@ impl QueryEngine {
 
                 sqlx::query(
                     "INSERT OR REPLACE INTO chain_graph (
-                        session_id, chain_id, parent_session_id, is_root, indexed_at
-                    ) VALUES (?, ?, ?, ?, datetime('now'))",
+                        session_id, chain_id, parent_session_id, is_root, indexed_at, source_machine
+                    ) VALUES (?, ?, ?, ?, datetime('now'), ?)",
                 )
                 .bind(session_id)
                 .bind(&chain.chain_id)
                 .bind(&parent)
                 .bind(is_root)
+                .bind(machine_id)
                 .execute(&mut *tx)
                 .await
                 .map_err(CoreError::Database)?;
@@ -2254,11 +2263,11 @@ mod tests {
         let (engine, _dir) = setup_chains_test_db().await;
         let chains = make_test_chains(3);
 
-        let result1 = engine.persist_chains(&chains).await.unwrap();
+        let result1 = engine.persist_chains(&chains, None).await.unwrap();
         let chains_count1 = count_chain_rows(&engine, "chains").await;
         let graph_count1 = count_chain_rows(&engine, "chain_graph").await;
 
-        let result2 = engine.persist_chains(&chains).await.unwrap();
+        let result2 = engine.persist_chains(&chains, None).await.unwrap();
         let chains_count2 = count_chain_rows(&engine, "chains").await;
         let graph_count2 = count_chain_rows(&engine, "chain_graph").await;
 
@@ -2284,14 +2293,14 @@ mod tests {
         let (engine, _dir) = setup_chains_test_db().await;
 
         let mut chains = make_test_chains(3);
-        engine.persist_chains(&chains).await.unwrap();
+        engine.persist_chains(&chains, None).await.unwrap();
         assert_eq!(count_chain_rows(&engine, "chains").await, 3);
 
         // Remove one chain
         let removed_id = chains.keys().next().unwrap().clone();
         chains.remove(&removed_id);
 
-        engine.persist_chains(&chains).await.unwrap();
+        engine.persist_chains(&chains, None).await.unwrap();
         assert_eq!(
             count_chain_rows(&engine, "chains").await,
             2,
@@ -2332,7 +2341,7 @@ mod tests {
         );
 
         let chains = make_test_chains(2);
-        engine.persist_chains(&chains).await.unwrap();
+        engine.persist_chains(&chains, None).await.unwrap();
 
         // Verify tables still exist with same schema after persist
         let schema_after: String =
@@ -2353,13 +2362,13 @@ mod tests {
 
         // Populate first
         let chains = make_test_chains(2);
-        engine.persist_chains(&chains).await.unwrap();
+        engine.persist_chains(&chains, None).await.unwrap();
         assert_eq!(count_chain_rows(&engine, "chains").await, 2);
 
         // Persist with empty input
         let empty: std::collections::HashMap<String, crate::index::chain_graph::Chain> =
             std::collections::HashMap::new();
-        engine.persist_chains(&empty).await.unwrap();
+        engine.persist_chains(&empty, None).await.unwrap();
 
         assert_eq!(
             count_chain_rows(&engine, "chains").await,
@@ -2401,6 +2410,7 @@ mod tests {
                 first_user_message: Some(format!("Help with task {}", i)),
                 conversation_excerpt: Some(format!("[User]: Help with task {}", i)),
                 file_size_bytes: Some(42000),
+                source_machine: None,
             };
             engine.upsert_session(&session).await.unwrap();
         }
@@ -2648,7 +2658,7 @@ mod tests {
         let tool_uses = make_test_tool_uses(3);
 
         let count = engine
-            .insert_file_access_events("test-session-001", &tool_uses)
+            .insert_file_access_events("test-session-001", &tool_uses, None)
             .await
             .unwrap();
         assert_eq!(count, 3);
@@ -2689,13 +2699,13 @@ mod tests {
 
         // Insert first time
         engine
-            .insert_file_access_events("test-session-002", &tool_uses)
+            .insert_file_access_events("test-session-002", &tool_uses, None)
             .await
             .unwrap();
 
         // Insert again (same session) — should DELETE + re-INSERT
         engine
-            .insert_file_access_events("test-session-002", &tool_uses)
+            .insert_file_access_events("test-session-002", &tool_uses, None)
             .await
             .unwrap();
 
@@ -2717,7 +2727,7 @@ mod tests {
 
         let start = std::time::Instant::now();
         let count = engine
-            .insert_file_access_events("test-session-perf", &tool_uses)
+            .insert_file_access_events("test-session-perf", &tool_uses, None)
             .await
             .unwrap();
         let elapsed = start.elapsed();
@@ -2769,7 +2779,7 @@ mod tests {
         ];
 
         engine
-            .insert_file_access_events("test-session-types", &tool_uses)
+            .insert_file_access_events("test-session-types", &tool_uses, None)
             .await
             .unwrap();
 
@@ -2793,7 +2803,7 @@ mod tests {
         let tool_uses: Vec<crate::capture::jsonl_parser::ToolUse> = vec![];
 
         let count = engine
-            .insert_file_access_events("test-session-empty", &tool_uses)
+            .insert_file_access_events("test-session-empty", &tool_uses, None)
             .await
             .unwrap();
 
@@ -2807,14 +2817,14 @@ mod tests {
         // Insert for session A
         let tool_uses_a = make_test_tool_uses(3);
         engine
-            .insert_file_access_events("session-a", &tool_uses_a)
+            .insert_file_access_events("session-a", &tool_uses_a, None)
             .await
             .unwrap();
 
         // Insert for session B
         let tool_uses_b = make_test_tool_uses(5);
         engine
-            .insert_file_access_events("session-b", &tool_uses_b)
+            .insert_file_access_events("session-b", &tool_uses_b, None)
             .await
             .unwrap();
 

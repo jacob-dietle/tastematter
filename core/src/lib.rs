@@ -14,6 +14,7 @@
 
 pub mod capture;
 pub mod context_restore;
+pub mod graph;
 pub mod daemon;
 pub mod error;
 pub mod http;

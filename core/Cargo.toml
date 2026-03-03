@@ -32,6 +32,8 @@ walkdir = "2.4"
 notify = "6.1"
 serde_yaml = "0.9"
 reqwest = { version = "0.12", features = ["json"] }
+boa_engine = "0.20"
+regex = "1.10"
 
 [features]
 default = []
