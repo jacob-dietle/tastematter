@@ -169,7 +169,6 @@ fn register_graph_tools(ctx: &mut Context, snapshot: &CorpusSnapshot) {
 
     // --- graph_search ---
     {
-        let snap_ptr = snap_ptr;
         let search_fn = NativeFunction::from_copy_closure(move |_this, args, ctx| {
             // SAFETY: snap_ptr is valid for the lifetime of execute_graph_code
             let snap = unsafe { &*snap_ptr };
@@ -256,7 +255,6 @@ fn register_graph_tools(ctx: &mut Context, snapshot: &CorpusSnapshot) {
 
     // --- graph_traverse ---
     {
-        let snap_ptr = snap_ptr;
         let traverse_fn = NativeFunction::from_copy_closure(move |_this, args, ctx| {
             let snap = unsafe { &*snap_ptr };
             let input = args.get_or_undefined(0);
@@ -292,7 +290,7 @@ fn register_graph_tools(ctx: &mut Context, snapshot: &CorpusSnapshot) {
             visited.insert(start.clone());
 
             while let Some((name, depth)) = queue.pop_front() {
-                let path = find_path_for_node(&snap, &name);
+                let path = find_path_for_node(snap, &name);
                 let file = path.as_ref().and_then(|p| snap.files.get(p));
 
                 // Apply filter to non-start nodes
@@ -372,7 +370,6 @@ fn register_graph_tools(ctx: &mut Context, snapshot: &CorpusSnapshot) {
 
     // --- graph_read ---
     {
-        let snap_ptr = snap_ptr;
         let read_fn = NativeFunction::from_copy_closure(move |_this, args, ctx| {
             let snap = unsafe { &*snap_ptr };
             let input = args.get_or_undefined(0);
@@ -399,12 +396,13 @@ fn register_graph_tools(ctx: &mut Context, snapshot: &CorpusSnapshot) {
 
             // Extract section if requested
             if let Some(ref section_name) = section {
+                let heading_re = Regex::new(r"^(#{1,6})\s+(.+)").unwrap();
                 let mut in_section = false;
                 let mut section_level = 0usize;
                 let mut section_lines = Vec::new();
 
                 for line in content.lines() {
-                    if let Some(caps) = Regex::new(r"^(#{1,6})\s+(.+)").unwrap().captures(line) {
+                    if let Some(caps) = heading_re.captures(line) {
                         let level = caps[1].len();
                         let title = caps[2].trim();
                         if title == section_name.as_str() {
@@ -458,7 +456,6 @@ fn register_graph_tools(ctx: &mut Context, snapshot: &CorpusSnapshot) {
 
     // --- graph_query ---
     {
-        let snap_ptr = snap_ptr;
         let query_fn = NativeFunction::from_copy_closure(move |_this, args, ctx| {
             let snap = unsafe { &*snap_ptr };
             let input = args.get_or_undefined(0);
@@ -505,6 +502,9 @@ fn register_graph_tools(ctx: &mut Context, snapshot: &CorpusSnapshot) {
             });
 
             let mut matching_nodes = Vec::new();
+            let name_re = filter_name.as_ref().map(|p| {
+                Regex::new(&format!("(?i){}", p)).unwrap_or_else(|_| Regex::new("$^").unwrap())
+            });
 
             for (path, file) in &snap.files {
                 let fm = &file.frontmatter;
@@ -522,10 +522,8 @@ fn register_graph_tools(ctx: &mut Context, snapshot: &CorpusSnapshot) {
                         continue;
                     }
                 }
-                if let Some(ref name_pattern) = filter_name {
+                if let Some(ref re) = name_re {
                     let fm_name = fm.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                    let re = Regex::new(&format!("(?i){}", name_pattern))
-                        .unwrap_or_else(|_| Regex::new("$^").unwrap());
                     if !re.is_match(fm_name) {
                         continue;
                     }
