@@ -516,6 +516,8 @@ pub struct SessionInput {
     pub conversation_excerpt: Option<String>,
     /// JSONL file size in bytes (for incremental sync change detection)
     pub file_size_bytes: Option<i64>,
+    /// Source machine identity (set at creation for trail attribution)
+    pub source_machine: Option<String>,
 }
 
 /// Result of a write operation
@@ -546,6 +548,7 @@ impl From<crate::capture::jsonl_parser::SessionSummary> for SessionInput {
             first_user_message: s.first_user_message,
             conversation_excerpt: s.conversation_excerpt,
             file_size_bytes: Some(s.file_size_bytes),
+            source_machine: None,
         }
     }
 }

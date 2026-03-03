@@ -155,6 +155,21 @@ impl Default for DaemonConfig {
     }
 }
 
+impl DaemonConfig {
+    /// Local machine identity for source_machine attribution.
+    /// Returns None in public builds or when trail is unconfigured.
+    pub fn local_machine_id(&self) -> Option<&str> {
+        #[cfg(feature = "trail")]
+        {
+            self.trail.machine_id.as_deref()
+        }
+        #[cfg(not(feature = "trail"))]
+        {
+            None
+        }
+    }
+}
+
 /// Load configuration from a YAML file.
 ///
 /// If the file doesn't exist, creates it with default values.

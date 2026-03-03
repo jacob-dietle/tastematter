@@ -187,7 +187,7 @@ pub async fn push_trail(pool: &SqlitePool, config: &TrailConfig) -> TrailPushRes
     let mut tables_payload: Map<String, Value> = Map::new();
 
     for table_def in TABLES {
-        match query_table(pool, table_def).await {
+        match query_table(pool, table_def, machine_id).await {
             Ok(rows) => {
                 if !rows.is_empty() {
                     debug!(
@@ -276,17 +276,23 @@ pub async fn push_trail(pool: &SqlitePool, config: &TrailConfig) -> TrailPushRes
 /// Query local-origin rows from a single table with explicit column selection
 /// and path normalization.
 ///
-/// Only returns rows where source_machine IS NULL (locally created) —
-/// rows pulled from D1 with a different source_machine are excluded
+/// Returns rows where source_machine IS NULL (legacy/pre-attribution) OR
+/// source_machine matches the local machine_id (stamped at creation).
+/// Rows pulled from D1 with a different source_machine are excluded
 /// to prevent re-pushing other machines' data.
-async fn query_table(pool: &SqlitePool, table_def: &TableDef) -> Result<Vec<Value>, String> {
+async fn query_table(
+    pool: &SqlitePool,
+    table_def: &TableDef,
+    machine_id: &str,
+) -> Result<Vec<Value>, String> {
     let columns_sql = table_def.columns.join(", ");
     let query = format!(
-        "SELECT {} FROM {} WHERE source_machine IS NULL",
+        "SELECT {} FROM {} WHERE source_machine IS NULL OR source_machine = ?",
         columns_sql, table_def.name,
     );
 
     let rows = sqlx::query(&query)
+        .bind(machine_id)
         .fetch_all(pool)
         .await
         .map_err(|e| format!("{}", e))?;

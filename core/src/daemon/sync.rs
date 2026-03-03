@@ -108,7 +108,7 @@ pub async fn run_sync(config: &DaemonConfig) -> Result<SyncResult, String> {
     let _session_ids = sync_sessions_phase(&claude_dir, config, &mut result, engine.as_ref()).await;
 
     // 3. Chain building WITH PERSISTENCE
-    let chains = build_chains_phase(&claude_dir, &mut result, engine.as_ref()).await;
+    let chains = build_chains_phase(&claude_dir, &mut result, engine.as_ref(), config.local_machine_id()).await;
 
     // 3.5 Intelligence enrichment (optional - graceful degradation)
     if let Some(ref chains) = chains {
@@ -124,7 +124,7 @@ pub async fn run_sync(config: &DaemonConfig) -> Result<SyncResult, String> {
                 .ok()
                 .flatten()
                 .map(|(v,): (String,)| v);
-        match extract_file_edges(engine.database().pool(), since.as_deref()).await {
+        match extract_file_edges(engine.database().pool(), since.as_deref(), config.local_machine_id()).await {
             Ok(edge_result) => {
                 debug!(
                     target: "daemon.sync",
@@ -222,7 +222,8 @@ async fn sync_sessions_phase(
             if let Some(engine) = engine {
                 let mut persisted = 0;
                 for parsed in &parsed_sessions {
-                    let input: SessionInput = parsed.summary.clone().into();
+                    let mut input: SessionInput = parsed.summary.clone().into();
+                    input.source_machine = config.local_machine_id().map(String::from);
                     match engine.upsert_session(&input).await {
                         Ok(_) => persisted += 1,
                         Err(e) => {
@@ -248,6 +249,7 @@ async fn sync_sessions_phase(
                             .insert_file_access_events(
                                 &parsed.summary.session_id,
                                 &parsed.tool_uses,
+                                config.local_machine_id(),
                             )
                             .await
                         {
@@ -299,6 +301,7 @@ async fn build_chains_phase(
     claude_dir: &Path,
     result: &mut SyncResult,
     engine: Option<&QueryEngine>,
+    machine_id: Option<&str>,
 ) -> Option<HashMap<String, Chain>> {
     match build_chain_graph(claude_dir) {
         Ok(chains) => {
@@ -306,7 +309,7 @@ async fn build_chains_phase(
 
             // NEW: Persist chains to database
             if let Some(engine) = engine {
-                if let Err(e) = engine.persist_chains(&chains).await {
+                if let Err(e) = engine.persist_chains(&chains, machine_id).await {
                     result.errors.push(format!("Chain persistence: {}", e));
                 } else {
                     debug!(
@@ -1047,7 +1050,7 @@ mod tests {
         let engine = QueryEngine::new(db);
 
         let mut result = SyncResult::default();
-        let chains = build_chains_phase(&claude_dir, &mut result, Some(&engine)).await;
+        let chains = build_chains_phase(&claude_dir, &mut result, Some(&engine), None).await;
 
         assert_eq!(result.chains_built, 0, "Zero sessions → zero chains");
         if let Some(chains_map) = chains {
@@ -1352,7 +1355,7 @@ mod tests {
         assert!(session_ids.is_empty(), "Session IDs should be empty");
 
         // 4. Run chain building phase with empty sessions
-        let chains = build_chains_phase(&claude_dir, &mut result, Some(&engine)).await;
+        let chains = build_chains_phase(&claude_dir, &mut result, Some(&engine), None).await;
 
         // 5. Assert graceful handling of zero chains
         assert_eq!(

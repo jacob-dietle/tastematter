@@ -109,6 +109,7 @@ pub struct EdgeExtractionResult {
 pub async fn extract_file_edges(
     pool: &SqlitePool,
     since: Option<&str>,
+    machine_id: Option<&str>,
 ) -> Result<EdgeExtractionResult, CoreError> {
     let start = Instant::now();
 
@@ -186,7 +187,7 @@ pub async fn extract_file_edges(
     let filtered_edges = apply_noise_filters(&edges, &universal_anchors);
 
     // 7. Upsert to file_edges table
-    let count = upsert_edges(pool, &filtered_edges).await?;
+    let count = upsert_edges(pool, &filtered_edges, machine_id).await?;
 
     // 8. Record extraction timestamp
     let now = Utc::now().to_rfc3339();
@@ -678,7 +679,11 @@ fn apply_noise_filters(
 /// Upsert aggregated edges into the file_edges table.
 ///
 /// Uses INSERT OR REPLACE keyed on the UNIQUE index (source_file, target_file, edge_type).
-async fn upsert_edges(pool: &SqlitePool, edges: &[AggregatedEdge]) -> Result<usize, CoreError> {
+async fn upsert_edges(
+    pool: &SqlitePool,
+    edges: &[AggregatedEdge],
+    machine_id: Option<&str>,
+) -> Result<usize, CoreError> {
     if edges.is_empty() {
         return Ok(0);
     }
@@ -690,8 +695,8 @@ async fn upsert_edges(pool: &SqlitePool, edges: &[AggregatedEdge]) -> Result<usi
             "INSERT OR REPLACE INTO file_edges \
              (source_file, target_file, edge_type, session_count, \
               total_sessions_with_source, avg_time_delta_seconds, confidence, \
-              lift, first_seen, last_seen) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+              lift, first_seen, last_seen, source_machine) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         )
         .bind(&edge.source_file)
         .bind(&edge.target_file)
@@ -703,6 +708,7 @@ async fn upsert_edges(pool: &SqlitePool, edges: &[AggregatedEdge]) -> Result<usi
         .bind(edge.lift)
         .bind(&edge.first_seen)
         .bind(&edge.last_seen)
+        .bind(machine_id)
         .execute(&mut *tx)
         .await
         .map_err(CoreError::Database)?;
@@ -1375,7 +1381,7 @@ mod tests {
             .await;
         }
 
-        let result = extract_file_edges(&pool, None).await.unwrap();
+        let result = extract_file_edges(&pool, None, None).await.unwrap();
 
         assert_eq!(result.sessions_processed, 5);
         assert!(result.edges_created > 0, "Should have created some edges");
@@ -1466,7 +1472,7 @@ mod tests {
         }
 
         // First extraction
-        let result1 = extract_file_edges(&pool, None).await.unwrap();
+        let result1 = extract_file_edges(&pool, None, None).await.unwrap();
         assert_eq!(result1.sessions_processed, 3);
 
         // Get the extraction timestamp
@@ -1503,7 +1509,7 @@ mod tests {
         }
 
         // Incremental extraction — only processes sessions with events after last extraction
-        let result2 = extract_file_edges(&pool, Some(&ts.0)).await.unwrap();
+        let result2 = extract_file_edges(&pool, Some(&ts.0), None).await.unwrap();
         assert_eq!(
             result2.sessions_processed, 2,
             "Should only process the 2 new sessions"
@@ -1553,7 +1559,7 @@ mod tests {
             .await;
         }
 
-        let result = extract_file_edges(&pool, None).await.unwrap();
+        let result = extract_file_edges(&pool, None, None).await.unwrap();
         assert_eq!(result.sessions_processed, 10);
 
         // CLAUDE.md should be a universal anchor (read in 100% sessions)
@@ -1611,7 +1617,7 @@ mod tests {
     async fn test_extract_file_edges_no_events() {
         let pool = create_test_pool().await;
 
-        let result = extract_file_edges(&pool, None).await.unwrap();
+        let result = extract_file_edges(&pool, None, None).await.unwrap();
         assert_eq!(result.sessions_processed, 0);
         assert_eq!(result.edges_created, 0);
     }
@@ -1633,7 +1639,7 @@ mod tests {
             last_seen: None,
         }];
 
-        upsert_edges(&pool, &edges1).await.unwrap();
+        upsert_edges(&pool, &edges1, None).await.unwrap();
 
         // Upsert again with updated values
         let edges2 = vec![AggregatedEdge {
@@ -1649,7 +1655,7 @@ mod tests {
             last_seen: None,
         }];
 
-        upsert_edges(&pool, &edges2).await.unwrap();
+        upsert_edges(&pool, &edges2, None).await.unwrap();
 
         // Should have exactly 1 row
         let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM file_edges")
