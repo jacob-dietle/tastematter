@@ -2,9 +2,10 @@
 name: context-query
 description: >
   This skill should be used when users ask about their work context,
-  what they're working on, recent activity, or file relationships.
-  Uses tastematter CLI combined with grep/glob for context restoration.
-  Every claim MUST cite a receipt ID for user verification.
+  what they're working on, recent activity, file relationships, or
+  knowledge graph structure. Uses tastematter CLI (including graph-exec
+  for structural graph queries) combined with grep/glob for context
+  restoration. Every claim MUST cite a receipt ID for user verification.
 ---
 
 # Context Query Skill
@@ -127,6 +128,142 @@ tastematter query heat --files "*tastematter*" --sort specificity --format csv
 **Key fields:** `specificity` (IDF-like), `velocity`, `heat_score`, `heat_level`
 
 See `references/heat-metrics-model.md` for formula details and interpretation tables.
+
+---
+
+## Graph Traversal: `graph-exec` Command
+
+Executes JavaScript against an in-memory knowledge graph (markdown files with frontmatter + wiki-links). Uses Boa JS engine — pure Rust, no Node/bun.
+
+```bash
+tastematter graph-exec --graph <path-to-markdown-dir> '<javascript-code>'
+```
+
+### The `codemode` Object (4 functions, all synchronous)
+
+```
+codemode.graph_search({ pattern, scope?, maxResults? })
+  pattern: string        — regex to match
+  scope: 'content' | 'frontmatter' | 'both' (default: 'both')
+  maxResults: number     (default: 20)
+  Returns: [{ path, matches: [{ line, content }], score, frontmatter }]
+
+codemode.graph_traverse({ start, direction?, maxDepth?, filter? })
+  start: string          — node name (filename without .md, e.g. "context-engineering")
+  direction: 'outbound' | 'inbound' | 'both' (default: 'outbound')
+  maxDepth: number       (default: 2)
+  filter: { status?, domain?, tags? }
+  Returns: { nodes: [{ path, name, depth, frontmatter }], edges: [{ from, to }] }
+
+codemode.graph_read({ path, section?, maxLines? })
+  path: string           — relative path (e.g. "technical/context-engineering.md")
+  section: string        — extract named heading section only
+  Returns: { path, content, frontmatter, outbound_links, inbound_links }
+
+codemode.graph_query({ filter, sort?, limit? })
+  filter: { status?, domain?, tags?, name?, validated_by? }
+  sort: 'name' | 'last_updated' | 'status'
+  limit: number          (default: 50)
+  Returns: { nodes: [{ path, name, status, domain, tags, last_updated, link_count }], total }
+```
+
+### Code Pattern: Use IIFEs
+
+Functions are **synchronous** (not async). Wrap code in an IIFE:
+
+```bash
+# CORRECT — IIFE returns a value
+tastematter graph-exec --graph 04_knowledge_base '(() => {
+  const r = codemode.graph_query({ filter: { status: "canonical" } });
+  return JSON.stringify({ total: r.total, names: r.nodes.map(n => n.name) });
+})()'
+
+# WRONG — bare return is a syntax error
+tastematter graph-exec --graph 04_knowledge_base 'return codemode.graph_search({})'
+
+# WRONG — async not needed (and Boa doesn't support top-level await)
+tastematter graph-exec --graph 04_knowledge_base 'async () => { ... }'
+```
+
+### Bash Escaping
+
+Keep JS simple when passing inline. Avoid backslashes and nested quotes. If complex, use a heredoc:
+
+```bash
+tastematter graph-exec --graph 04_knowledge_base "$(cat <<'JSEOF'
+(() => {
+  const hubs = codemode.graph_query({ filter: {} });
+  const sorted = hubs.nodes
+    .sort((a, b) => (b.link_count.outbound + b.link_count.inbound) - (a.link_count.outbound + a.link_count.inbound))
+    .slice(0, 10);
+  return JSON.stringify(sorted.map(n => ({
+    name: n.name,
+    links: n.link_count.outbound + n.link_count.inbound
+  })));
+})()
+JSEOF
+)"
+```
+
+### Common Graph Queries
+
+```bash
+# Top hubs by link count
+tastematter graph-exec --graph 04_knowledge_base '(() => {
+  const r = codemode.graph_query({ filter: {} });
+  return JSON.stringify(r.nodes.sort((a,b) => (b.link_count.outbound+b.link_count.inbound)-(a.link_count.outbound+a.link_count.inbound)).slice(0,5).map(n => ({ name: n.name, out: n.link_count.outbound, in: n.link_count.inbound })));
+})()'
+
+# All canonical nodes
+tastematter graph-exec --graph 04_knowledge_base '(() => {
+  const r = codemode.graph_query({ filter: { status: "canonical" } });
+  return JSON.stringify({ total: r.total, nodes: r.nodes.map(n => n.name) });
+})()'
+
+# Traverse outbound from a node
+tastematter graph-exec --graph 04_knowledge_base '(() => {
+  const r = codemode.graph_traverse({ start: "context-engineering", direction: "both", maxDepth: 1 });
+  return JSON.stringify(r.nodes.map(n => ({ name: n.name, depth: n.depth })));
+})()'
+
+# Find orphan nodes (no links)
+tastematter graph-exec --graph 04_knowledge_base '(() => {
+  const r = codemode.graph_query({ filter: {} });
+  const orphans = r.nodes.filter(n => n.link_count.outbound === 0 && n.link_count.inbound === 0);
+  return JSON.stringify({ count: orphans.length, nodes: orphans.map(n => n.name) });
+})()'
+
+# Search then read (composition)
+tastematter graph-exec --graph 04_knowledge_base '(() => {
+  const results = codemode.graph_search({ pattern: "taste" });
+  const top = results[0];
+  const detail = codemode.graph_read({ path: top.path });
+  return JSON.stringify({ path: detail.path, outbound: detail.outbound_links, inbound: detail.inbound_links });
+})()'
+```
+
+### MCP Alternative
+
+If running inside Claude Code with the `codemode-graph` MCP server enabled, prefer the MCP tool over the CLI. The MCP tool description is embedded and the LLM gets the API right on the first call. Functions are async in MCP mode:
+
+```js
+// MCP mode (async, tool description auto-loaded)
+async () => {
+  const results = await codemode.graph_search({ pattern: 'context' });
+  return results[0];
+}
+```
+
+### When to Use graph-exec vs MCP vs grep/glob
+
+| Need | Use |
+|------|-----|
+| Structural queries (hubs, clusters, orphans, traversal) | `graph-exec` or MCP |
+| Simple file search by name | `Glob` |
+| Content search | `Grep` |
+| File activity/heat over time | `tastematter query heat` |
+| Co-access patterns | `tastematter query co-access` |
+| Full project context | `tastematter context` |
 
 ---
 
@@ -354,5 +491,5 @@ All support `--format json`.
 
 ---
 
-**Last Updated:** 2026-02-13
-**Version:** 4.0 (Added context command, query heat, timeline, sessions, receipts, intel, daemon. Fixed flex options. Updated workflow to start with context.)
+**Last Updated:** 2026-03-03
+**Version:** 5.0 (Added graph-exec command: structural graph queries via Boa JS sandbox, codemode.* API reference, IIFE pattern, bash escaping guidance, common graph queries, MCP vs CLI guidance.)
