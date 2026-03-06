@@ -198,6 +198,30 @@ tastematter query chains --limit 10
 
 ---
 
+## Privacy & Telemetry
+
+Tastematter collects anonymous usage analytics (command names, timing, platform, version). **No file paths, session content, or personal data is ever transmitted.**
+
+Your context data stays 100% local in `~/.context-os/`.
+
+Full privacy policy: [tastematter.dev/privacy](https://tastematter.dev/privacy)
+
+**Opt out:**
+```bash
+# Environment variable
+export TASTEMATTER_NO_TELEMETRY=1
+
+# Or edit config file
+# Set enabled: false in ~/.context-os/telemetry.yaml
+```
+
+**Inspect what's sent:**
+```bash
+TASTEMATTER_TELEMETRY_DEBUG=1 tastematter <any command>
+```
+
+---
+
 ## License
 
 The skill and documentation in this repository are free to use.
