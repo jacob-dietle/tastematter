@@ -1,4 +1,4 @@
-# Tastematter
+# THIS PROJECT HAS BEEN RENAMED CONTEXT-OS AND MOVED TO https://github.com/jacob-dietle/context-os
 
 **Every Claude Code session starts fresh. Your work doesn't.**
 
